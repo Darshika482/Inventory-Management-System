@@ -1,5 +1,7 @@
 export type Role = 'Admin' | 'Worker';
 
+export type Floor = 'First Floor' | 'Second Floor';
+
 export interface User {
   id: string;
   username: string;
@@ -10,6 +12,7 @@ export interface Category {
   id: string;
   name: string;
   unit: string;
+  floor: Floor;
   initialStock: number;
   currentQuantity: number;
 }

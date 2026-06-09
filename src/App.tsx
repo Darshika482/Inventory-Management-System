@@ -1,20 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShieldCheck, LogOut, CheckCircle, AlertOctagon, X, Menu } from 'lucide-react';
-import { User, Category, WithdrawalLog } from './types';
+import { ShieldCheck, LogOut, CheckCircle, AlertOctagon, X, Menu, Loader2 } from 'lucide-react';
+import { User, Category, WithdrawalLog, Floor } from './types';
 import { Login } from './components/Login';
 import { Sidebar } from './components/Sidebar';
 import { AdminDashboard } from './components/AdminDashboard';
 import { WorkerDashboard } from './components/WorkerDashboard';
-
-const DATA_VERSION = '3';
-
-const SEED_USERS = [
-  { username: 'admin', role: 'Admin' as const, passwordHash: 'admin123' },
-  { username: 'worker01', role: 'Worker' as const, passwordHash: 'pass123' },
-  { username: 'worker02', role: 'Worker' as const, passwordHash: 'pass123' },
-  { username: 'worker03', role: 'Worker' as const, passwordHash: 'pass123' },
-];
+import {
+  authenticateUser,
+  deleteCategoryFromDb,
+  fetchCategories,
+  fetchWithdrawalLogs,
+  insertCategory,
+  insertWithdrawalLog,
+  updateCategoryInDb,
+  updateCategoryNameInLogs,
+  updateWithdrawalLogStatus,
+} from './lib/database';
+import { createCategoryId } from './lib/floors';
 
 interface Toast {
   id: string;
@@ -23,54 +26,46 @@ interface Toast {
 }
 
 export default function App() {
-  // --- Persistent States ---
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     const stored = localStorage.getItem('ims_current_user');
     return stored ? JSON.parse(stored) : null;
   });
 
-  const [categories, setCategories] = useState<Category[]>(() => {
-    const storedVersion = localStorage.getItem('ims_data_version');
-    const stored = localStorage.getItem('ims_categories');
-    let parsed: Category[] = stored ? JSON.parse(stored) : [];
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [logs, setLogs] = useState<WithdrawalLog[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-    if (storedVersion !== DATA_VERSION) {
-      if (storedVersion === '2' || storedVersion === null) {
-        parsed = parsed.map((cat) => ({
-          ...cat,
-          initialStock: Math.max(cat.initialStock, cat.currentQuantity),
-        }));
-      }
-      localStorage.setItem('ims_data_version', DATA_VERSION);
-      localStorage.setItem('ims_categories', JSON.stringify(parsed));
-    }
-
-    return parsed;
-  });
-
-  const [logs, setLogs] = useState<WithdrawalLog[]>(() => {
-    const stored = localStorage.getItem('ims_logs');
-    return stored ? JSON.parse(stored) : [];
-  });
-
-  // --- UI Layout Navigation State ---
   const [activeSection, setActiveSection] = useState<string>(() => {
     if (currentUser?.role === 'Admin') return 'overview';
     return 'withdraw';
   });
 
-  // --- Live Toast Notifications ---
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  // Sync state to local storage on changes
-  useEffect(() => {
-    localStorage.setItem('ims_categories', JSON.stringify(categories));
-  }, [categories]);
+  const loadData = useCallback(async () => {
+    setIsLoading(true);
+    setLoadError(null);
+    try {
+      const [categoriesData, logsData] = await Promise.all([
+        fetchCategories(),
+        fetchWithdrawalLogs(),
+      ]);
+      setCategories(categoriesData);
+      setLogs(logsData);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Failed to connect to Supabase backend.';
+      setLoadError(message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem('ims_logs', JSON.stringify(logs));
-  }, [logs]);
+    loadData();
+  }, [loadData]);
 
   useEffect(() => {
     if (currentUser) {
@@ -81,12 +76,9 @@ export default function App() {
     }
   }, [currentUser]);
 
-  // Helper to append a Toast warning
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
     const id = Date.now().toString() + Math.random().toString();
     setToasts((prev) => [...prev, { id, message, type }]);
-    
-    // Auto remove after 5 seconds
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 5000);
@@ -96,26 +88,32 @@ export default function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
-  // Helper date formatter: e.g. "Jun 9, 2026 at 3:42 PM"
   const getFormattedTimestamp = () => {
     const now = new Date();
     const datePart = now.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
-      year: 'numeric'
+      year: 'numeric',
     });
     const timePart = now.toLocaleTimeString('en-US', {
       hour: 'numeric',
       minute: '2-digit',
-      hour12: true
+      hour12: true,
     });
     return `${datePart} at ${timePart}`;
   };
 
-  // --- Auth Handlers ---
-  const handleLogin = (user: User) => {
-    setCurrentUser(user);
-    showToast(`Access Authorized. Logged in as ${user.username}`, 'success');
+  const handleLogin = async (username: string, password: string): Promise<boolean> => {
+    try {
+      const user = await authenticateUser(username, password);
+      if (!user) return false;
+      setCurrentUser(user);
+      showToast(`Access Authorized. Logged in as ${user.username}`, 'success');
+      return true;
+    } catch {
+      showToast('Unable to reach authentication service.', 'error');
+      return false;
+    }
   };
 
   const handleLogout = () => {
@@ -123,64 +121,93 @@ export default function App() {
     showToast('Session terminated successfully.', 'info');
   };
 
-  // --- Category Modification (Admin) ---
-  const handleAddNewCategory = (name: string, unit: string, initialStock: number) => {
+  const handleAddNewCategory = async (
+    name: string,
+    unit: string,
+    initialStock: number,
+    floor: Floor
+  ) => {
     const newCategory: Category = {
-      id: name.toLowerCase().replace(/\s+/g, '-'),
+      id: createCategoryId(name, floor),
       name,
       unit,
+      floor,
       initialStock,
       currentQuantity: initialStock,
     };
 
-    setCategories((prev) => [...prev, newCategory]);
-    showToast(`Category "${name}" provisioned with supply of ${initialStock} ${unit}.`, 'success');
+    try {
+      await insertCategory(newCategory);
+      setCategories((prev) => [...prev, newCategory]);
+      showToast(`Category "${name}" provisioned on ${floor} with supply of ${initialStock} ${unit}.`, 'success');
+    } catch {
+      showToast('Failed to save category to database.', 'error');
+    }
   };
 
-  const handleAddStock = (categoryId: string, quantity: number) => {
-    setCategories((prev) =>
-      prev.map((cat) => {
-        if (cat.id === categoryId) {
-          showToast(
-            `Injected ${quantity} ${cat.unit} into "${cat.name}". Total stock is now ${cat.initialStock + quantity}.`,
-            'success'
-          );
-          return {
-            ...cat,
-            initialStock: cat.initialStock + quantity,
-            currentQuantity: cat.currentQuantity + quantity,
-          };
-        }
-        return cat;
-      })
-    );
-  };
-
-  const handleUpdateCategory = (
-    categoryId: string,
-    updates: { name: string; unit: string; initialStock: number; currentQuantity: number }
-  ) => {
-    setCategories((prev) =>
-      prev.map((cat) => (cat.id === categoryId ? { ...cat, ...updates } : cat))
-    );
-    setLogs((prev) =>
-      prev.map((log) =>
-        log.categoryId === categoryId ? { ...log, categoryName: updates.name } : log
-      )
-    );
-    showToast(`Category "${updates.name}" updated successfully.`, 'success');
-  };
-
-  const handleDeleteCategory = (categoryId: string) => {
+  const handleAddStock = async (categoryId: string, quantity: number) => {
     const category = categories.find((c) => c.id === categoryId);
     if (!category) return;
 
-    setCategories((prev) => prev.filter((cat) => cat.id !== categoryId));
-    showToast(`Category "${category.name}" removed from inventory.`, 'info');
+    const updated: Category = {
+      ...category,
+      initialStock: category.initialStock + quantity,
+      currentQuantity: category.currentQuantity + quantity,
+    };
+
+    try {
+      await updateCategoryInDb(updated);
+      setCategories((prev) => prev.map((cat) => (cat.id === categoryId ? updated : cat)));
+      showToast(
+        `Injected ${quantity} ${category.unit} into "${category.name}". Total stock is now ${updated.initialStock}.`,
+        'success'
+      );
+    } catch {
+      showToast('Failed to update stock in database.', 'error');
+    }
   };
 
-  // --- Withdrawal Event Handler (Worker) ---
-  const handleWithdraw = (categoryId: string, quantity: number): { success: boolean; message: string } => {
+  const handleUpdateCategory = async (
+    categoryId: string,
+    updates: { name: string; unit: string; floor: Floor; initialStock: number; currentQuantity: number }
+  ) => {
+    const category = categories.find((c) => c.id === categoryId);
+    if (!category) return;
+
+    const updated: Category = { ...category, ...updates };
+
+    try {
+      await updateCategoryInDb(updated);
+      await updateCategoryNameInLogs(categoryId, updates.name);
+      setCategories((prev) => prev.map((cat) => (cat.id === categoryId ? updated : cat)));
+      setLogs((prev) =>
+        prev.map((log) =>
+          log.categoryId === categoryId ? { ...log, categoryName: updates.name } : log
+        )
+      );
+      showToast(`Category "${updates.name}" updated successfully.`, 'success');
+    } catch {
+      showToast('Failed to update category in database.', 'error');
+    }
+  };
+
+  const handleDeleteCategory = async (categoryId: string) => {
+    const category = categories.find((c) => c.id === categoryId);
+    if (!category) return;
+
+    try {
+      await deleteCategoryFromDb(categoryId);
+      setCategories((prev) => prev.filter((cat) => cat.id !== categoryId));
+      showToast(`Category "${category.name}" removed from inventory.`, 'info');
+    } catch {
+      showToast('Failed to delete category from database.', 'error');
+    }
+  };
+
+  const handleWithdraw = async (
+    categoryId: string,
+    quantity: number
+  ): Promise<{ success: boolean; message: string }> => {
     const category = categories.find((c) => c.id === categoryId);
 
     if (!category) {
@@ -193,20 +220,11 @@ export default function App() {
       return { success: false, message: errorMsg };
     }
 
-    // Process deduction
-    setCategories((prev) =>
-      prev.map((cat) => {
-        if (cat.id === categoryId) {
-          return {
-            ...cat,
-            currentQuantity: cat.currentQuantity - quantity,
-          };
-        }
-        return cat;
-      })
-    );
+    const updatedCategory: Category = {
+      ...category,
+      currentQuantity: category.currentQuantity - quantity,
+    };
 
-    // Write audit log
     const timestamp = getFormattedTimestamp();
     const newLogEntry: WithdrawalLog = {
       id: `trx-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -218,40 +236,60 @@ export default function App() {
       status: 'Approved',
     };
 
-    setLogs((prev) => [newLogEntry, ...prev]);
-    showToast(`Allocated ${quantity} ${category.unit} of "${category.name}". Warehouse updated.`, 'success');
-
-    return { 
-      success: true, 
-      message: `Transaction approved: Allocated ${quantity} ${category.unit} of "${category.name}".` 
-    };
+    try {
+      await updateCategoryInDb(updatedCategory);
+      await insertWithdrawalLog(newLogEntry);
+      setCategories((prev) =>
+        prev.map((cat) => (cat.id === categoryId ? updatedCategory : cat))
+      );
+      setLogs((prev) => [newLogEntry, ...prev]);
+      showToast(
+        `Allocated ${quantity} ${category.unit} of "${category.name}". Warehouse updated.`,
+        'success'
+      );
+      return {
+        success: true,
+        message: `Transaction approved: Allocated ${quantity} ${category.unit} of "${category.name}".`,
+      };
+    } catch {
+      showToast('Failed to record withdrawal in database.', 'error');
+      return { success: false, message: 'Database error while processing withdrawal.' };
+    }
   };
 
-  // --- Toggle Log Status (Admin - approve/reject log and revert appropriate stock) ---
-  const handleToggleLogStatus = (logId: string) => {
+  const handleToggleLogStatus = async (logId: string) => {
     const log = logs.find((l) => l.id === logId);
     if (!log) return;
 
     if (log.status === 'Approved') {
-      // Toggle to REJECTED. Under rules, restore the stock!
-      setCategories((prev) =>
-        prev.map((cat) => {
-          if (cat.id === log.categoryId) {
-            showToast(`Requisition rejected. Restored ${log.quantity} ${cat.unit} to "${cat.name}".`, 'info');
-            return {
-              ...cat,
-              currentQuantity: cat.currentQuantity + log.quantity,
-            };
-          }
-          return cat;
-        })
-      );
+      const category = categories.find((c) => c.id === log.categoryId);
+      if (!category) {
+        showToast('Restore failed: Connected category does not exist anymore.', 'error');
+        return;
+      }
 
-      setLogs((prev) =>
-        prev.map((l) => (l.id === logId ? { ...l, status: 'Rejected' as const } : l))
-      );
+      const updatedCategory: Category = {
+        ...category,
+        currentQuantity: category.currentQuantity + log.quantity,
+      };
+
+      try {
+        await updateCategoryInDb(updatedCategory);
+        await updateWithdrawalLogStatus(logId, 'Rejected');
+        setCategories((prev) =>
+          prev.map((cat) => (cat.id === log.categoryId ? updatedCategory : cat))
+        );
+        setLogs((prev) =>
+          prev.map((l) => (l.id === logId ? { ...l, status: 'Rejected' as const } : l))
+        );
+        showToast(
+          `Requisition rejected. Restored ${log.quantity} ${category.unit} to "${category.name}".`,
+          'info'
+        );
+      } catch {
+        showToast('Failed to reject withdrawal in database.', 'error');
+      }
     } else {
-      // Toggle to APPROVED. Deduct stock if possible.
       const category = categories.find((c) => c.id === log.categoryId);
       if (!category) {
         showToast('Restore failed: Connected category does not exist anymore.', 'error');
@@ -259,35 +297,75 @@ export default function App() {
       }
 
       if (category.currentQuantity < log.quantity) {
-        showToast(`Cannot re-approve: Insufficient stock in "${category.name}" (${category.currentQuantity} remaining).`, 'error');
+        showToast(
+          `Cannot re-approve: Insufficient stock in "${category.name}" (${category.currentQuantity} remaining).`,
+          'error'
+        );
         return;
       }
 
-      setCategories((prev) =>
-        prev.map((cat) => {
-          if (cat.id === log.categoryId) {
-            showToast(`Requisition re-approved. Deducted ${log.quantity} ${cat.unit} from "${cat.name}".`, 'success');
-            return {
-              ...cat,
-              currentQuantity: cat.currentQuantity - log.quantity,
-            };
-          }
-          return cat;
-        })
-      );
+      const updatedCategory: Category = {
+        ...category,
+        currentQuantity: category.currentQuantity - log.quantity,
+      };
 
-      setLogs((prev) =>
-        prev.map((l) => (l.id === logId ? { ...l, status: 'Approved' as const } : l))
-      );
+      try {
+        await updateCategoryInDb(updatedCategory);
+        await updateWithdrawalLogStatus(logId, 'Approved');
+        setCategories((prev) =>
+          prev.map((cat) => (cat.id === log.categoryId ? updatedCategory : cat))
+        );
+        setLogs((prev) =>
+          prev.map((l) => (l.id === logId ? { ...l, status: 'Approved' as const } : l))
+        );
+        showToast(
+          `Requisition re-approved. Deducted ${log.quantity} ${category.unit} from "${category.name}".`,
+          'success'
+        );
+      } catch {
+        showToast('Failed to approve withdrawal in database.', 'error');
+      }
     }
   };
 
-  // If there's no active logged-in user, display the access portal
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3 text-slate-500">
+          <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
+          <p className="text-sm font-medium">Connecting to Supabase...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white border border-red-200 rounded-xl p-6 shadow-lg text-center space-y-4">
+          <AlertOctagon className="h-10 w-10 text-red-500 mx-auto" />
+          <h2 className="text-lg font-bold text-slate-900">Backend Connection Failed</h2>
+          <p className="text-sm text-slate-600">{loadError}</p>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            Run <code className="bg-slate-100 px-1 rounded">supabase/schema.sql</code> in your
+            Supabase SQL Editor, then retry.
+          </p>
+          <button
+            type="button"
+            onClick={loadData}
+            className="px-4 py-2 bg-[#0F172A] text-white rounded-md text-xs font-semibold uppercase tracking-wider cursor-pointer"
+          >
+            Retry Connection
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (!currentUser) {
     return (
       <>
-        <Login onLogin={handleLogin} users={SEED_USERS} />
-        {/* Render Toasts tray on absolute screen position */}
+        <Login onLogin={handleLogin} />
         <ToastTray toasts={toasts} onRemove={removeToast} />
       </>
     );
@@ -304,10 +382,10 @@ export default function App() {
         />
       )}
 
-      <Sidebar 
-        currentUser={currentUser} 
-        onLogout={handleLogout} 
-        activeSection={activeSection} 
+      <Sidebar
+        currentUser={currentUser}
+        onLogout={handleLogout}
+        activeSection={activeSection}
         setActiveSection={setActiveSection}
         userRole={currentUser.role}
         isMobileOpen={mobileNavOpen}
@@ -325,13 +403,17 @@ export default function App() {
             <Menu className="h-5 w-5" />
           </button>
           <div className="min-w-0">
-            <p className="text-white font-bold text-sm uppercase tracking-tight truncate">STK_MASTER</p>
-            <p className="text-[10px] text-slate-400 truncate">{currentUser.username} · {currentUser.role}</p>
+            <p className="text-white font-bold text-sm uppercase tracking-tight truncate">
+              STK_MASTER
+            </p>
+            <p className="text-[10px] text-slate-400 truncate">
+              {currentUser.username} · {currentUser.role === 'Worker' ? 'Staff' : currentUser.role}
+            </p>
           </div>
         </header>
 
         {currentUser.role === 'Admin' ? (
-          <AdminDashboard 
+          <AdminDashboard
             categories={categories}
             logs={logs}
             onAddStock={handleAddStock}
@@ -342,7 +424,7 @@ export default function App() {
             activeSection={activeSection}
           />
         ) : (
-          <WorkerDashboard 
+          <WorkerDashboard
             currentUser={currentUser}
             categories={categories}
             logs={logs}
@@ -351,14 +433,11 @@ export default function App() {
         )}
       </div>
 
-      {/* Toast Notification Tray */}
       <ToastTray toasts={toasts} onRemove={removeToast} />
-
     </div>
   );
 }
 
-// Helper Tray Component for absolute Overlay rendering
 interface ToastTrayProps {
   toasts: Toast[];
   onRemove: (id: string) => void;
@@ -375,21 +454,24 @@ function ToastTray({ toasts, onRemove }: ToastTrayProps) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, x: 50, scale: 0.9 }}
             transition={{ type: 'spring', damping: 20, stiffness: 300 }}
-            className={`p-4 rounded-lg shadow-xl border text-xs flex items-start gap-3 relative ${
-              toast.type === 'success'
+            className={`p-4 rounded-lg shadow-xl border text-xs flex items-start gap-3 relative ${toast.type === 'success'
                 ? 'bg-[#DCFCE7] border-[#BBF7D0] text-[#166534]'
                 : toast.type === 'error'
-                ? 'bg-[#FEE2E2] border-[#FECACA] text-[#991B1B]'
-                : 'bg-white border-slate-200 text-slate-700'
-            }`}
+                  ? 'bg-[#FEE2E2] border-[#FECACA] text-[#991B1B]'
+                  : 'bg-white border-slate-200 text-slate-700'
+              }`}
           >
-            {toast.type === 'success' && <CheckCircle className="h-4 w-4 text-[#166534] shrink-0 mt-0.5" />}
-            {toast.type === 'error' && <AlertOctagon className="h-4 w-4 text-[#991B1B] shrink-0 mt-0.5" />}
-            {toast.type === 'info' && <ShieldCheck className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />}
+            {toast.type === 'success' && (
+              <CheckCircle className="h-4 w-4 text-[#166534] shrink-0 mt-0.5" />
+            )}
+            {toast.type === 'error' && (
+              <AlertOctagon className="h-4 w-4 text-[#991B1B] shrink-0 mt-0.5" />
+            )}
+            {toast.type === 'info' && (
+              <ShieldCheck className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+            )}
 
-            <div className="flex-1 pr-6 leading-relaxed font-semibold">
-              {toast.message}
-            </div>
+            <div className="flex-1 pr-6 leading-relaxed font-semibold">{toast.message}</div>
 
             <button
               onClick={() => onRemove(toast.id)}

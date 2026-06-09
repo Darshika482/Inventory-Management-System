@@ -13,7 +13,8 @@ import {
   Search
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Category, WithdrawalLog, User } from '../types';
+import { Category, WithdrawalLog, User, Floor } from '../types';
+import { FLOOR_OPTIONS, getFloorBadgeClass } from '../lib/floors';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -21,7 +22,7 @@ interface WorkerDashboardProps {
   currentUser: User;
   categories: Category[];
   logs: WithdrawalLog[];
-  onWithdraw: (categoryId: string, quantity: number) => { success: boolean, message: string };
+  onWithdraw: (categoryId: string, quantity: number) => Promise<{ success: boolean; message: string }>;
 }
 
 export function WorkerDashboard({ currentUser, categories, logs, onWithdraw }: WorkerDashboardProps) {
@@ -34,6 +35,7 @@ export function WorkerDashboard({ currentUser, categories, logs, onWithdraw }: W
   // Search filter states
   const [ledgerSearch, setLedgerSearch] = useState('');
   const [directorySearch, setDirectorySearch] = useState('');
+  const [floorFilter, setFloorFilter] = useState<'All' | Floor>('All');
 
   // Extract worker's own past submissions sorted by newest/sequential sequence
   const personalLogs = useMemo(() => {
@@ -51,10 +53,22 @@ export function WorkerDashboard({ currentUser, categories, logs, onWithdraw }: W
 
   // Filter local directory categories by name
   const filteredCategories = useMemo(() => {
-    return categories.filter((cat) =>
-      cat.name.toLowerCase().includes(directorySearch.toLowerCase())
-    );
-  }, [categories, directorySearch]);
+    return categories.filter((cat) => {
+      const matchSearch =
+        cat.name.toLowerCase().includes(directorySearch.toLowerCase()) ||
+        cat.floor.toLowerCase().includes(directorySearch.toLowerCase());
+      const matchFloor = floorFilter === 'All' ? true : cat.floor === floorFilter;
+      return matchSearch && matchFloor;
+    });
+  }, [categories, directorySearch, floorFilter]);
+
+  const renderFloorBadge = (floor: Floor) => (
+    <span
+      className={`inline-flex items-center px-2 py-0.5 text-[8px] font-bold rounded-full border uppercase tracking-wider ${getFloorBadgeClass(floor)}`}
+    >
+      {floor}
+    </span>
+  );
 
   // Download personal ledger details
   const downloadPersonalPDF = () => {
@@ -72,19 +86,19 @@ export function WorkerDashboard({ currentUser, categories, logs, onWithdraw }: W
       // Title
       doc.setTextColor(255, 255, 255);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(18);
-      doc.text('PERSONAL REQUISITION LEDGER REPORT', 14, 15);
+      doc.setFontSize(22);
+      doc.text('PERSONAL REQUISITION LEDGER REPORT', 14, 16);
 
       // Subtitle
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
+      doc.setFontSize(11);
       doc.setTextColor(245, 158, 11); // amber-500
-      doc.text(`Authorized Personnel Summary  •  Generated on: ${new Date().toLocaleString()}`, 14, 21);
+      doc.text(`Authorized Personnel Summary  •  Generated on: ${new Date().toLocaleString()}`, 14, 23);
 
       // Metrics block
-      doc.setFontSize(8);
+      doc.setFontSize(10);
       doc.setTextColor(148, 163, 184); // slate-400
-      doc.text(`Authorized Worker ID: ${currentUser.username.toUpperCase()}   |   Transactions Logged: ${personalLogs.length}   |   Approved: ${personalLogs.filter(l => l.status === 'Approved').length}`, 14, 27);
+      doc.text(`Staff Member: ${currentUser.username.toUpperCase()}   |   Transactions Logged: ${personalLogs.length}   |   Approved: ${personalLogs.filter(l => l.status === 'Approved').length}`, 14, 30);
 
       // Bold orange divider line
       doc.setDrawColor(245, 158, 11);
@@ -105,48 +119,53 @@ export function WorkerDashboard({ currentUser, categories, logs, onWithdraw }: W
       });
 
       autoTable(doc, {
-        startY: 46,
+        startY: 44,
         head: tableHeaders,
         body: tableRows,
         theme: 'striped',
+        styles: {
+          fontSize: 11,
+          cellPadding: 3.5,
+          overflow: 'linebreak',
+        },
         headStyles: {
           fillColor: [15, 23, 42],
           textColor: [255, 255, 255],
-          fontSize: 8,
+          fontSize: 12,
           fontStyle: 'bold',
-          halign: 'left'
+          halign: 'left',
         },
         bodyStyles: {
-          fontSize: 8,
-          textColor: [51, 65, 85]
+          fontSize: 11,
+          textColor: [51, 65, 85],
         },
         alternateRowStyles: {
-          fillColor: [248, 250, 252]
+          fillColor: [248, 250, 252],
         },
         columnStyles: {
-          0: { cellWidth: 35, fontStyle: 'bold' },
-          1: { cellWidth: 55, fontStyle: 'bold' },
-          2: { cellWidth: 25, halign: 'right' },
-          3: { cellWidth: 45 },
-          4: { cellWidth: 25, fontStyle: 'bold' }
+          0: { cellWidth: 34, fontStyle: 'bold' },
+          1: { cellWidth: 48, fontStyle: 'bold' },
+          2: { cellWidth: 26, halign: 'right' },
+          3: { cellWidth: 42 },
+          4: { cellWidth: 28, fontStyle: 'bold' },
         },
         didParseCell: (data) => {
           if (data.section === 'body' && data.column.index === 4) {
             const val = data.cell.raw as string;
             if (val === 'APPROVED') {
-              data.cell.styles.textColor = [22, 101, 52]; // green-800
+              data.cell.styles.textColor = [22, 101, 52];
             } else {
-              data.cell.styles.textColor = [153, 27, 27]; // red-800
+              data.cell.styles.textColor = [153, 27, 27];
             }
           }
         },
-        margin: { left: 14, right: 14 }
+        margin: { left: 14, right: 14 },
       });
 
       const pageCount = (doc as any).internal.getNumberOfPages();
       for (let i = 1; i <= pageCount; i++) {
         doc.setPage(i);
-        doc.setFontSize(8);
+        doc.setFontSize(10);
         doc.setTextColor(148, 163, 184);
         doc.text(`Page ${i} of ${pageCount}`, 14, 287);
         doc.text('Secure Administrative Audit  •  Shift Requisition Receipt  •  Verification Signed', 72, 287);
@@ -158,7 +177,7 @@ export function WorkerDashboard({ currentUser, categories, logs, onWithdraw }: W
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSuccessMsg('');
     setErrorMsg('');
@@ -173,7 +192,7 @@ export function WorkerDashboard({ currentUser, categories, logs, onWithdraw }: W
       return;
     }
 
-    const response = onWithdraw(selectedCategoryId, Number(quantity));
+    const response = await onWithdraw(selectedCategoryId, Number(quantity));
 
     if (response.success) {
       setSuccessMsg(response.message);
@@ -197,7 +216,7 @@ export function WorkerDashboard({ currentUser, categories, logs, onWithdraw }: W
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
         <div className="min-w-0">
           <h2 className="font-sans text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
-            Worker Stock Dispatch
+            Stock Dispatch
           </h2>
           <p className="text-xs text-slate-500 mt-1">
             Requisition terminal authorized for: <span className="text-amber-700 font-bold">{currentUser.username}</span>
@@ -399,6 +418,24 @@ export function WorkerDashboard({ currentUser, categories, logs, onWithdraw }: W
               </div>
             </div>
 
+            {/* Floor filter */}
+            <div className="mb-4 inline-flex rounded-md bg-slate-50 p-0.5 border border-slate-200 w-full">
+              {(['All', ...FLOOR_OPTIONS] as const).map((floor) => (
+                <button
+                  key={floor}
+                  type="button"
+                  onClick={() => setFloorFilter(floor)}
+                  className={`flex-1 px-2 py-1.5 text-[10px] uppercase tracking-wider rounded font-semibold cursor-pointer transition-colors ${
+                    floorFilter === floor
+                      ? 'bg-[#0F172A] text-white font-bold shadow-xs'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  {floor === 'All' ? 'All Floors' : floor.replace(' Floor', '')}
+                </button>
+              ))}
+            </div>
+
             <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
               {filteredCategories.length === 0 ? (
                 <div className="p-6 text-center text-slate-400 italic text-xs">
@@ -408,11 +445,16 @@ export function WorkerDashboard({ currentUser, categories, logs, onWithdraw }: W
                 </div>
               ) : (
                 filteredCategories.map((cat) => (
-                  <div key={cat.id} className="bg-slate-50 border border-slate-200 rounded p-3 flex items-center justify-between text-xs">
-                    <span className="font-bold text-slate-900">{cat.name}</span>
-                    <span className="text-[10px] text-slate-500 border border-slate-200 px-1.5 py-0.5 rounded bg-white font-semibold">
-                      unit: {cat.unit}
-                    </span>
+                  <div key={cat.id} className="bg-slate-50 border border-slate-200 rounded p-3 flex items-center justify-between gap-2 text-xs">
+                    <div className="min-w-0">
+                      <span className="font-bold text-slate-900 block truncate">{cat.name}</span>
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        {renderFloorBadge(cat.floor)}
+                        <span className="text-[10px] text-slate-500 font-semibold">
+                          {cat.currentQuantity} {cat.unit} left
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 ))
               )}
@@ -491,9 +533,9 @@ export function WorkerDashboard({ currentUser, categories, logs, onWithdraw }: W
                     className="w-full bg-white border border-slate-200 rounded px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-[#0F172A] transition-colors"
                   >
                     <option value="">-- Choose Category --</option>
-                    {categories.map((cat) => (
+                    {filteredCategories.map((cat) => (
                       <option key={cat.id} value={cat.id}>
-                        {cat.name} ({cat.unit})
+                        {cat.name} · {cat.floor} ({cat.currentQuantity} {cat.unit} left)
                       </option>
                     ))}
                   </select>

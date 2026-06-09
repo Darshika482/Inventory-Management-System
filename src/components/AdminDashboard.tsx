@@ -20,7 +20,8 @@ import {
   FileDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Category, WithdrawalLog } from '../types';
+import { Category, WithdrawalLog, Floor } from '../types';
+import { FLOOR_OPTIONS, getFloorBadgeClass } from '../lib/floors';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -28,10 +29,10 @@ interface AdminDashboardProps {
   categories: Category[];
   logs: WithdrawalLog[];
   onAddStock: (categoryId: string, quantity: number) => void;
-  onAddNewCategory: (name: string, unit: string, initialStock: number) => void;
+  onAddNewCategory: (name: string, unit: string, initialStock: number, floor: Floor) => void;
   onUpdateCategory: (
     categoryId: string,
-    updates: { name: string; unit: string; initialStock: number; currentQuantity: number }
+    updates: { name: string; unit: string; floor: Floor; initialStock: number; currentQuantity: number }
   ) => void;
   onDeleteCategory: (categoryId: string) => void;
   onToggleLogStatus: (logId: string) => void;
@@ -55,6 +56,7 @@ export function AdminDashboard({
   // Category Form State
   const [newCatName, setNewCatName] = useState('');
   const [newCatUnit, setNewCatUnit] = useState('pieces');
+  const [newCatFloor, setNewCatFloor] = useState<Floor>('First Floor');
   const [newCatInitial, setNewCatInitial] = useState<number | ''>('');
   const [catError, setCatError] = useState('');
 
@@ -70,6 +72,7 @@ export function AdminDashboard({
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [editCatName, setEditCatName] = useState('');
   const [editCatUnit, setEditCatUnit] = useState('');
+  const [editCatFloor, setEditCatFloor] = useState<Floor>('First Floor');
   const [editCatInitial, setEditCatInitial] = useState<number | ''>('');
   const [editCatCurrent, setEditCatCurrent] = useState<number | ''>('');
   const [editError, setEditError] = useState('');
@@ -77,6 +80,7 @@ export function AdminDashboard({
 
   // Table Search and Sorting States
   const [categorySearch, setCategorySearch] = useState('');
+  const [floorFilter, setFloorFilter] = useState<'All' | Floor>('All');
   const [lowStockFilterOnly, setLowStockFilterOnly] = useState(false);
   const [catSortField, setCatSortField] = useState<SortFieldCategory>('name');
   const [catSortDirection, setCatSortDirection] = useState<'asc' | 'desc'>('asc');
@@ -117,17 +121,20 @@ export function AdminDashboard({
     }
 
     const nameExists = categories.some(
-      (c) => c.name.toLowerCase() === newCatName.trim().toLowerCase()
+      (c) =>
+        c.name.toLowerCase() === newCatName.trim().toLowerCase() &&
+        c.floor === newCatFloor
     );
     if (nameExists) {
-      setCatError('Category with this name already exists.');
+      setCatError('Category with this name already exists on this floor.');
       return;
     }
 
-    onAddNewCategory(newCatName.trim(), newCatUnit.trim(), Number(newCatInitial));
+    onAddNewCategory(newCatName.trim(), newCatUnit.trim(), Number(newCatInitial), newCatFloor);
     setNewCatName('');
     setNewCatInitial('');
     setNewCatUnit('pieces');
+    setNewCatFloor('First Floor');
     setIsAddCategoryOpen(false);
   };
 
@@ -156,6 +163,7 @@ export function AdminDashboard({
     setEditingCategoryId(cat.id);
     setEditCatName(cat.name);
     setEditCatUnit(cat.unit);
+    setEditCatFloor(cat.floor);
     setEditCatInitial(cat.initialStock);
     setEditCatCurrent(cat.currentQuantity);
     setEditError('');
@@ -192,16 +200,18 @@ export function AdminDashboard({
     const nameExists = categories.some(
       (c) =>
         c.id !== editingCategoryId &&
-        c.name.toLowerCase() === editCatName.trim().toLowerCase()
+        c.name.toLowerCase() === editCatName.trim().toLowerCase() &&
+        c.floor === editCatFloor
     );
     if (nameExists) {
-      setEditError('Another category with this name already exists.');
+      setEditError('Another category with this name already exists on this floor.');
       return;
     }
 
     onUpdateCategory(editingCategoryId, {
       name: editCatName.trim(),
       unit: editCatUnit.trim() || 'pieces',
+      floor: editCatFloor,
       initialStock: Number(editCatInitial),
       currentQuantity: Number(editCatCurrent),
     });
@@ -239,6 +249,14 @@ export function AdminDashboard({
     </div>
   );
 
+  const renderFloorBadge = (floor: Floor) => (
+    <span
+      className={`inline-flex items-center px-2 py-0.5 text-[9px] font-bold rounded-full border uppercase tracking-wider ${getFloorBadgeClass(floor)}`}
+    >
+      {floor}
+    </span>
+  );
+
   // Helper to determine the stock health color badge
   const getStockStatus = (current: number, initial: number) => {
     const ratio = current / initial;
@@ -272,10 +290,13 @@ export function AdminDashboard({
   // Filter & sort categories
   const filteredAndSortedCategories = useMemo(() => {
     let result = categories.filter((cat) => {
-      const matchSearch = cat.name.toLowerCase().includes(categorySearch.toLowerCase()) ||
-                          cat.unit.toLowerCase().includes(categorySearch.toLowerCase());
+      const matchSearch =
+        cat.name.toLowerCase().includes(categorySearch.toLowerCase()) ||
+        cat.unit.toLowerCase().includes(categorySearch.toLowerCase()) ||
+        cat.floor.toLowerCase().includes(categorySearch.toLowerCase());
+      const matchFloor = floorFilter === 'All' ? true : cat.floor === floorFilter;
       const isLowStock = cat.currentQuantity < cat.initialStock * 0.2;
-      return lowStockFilterOnly ? (matchSearch && isLowStock) : matchSearch;
+      return lowStockFilterOnly ? matchSearch && matchFloor && isLowStock : matchSearch && matchFloor;
     });
 
     result.sort((a, b) => {
@@ -296,7 +317,7 @@ export function AdminDashboard({
     });
 
     return result;
-  }, [categories, categorySearch, lowStockFilterOnly, catSortField, catSortDirection]);
+  }, [categories, categorySearch, floorFilter, lowStockFilterOnly, catSortField, catSortDirection]);
 
   // Filter & sort logs
   const filteredAndSortedLogs = useMemo(() => {
@@ -371,19 +392,19 @@ export function AdminDashboard({
       // Title text
       doc.setTextColor(255, 255, 255);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(18);
-      doc.text('INVENTORY LOGISTICS STATUS REPORT', 14, 15);
+      doc.setFontSize(22);
+      doc.text('INVENTORY LOGISTICS STATUS REPORT', 14, 16);
 
       // Subtitle
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
+      doc.setFontSize(11);
       doc.setTextColor(245, 158, 11); // amber-500
-      doc.text(`Shift Status: Active & Authenticated  •  Generated on: ${new Date().toLocaleString()}`, 14, 21);
+      doc.text(`Shift Status: Active & Authenticated  •  Generated on: ${new Date().toLocaleString()}`, 14, 23);
 
       // Summary indicators in header banner
-      doc.setFontSize(8);
+      doc.setFontSize(10);
       doc.setTextColor(148, 163, 184); // slate-400
-      doc.text(`Total Stock Categories: ${stats.totalCategories}   |   Total Units In Stock: ${stats.totalItemsInStock}   |   Low Stock Warnings: ${stats.lowStockItems}`, 14, 27);
+      doc.text(`Total Stock Categories: ${stats.totalCategories}   |   Total Units In Stock: ${stats.totalItemsInStock}   |   Low Stock Warnings: ${stats.lowStockItems}`, 14, 30);
 
       // Accent border below banner
       doc.setDrawColor(245, 158, 11);
@@ -391,7 +412,7 @@ export function AdminDashboard({
       doc.line(0, 38, 210, 38);
 
       // Table mapping
-      const tableHeaders = [['Inventory Line Item', 'Measuring Unit', 'Total Stock', 'Stock Remaining', 'Remaining %', 'Logistics Status']];
+      const tableHeaders = [['Inventory Line Item', 'Floor', 'Measuring Unit', 'Total Stock', 'Stock Remaining', 'Remaining %', 'Logistics Status']];
       
       const tableRows = filteredAndSortedCategories.map((cat) => {
         const ratio = cat.currentQuantity / cat.initialStock;
@@ -406,6 +427,7 @@ export function AdminDashboard({
         }
         return [
           cat.name,
+          cat.floor,
           cat.unit,
           cat.initialStock.toLocaleString(),
           cat.currentQuantity.toLocaleString(),
@@ -416,52 +438,58 @@ export function AdminDashboard({
 
       // Render Table using autotable
       autoTable(doc, {
-        startY: 46,
+        startY: 44,
         head: tableHeaders,
         body: tableRows,
         theme: 'striped',
+        styles: {
+          fontSize: 11,
+          cellPadding: 3.5,
+          overflow: 'linebreak',
+        },
         headStyles: {
           fillColor: [15, 23, 42],
           textColor: [255, 255, 255],
-          fontSize: 8,
+          fontSize: 12,
           fontStyle: 'bold',
-          halign: 'left'
+          halign: 'left',
         },
         bodyStyles: {
-          fontSize: 8,
-          textColor: [51, 65, 85] // slate-700
+          fontSize: 11,
+          textColor: [51, 65, 85],
         },
         alternateRowStyles: {
-          fillColor: [248, 250, 252] // slate-50
+          fillColor: [248, 250, 252],
         },
         columnStyles: {
-          0: { cellWidth: 55, fontStyle: 'bold' },
-          1: { cellWidth: 25 },
-          2: { cellWidth: 25, halign: 'right' },
-          3: { cellWidth: 25, halign: 'right' },
-          4: { cellWidth: 30, halign: 'right' },
-          5: { cellWidth: 35, fontStyle: 'bold' }
+          0: { cellWidth: 38, fontStyle: 'bold' },
+          1: { cellWidth: 26 },
+          2: { cellWidth: 22, halign: 'center' },
+          3: { cellWidth: 24, halign: 'right' },
+          4: { cellWidth: 26, halign: 'right' },
+          5: { cellWidth: 22, halign: 'right', fontStyle: 'bold' },
+          6: { cellWidth: 24, fontStyle: 'bold' },
         },
         didParseCell: (data) => {
-          if (data.section === 'body' && data.column.index === 5) {
+          if (data.section === 'body' && data.column.index === 6) {
             const val = data.cell.raw as string;
             if (val === 'CRITICAL ALERT') {
-              data.cell.styles.textColor = [153, 27, 27]; // deep red
+              data.cell.styles.textColor = [153, 27, 27];
             } else if (val === 'LOW SUPPLY') {
-              data.cell.styles.textColor = [146, 64, 14]; // deep amber
+              data.cell.styles.textColor = [146, 64, 14];
             } else {
-              data.cell.styles.textColor = [22, 101, 52]; // deep green
+              data.cell.styles.textColor = [22, 101, 52];
             }
           }
         },
-        margin: { left: 14, right: 14 }
+        margin: { left: 14, right: 14 },
       });
 
       // Footer signatures
       const pageCount = (doc as any).internal.getNumberOfPages();
       for (let i = 1; i <= pageCount; i++) {
         doc.setPage(i);
-        doc.setFontSize(8);
+        doc.setFontSize(10);
         doc.setTextColor(148, 163, 184); // slate-400
         doc.text(`Page ${i} of ${pageCount}`, 14, 287);
         doc.text('Secure Administrative Report  •  Inventory Dispatch Terminal  •  Verification Signed', 72, 287);
@@ -489,19 +517,19 @@ export function AdminDashboard({
       // Title
       doc.setTextColor(255, 255, 255);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(18);
-      doc.text('WITHDRAWAL TRANSACTION LEDGER LOGS', 14, 15);
+      doc.setFontSize(22);
+      doc.text('WITHDRAWAL TRANSACTION LEDGER LOGS', 14, 16);
 
       // Subtitle
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
+      doc.setFontSize(11);
       doc.setTextColor(245, 158, 11); // amber-500
-      doc.text(`Full Operational Audit Trail  •  Generated on: ${new Date().toLocaleString()}`, 14, 21);
+      doc.text(`Full Operational Audit Trail  •  Generated on: ${new Date().toLocaleString()}`, 14, 23);
 
       // Metric lines
-      doc.setFontSize(8);
+      doc.setFontSize(10);
       doc.setTextColor(148, 163, 184); // slate-400
-      doc.text(`Total Audit Actions Listed: ${filteredAndSortedLogs.length}   |   Approved Withdrawals: ${logs.filter(l => l.status === 'Approved').length}   |   Rejected/Reverted: ${logs.filter(l => l.status === 'Rejected').length}`, 14, 27);
+      doc.text(`Total Audit Actions Listed: ${filteredAndSortedLogs.length}   |   Approved Withdrawals: ${logs.filter(l => l.status === 'Approved').length}   |   Rejected/Reverted: ${logs.filter(l => l.status === 'Rejected').length}`, 14, 30);
 
       // Border line accent
       doc.setDrawColor(245, 158, 11);
@@ -509,7 +537,7 @@ export function AdminDashboard({
       doc.line(0, 38, 210, 38);
 
       // Table mapping
-      const tableHeaders = [['Action Ledger ID', 'Authorized Worker', 'Category Disbursed', 'Units Taken', 'Timestamp', 'Audit Status']];
+      const tableHeaders = [['Action Ledger ID', 'Staff Member', 'Category Disbursed', 'Units Taken', 'Timestamp', 'Audit Status']];
       
       const tableRows = filteredAndSortedLogs.map((log) => {
         return [
@@ -523,49 +551,54 @@ export function AdminDashboard({
       });
 
       autoTable(doc, {
-        startY: 46,
+        startY: 44,
         head: tableHeaders,
         body: tableRows,
         theme: 'striped',
+        styles: {
+          fontSize: 11,
+          cellPadding: 3.5,
+          overflow: 'linebreak',
+        },
         headStyles: {
           fillColor: [15, 23, 42],
           textColor: [255, 255, 255],
-          fontSize: 8,
+          fontSize: 12,
           fontStyle: 'bold',
-          halign: 'left'
+          halign: 'left',
         },
         bodyStyles: {
-          fontSize: 8,
-          textColor: [51, 65, 85]
+          fontSize: 11,
+          textColor: [51, 65, 85],
         },
         alternateRowStyles: {
-          fillColor: [248, 250, 252]
+          fillColor: [248, 250, 252],
         },
         columnStyles: {
-          0: { cellWidth: 25, fontStyle: 'bold' },
-          1: { cellWidth: 30 },
-          2: { cellWidth: 45, fontStyle: 'bold' },
-          3: { cellWidth: 25, halign: 'right' },
-          4: { cellWidth: 45 },
-          5: { cellWidth: 30, fontStyle: 'bold' }
+          0: { cellWidth: 32, fontStyle: 'bold' },
+          1: { cellWidth: 28 },
+          2: { cellWidth: 38, fontStyle: 'bold' },
+          3: { cellWidth: 22, halign: 'right' },
+          4: { cellWidth: 38 },
+          5: { cellWidth: 24, fontStyle: 'bold' },
         },
         didParseCell: (data) => {
           if (data.section === 'body' && data.column.index === 5) {
             const val = data.cell.raw as string;
             if (val === 'APPROVED') {
-              data.cell.styles.textColor = [22, 101, 52]; // green-800
+              data.cell.styles.textColor = [22, 101, 52];
             } else {
-              data.cell.styles.textColor = [153, 27, 27]; // red-800
+              data.cell.styles.textColor = [153, 27, 27];
             }
           }
         },
-        margin: { left: 14, right: 14 }
+        margin: { left: 14, right: 14 },
       });
 
       const pageCount = (doc as any).internal.getNumberOfPages();
       for (let i = 1; i <= pageCount; i++) {
         doc.setPage(i);
-        doc.setFontSize(8);
+        doc.setFontSize(10);
         doc.setTextColor(148, 163, 184);
         doc.text(`Page ${i} of ${pageCount}`, 14, 287);
         doc.text('Secure Administrative Audit  •  Inventory Dispatch Terminal  •  Verification Signed', 85, 287);
@@ -741,6 +774,23 @@ export function AdminDashboard({
                     <span className="truncate">Low Stock Only ({categories.filter((cat) => cat.currentQuantity < cat.initialStock * 0.2).length})</span>
                   </button>
 
+                  <div className="inline-flex rounded-md bg-slate-50 p-0.5 border border-slate-200 w-full sm:w-auto">
+                    {(['All', ...FLOOR_OPTIONS] as const).map((floor) => (
+                      <button
+                        key={floor}
+                        type="button"
+                        onClick={() => setFloorFilter(floor)}
+                        className={`flex-1 sm:flex-none px-3 py-2 sm:py-1 text-[10px] uppercase tracking-wider rounded font-semibold cursor-pointer transition-colors ${
+                          floorFilter === floor
+                            ? 'bg-[#0F172A] text-white font-bold shadow-xs'
+                            : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        {floor === 'All' ? 'All Floors' : floor.replace(' Floor', '')}
+                      </button>
+                    ))}
+                  </div>
+
                   <button
                     onClick={downloadInventoryPDF}
                     className="flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1 text-[11px] font-semibold rounded-md border bg-[#0F172A] hover:bg-slate-800 text-white border-slate-850 uppercase tracking-wider transition-all cursor-pointer shadow-xs"
@@ -772,7 +822,10 @@ export function AdminDashboard({
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0 flex-1">
                             <p className="font-semibold text-slate-900 truncate">{cat.name}</p>
-                            <p className="text-[11px] text-slate-500 mt-0.5 capitalize">{cat.unit}</p>
+                            <div className="flex items-center gap-2 mt-1 flex-wrap">
+                              {renderFloorBadge(cat.floor)}
+                              <p className="text-[11px] text-slate-500 capitalize">{cat.unit}</p>
+                            </div>
                           </div>
                           <div className="flex flex-col items-end gap-2 shrink-0">
                             <span
@@ -823,6 +876,7 @@ export function AdminDashboard({
                         </div>
                       </th>
                       <th className="p-4 w-1/6">Unit</th>
+                      <th className="p-4 w-1/6">Floor</th>
                       <th className="p-4 w-1/5 cursor-pointer hover:bg-slate-100/50" onClick={() => toggleSortCategories('stock')}>
                         <div className="flex items-center gap-1.5">
                           Stock Remaining
@@ -844,7 +898,7 @@ export function AdminDashboard({
                     <AnimatePresence>
                       {filteredAndSortedCategories.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="p-8 text-center text-slate-400 italic">
+                          <td colSpan={7} className="p-8 text-center text-slate-400 italic">
                             {categories.length === 0
                               ? 'No inventory categories provisioned yet. Use "Provision Category" to add your first item.'
                               : 'No logistics line items matched search constraints.'}
@@ -871,6 +925,9 @@ export function AdminDashboard({
                               </td>
                               <td className="p-4 text-slate-505">
                                 {cat.unit}
+                              </td>
+                              <td className="p-4">
+                                {renderFloorBadge(cat.floor)}
                               </td>
                               <td className="p-4 text-slate-800">
                                 <span className="font-extrabold text-sm tracking-tight">{cat.currentQuantity}</span>
@@ -1045,7 +1102,7 @@ export function AdminDashboard({
                     <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-500 tracking-wider select-none">
                       <th className="p-4 w-1/6 cursor-pointer hover:bg-slate-100/50" onClick={() => toggleSortLogs('worker')}>
                         <div className="flex items-center gap-1.5">
-                          Worker ID
+                          Staff Name
                           <ArrowUpDown className="h-3 w-3" />
                         </div>
                       </th>
@@ -1217,6 +1274,23 @@ export function AdminDashboard({
                     onChange={(e) => setEditCatUnit(e.target.value)}
                     className="w-full bg-white border border-slate-200 rounded px-3 py-2 text-xs text-[#0F172A] focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
                   />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-semibold uppercase text-slate-500 tracking-wider">
+                    Floor Location
+                  </label>
+                  <select
+                    required
+                    value={editCatFloor}
+                    onChange={(e) => setEditCatFloor(e.target.value as Floor)}
+                    className="w-full bg-white border border-slate-200 rounded px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
+                  >
+                    {FLOOR_OPTIONS.map((floor) => (
+                      <option key={floor} value={floor}>
+                        {floor}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
@@ -1404,6 +1478,24 @@ export function AdminDashboard({
 
                 <div className="space-y-1.5">
                   <label className="block text-[10px] font-semibold uppercase text-slate-500 tracking-wider">
+                    Floor Location
+                  </label>
+                  <select
+                    required
+                    value={newCatFloor}
+                    onChange={(e) => setNewCatFloor(e.target.value as Floor)}
+                    className="w-full bg-white border border-slate-200 rounded px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
+                  >
+                    {FLOOR_OPTIONS.map((floor) => (
+                      <option key={floor} value={floor}>
+                        {floor}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-semibold uppercase text-slate-500 tracking-wider">
                     Total Stock (Initial Quantity)
                   </label>
                   <input
@@ -1500,7 +1592,7 @@ export function AdminDashboard({
                     <option value="">-- Choose Item --</option>
                     {categories.map((cat) => (
                       <option key={cat.id} value={cat.id}>
-                        {cat.name} ({cat.currentQuantity} remaining / {cat.initialStock} total {cat.unit})
+                        {cat.name} · {cat.floor} ({cat.currentQuantity} remaining / {cat.initialStock} total {cat.unit})
                       </option>
                     ))}
                   </select>

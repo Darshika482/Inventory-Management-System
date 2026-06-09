@@ -81,7 +81,7 @@ export function Sidebar({
                 ? 'bg-amber-500/15 text-amber-500 border-amber-500/20'
                 : 'bg-blue-500/15 text-blue-400 border-blue-500/20'
             }`}>
-              {currentUser.role}
+              {currentUser.role === 'Worker' ? 'Staff' : currentUser.role}
             </span>
           </div>
         </div>
