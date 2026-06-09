@@ -1,6 +1,15 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShieldCheck, LogOut, CheckCircle, AlertOctagon, X, Menu, Loader2 } from 'lucide-react';
+import {
+  ShieldCheck,
+  LogOut,
+  CheckCircle,
+  AlertOctagon,
+  X,
+  Menu,
+  Loader2,
+  Warehouse,
+} from 'lucide-react';
 import { User, Category, WithdrawalLog, Floor } from './types';
 import { Login } from './components/Login';
 import { Sidebar } from './components/Sidebar';
@@ -330,10 +339,29 @@ export default function App() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center">
-        <div className="flex flex-col items-center gap-3 text-slate-500">
-          <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
-          <p className="text-sm font-medium">Connecting to Supabase...</p>
+      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-4">
+        <div className="flex flex-col items-center gap-5 text-center">
+          <div className="relative">
+            <div className="h-20 w-20 rounded-2xl bg-[#0F172A] shadow-xl flex items-center justify-center">
+              <div className="h-11 w-11 rounded-xl bg-amber-500 flex items-center justify-center text-[#0F172A]">
+                <Warehouse className="h-6 w-6" />
+              </div>
+            </div>
+            <Loader2 className="absolute -right-2 -bottom-2 h-7 w-7 animate-spin rounded-full bg-white p-1 text-amber-600 shadow-md" />
+          </div>
+
+          <div className="space-y-1">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+              Akshay Traders
+            </h1>
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">
+              Inventory Portal
+            </p>
+          </div>
+
+          <p className="text-sm font-medium text-slate-500">
+            Loading your stock dashboard...
+          </p>
         </div>
       </div>
     );
@@ -404,7 +432,7 @@ export default function App() {
           </button>
           <div className="min-w-0">
             <p className="text-white font-bold text-sm uppercase tracking-tight truncate">
-              STK_MASTER
+              Akshay Traders
             </p>
             <p className="text-[10px] text-slate-400 truncate">
               {currentUser.username} · {currentUser.role === 'Worker' ? 'Staff' : currentUser.role}

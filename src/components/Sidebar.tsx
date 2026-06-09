@@ -45,10 +45,10 @@ export function Sidebar({
           </div>
           <div className="min-w-0">
             <h1 className="font-sans text-white font-bold tracking-tight text-base uppercase truncate">
-              STK_MASTER
+              Akshay Traders
             </h1>
             <p className="text-[10px] text-slate-400 font-mono tracking-widest uppercase">
-              IMS V1.0
+              Inventory Portal
             </p>
           </div>
         </div>

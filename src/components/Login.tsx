@@ -55,7 +55,7 @@ export function Login({ onLogin }: LoginProps) {
 
           <div className="text-center mb-8">
             <h1 className="font-sans text-2xl font-bold tracking-tight text-slate-900">
-              Akshay traders portal
+              Akshay Traders Portal
             </h1>
             <p className="text-slate-500 text-xs mt-1.5 font-medium">
               Role-Based Inventory Control Panel
