@@ -1,6 +1,15 @@
 import { Category, Floor, WithdrawalLog, User } from '../types';
 import { DbAppUser, DbCategory, DbWithdrawalLog, supabase } from './supabase';
 
+function assertSupabase() {
+  if (!supabase) {
+    throw new Error(
+      'Missing Supabase env vars. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel project settings.'
+    );
+  }
+  return supabase;
+}
+
 function mapCategory(row: DbCategory): Category {
   return {
     id: row.id,
@@ -48,7 +57,7 @@ function toLogRow(log: WithdrawalLog): DbWithdrawalLog {
 }
 
 export async function fetchCategories(): Promise<Category[]> {
-  const { data, error } = await supabase
+  const { data, error } = await assertSupabase()
     .from('categories')
     .select('*')
     .order('name');
@@ -58,7 +67,7 @@ export async function fetchCategories(): Promise<Category[]> {
 }
 
 export async function fetchWithdrawalLogs(): Promise<WithdrawalLog[]> {
-  const { data, error } = await supabase
+  const { data, error } = await assertSupabase()
     .from('withdrawal_logs')
     .select('*')
     .order('created_at', { ascending: false });
@@ -68,7 +77,7 @@ export async function fetchWithdrawalLogs(): Promise<WithdrawalLog[]> {
 }
 
 export async function fetchAppUsers(): Promise<DbAppUser[]> {
-  const { data, error } = await supabase.from('app_users').select('*').order('username');
+  const { data, error } = await assertSupabase().from('app_users').select('*').order('username');
 
   if (error) throw error;
   return data as DbAppUser[];
@@ -78,7 +87,7 @@ export async function authenticateUser(
   username: string,
   password: string
 ): Promise<User | null> {
-  const { data, error } = await supabase
+  const { data, error } = await assertSupabase()
     .from('app_users')
     .select('id, username, role, password_hash')
     .ilike('username', username.trim())
@@ -95,12 +104,12 @@ export async function authenticateUser(
 }
 
 export async function insertCategory(category: Category): Promise<void> {
-  const { error } = await supabase.from('categories').insert(toCategoryRow(category));
+  const { error } = await assertSupabase().from('categories').insert(toCategoryRow(category));
   if (error) throw error;
 }
 
 export async function updateCategoryInDb(category: Category): Promise<void> {
-  const { error } = await supabase
+  const { error } = await assertSupabase()
     .from('categories')
     .update({
       name: category.name,
@@ -115,7 +124,7 @@ export async function updateCategoryInDb(category: Category): Promise<void> {
 }
 
 export async function deleteCategoryFromDb(categoryId: string): Promise<void> {
-  const { error } = await supabase.from('categories').delete().eq('id', categoryId);
+  const { error } = await assertSupabase().from('categories').delete().eq('id', categoryId);
   if (error) throw error;
 }
 
@@ -123,7 +132,7 @@ export async function updateCategoryNameInLogs(
   categoryId: string,
   categoryName: string
 ): Promise<void> {
-  const { error } = await supabase
+  const { error } = await assertSupabase()
     .from('withdrawal_logs')
     .update({ category_name: categoryName })
     .eq('category_id', categoryId);
@@ -132,7 +141,7 @@ export async function updateCategoryNameInLogs(
 }
 
 export async function insertWithdrawalLog(log: WithdrawalLog): Promise<void> {
-  const { error } = await supabase.from('withdrawal_logs').insert(toLogRow(log));
+  const { error } = await assertSupabase().from('withdrawal_logs').insert(toLogRow(log));
   if (error) throw error;
 }
 
@@ -140,7 +149,7 @@ export async function updateWithdrawalLogStatus(
   logId: string,
   status: WithdrawalLog['status']
 ): Promise<void> {
-  const { error } = await supabase
+  const { error } = await assertSupabase()
     .from('withdrawal_logs')
     .update({ status })
     .eq('id', logId);
