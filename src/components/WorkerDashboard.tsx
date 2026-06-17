@@ -8,13 +8,16 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
-  X,
   FileDown,
   Search
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Category, WithdrawalLog, User, Floor } from '../types';
 import { FLOOR_OPTIONS, getFloorBadgeClass, getFloorShortLabel } from '../lib/floors';
+import { categoryToSelectOption } from '../lib/selectOptions';
+import { PremiumSelect } from './PremiumSelect';
+import { AppModal } from './AppModal';
+import { FormInput, FormError, ModalActions } from './FormInput';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -61,6 +64,11 @@ export function WorkerDashboard({ currentUser, categories, logs, onWithdraw }: W
       return matchSearch && matchFloor;
     });
   }, [categories, directorySearch, floorFilter]);
+
+  const stockSelectOptions = useMemo(
+    () => filteredCategories.map(categoryToSelectOption),
+    [filteredCategories]
+  );
 
   const renderFloorBadge = (floor: Floor) => (
     <span
@@ -474,108 +482,48 @@ export function WorkerDashboard({ currentUser, categories, logs, onWithdraw }: W
 
       </div>
 
-      {/* Requisition Withdrawal Modal */}
-      <AnimatePresence>
-        {isWithdrawalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            {/* Backdrop Blur Layer */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsWithdrawalOpen(false)}
-              className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs"
-            />
-            
-            {/* Modal Body Container */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-              className="bg-white border border-slate-200 shadow-2xl rounded-xl w-full max-w-sm overflow-hidden relative z-10"
-            >
-              <div className="h-1 bg-amber-500 w-full" />
-              
-              <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="p-1 px-1.5 rounded bg-slate-50 text-amber-600 border border-slate-100">
-                    <Send className="h-4 w-4" />
-                  </span>
-                  <h3 className="text-base font-bold text-slate-800">
-                    Take items
-                  </h3>
-                </div>
-                <button
-                  onClick={() => setIsWithdrawalOpen(false)}
-                  className="p-1 text-slate-400 hover:text-slate-600 transition-colors rounded hover:bg-slate-50 cursor-pointer"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
+      <AppModal
+        open={isWithdrawalOpen}
+        onClose={() => setIsWithdrawalOpen(false)}
+        title="Take items"
+        description="Record what you are taking from stock"
+        icon={<Send className="h-5 w-5" />}
+        accent="slate"
+      >
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {errorMsg && <FormError message={errorMsg} />}
 
-              <form onSubmit={handleSubmit} className="p-6 space-y-4">
-                {errorMsg && (
-                  <div className="bg-red-50 border border-red-200 text-red-600 p-3 text-base rounded-lg flex items-start gap-2">
-                    <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                    <span>{errorMsg}</span>
-                  </div>
-                )}
+          <PremiumSelect
+            label="Which item"
+            value={selectedCategoryId}
+            onChange={setSelectedCategoryId}
+            options={stockSelectOptions}
+            placeholder="Choose an item..."
+            searchable
+            searchPlaceholder="Search items..."
+            accent="slate"
+            required
+            name="withdrawItem"
+          />
 
-                <div className="space-y-1.5">
-                  <label className="block text-sm font-semibold text-slate-600">
-                    Which item
-                  </label>
-                  <select
-                    required
-                    value={selectedCategoryId}
-                    onChange={(e) => setSelectedCategoryId(e.target.value)}
-                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-3 text-base text-slate-900 focus:outline-none focus:border-[#0F172A] transition-colors"
-                  >
-                    <option value="">Choose an item...</option>
-                    {filteredCategories.map((cat) => (
-                      <option key={cat.id} value={cat.id}>
-                        {cat.name} · {cat.floor} ({cat.currentQuantity} {cat.unit} left)
-                      </option>
-                    ))}
-                  </select>
-                </div>
+          <FormInput
+            label="How many"
+            type="number"
+            required
+            min={1}
+            placeholder="e.g. 5"
+            value={quantity}
+            onChange={(e) => setQuantity(e.target.value === '' ? '' : Number(e.target.value))}
+            accent="slate"
+          />
 
-                <div className="space-y-1.5">
-                  <label className="block text-sm font-semibold text-slate-600">
-                    How many
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    min="1"
-                    placeholder="e.g. 5"
-                    value={quantity}
-                    onChange={(e) => setQuantity(e.target.value === '' ? '' : Number(e.target.value))}
-                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-3 text-base text-slate-900 focus:outline-none focus:border-[#0F172A] transition-colors"
-                  />
-                </div>
-
-                <div className="pt-4 flex items-center justify-end gap-2 border-t border-slate-100 mt-4">
-                  <button
-                    type="button"
-                    onClick={() => setIsWithdrawalOpen(false)}
-                    className="px-5 py-3 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg text-sm font-semibold transition-all cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-5 py-3 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg font-semibold text-sm transition-all cursor-pointer"
-                  >
-                    Confirm
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+          <ModalActions
+            onCancel={() => setIsWithdrawalOpen(false)}
+            submitLabel="Confirm"
+            submitAccent="slate"
+          />
+        </form>
+      </AppModal>
 
     </div>
   );

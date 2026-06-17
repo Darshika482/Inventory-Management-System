@@ -9,6 +9,7 @@ import {
   RotateCcw, 
   ClipboardList, 
   TrendingDown, 
+  Send,
   Layers, 
   Database,
   ArrowUpRight,
@@ -16,18 +17,22 @@ import {
   CheckCircle2,
   XCircle,
   HardHat,
-  X,
   FileDown
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Category, WithdrawalLog, Floor } from '../types';
+import { Category, WithdrawalLog, Floor, User } from '../types';
 import { FLOOR_OPTIONS, getFloorBadgeClass, getFloorShortLabel } from '../lib/floors';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { PremiumSelect } from './PremiumSelect';
+import { AppModal } from './AppModal';
+import { FormInput, FormError, ModalActions } from './FormInput';
+import { categoryToSelectOption, staffToSelectOption, FLOOR_SELECT_OPTIONS } from '../lib/selectOptions';
 
 interface AdminDashboardProps {
   categories: Category[];
   logs: WithdrawalLog[];
+  staffMembers: User[];
   onAddStock: (categoryId: string, quantity: number) => void;
   onAddNewCategory: (name: string, unit: string, initialStock: number, floor: Floor) => void;
   onUpdateCategory: (
@@ -36,6 +41,11 @@ interface AdminDashboardProps {
   ) => void;
   onDeleteCategory: (categoryId: string) => void;
   onToggleLogStatus: (logId: string) => void;
+  onRecordWithdrawal: (
+    categoryId: string,
+    quantity: number,
+    staffUsername: string
+  ) => Promise<{ success: boolean; message: string }>;
   activeSection: string;
 }
 
@@ -45,11 +55,13 @@ type SortFieldLog = 'worker' | 'category' | 'quantity' | 'timestamp' | 'status';
 export function AdminDashboard({ 
   categories, 
   logs, 
+  staffMembers,
   onAddStock, 
   onAddNewCategory,
   onUpdateCategory,
   onDeleteCategory,
   onToggleLogStatus,
+  onRecordWithdrawal,
   activeSection 
 }: AdminDashboardProps) {
   
@@ -64,6 +76,14 @@ export function AdminDashboard({
   const [selectedCatIdForRestock, setSelectedCatIdForRestock] = useState('');
   const [restockAmount, setRestockAmount] = useState<number | ''>('');
   const [restockError, setRestockError] = useState('');
+
+  // Record withdrawal (admin on behalf of staff)
+  const [isWithdrawOpen, setIsWithdrawOpen] = useState(false);
+  const [selectedStaffUsername, setSelectedStaffUsername] = useState('');
+  const [withdrawCategoryId, setWithdrawCategoryId] = useState('');
+  const [withdrawAmount, setWithdrawAmount] = useState<number | ''>('');
+  const [withdrawError, setWithdrawError] = useState('');
+  const [isWithdrawSubmitting, setIsWithdrawSubmitting] = useState(false);
 
   // Modals visibility state
   const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false);
@@ -104,6 +124,16 @@ export function AdminDashboard({
       lowStockItems
     };
   }, [categories, logs]);
+
+  const stockSelectOptions = useMemo(
+    () => categories.map(categoryToSelectOption),
+    [categories]
+  );
+
+  const staffSelectOptions = useMemo(
+    () => staffMembers.map(staffToSelectOption),
+    [staffMembers]
+  );
 
   // Handle addition of new category
   const handleAddCategorySubmit = (e: React.FormEvent) => {
@@ -157,6 +187,52 @@ export function AdminDashboard({
     setRestockAmount('');
     setSelectedCatIdForRestock('');
     setIsRestockOpen(false);
+  };
+
+  const openWithdrawModal = () => {
+    setWithdrawError('');
+    setSelectedStaffUsername(staffMembers[0]?.username ?? '');
+    setWithdrawCategoryId('');
+    setWithdrawAmount('');
+    setIsWithdrawOpen(true);
+  };
+
+  const closeWithdrawModal = () => {
+    setIsWithdrawOpen(false);
+    setWithdrawError('');
+    setIsWithdrawSubmitting(false);
+  };
+
+  const handleWithdrawSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setWithdrawError('');
+
+    if (!selectedStaffUsername) {
+      setWithdrawError('Please choose which staff member took the items.');
+      return;
+    }
+    if (!withdrawCategoryId) {
+      setWithdrawError('Please choose an item.');
+      return;
+    }
+    if (withdrawAmount === '' || withdrawAmount <= 0) {
+      setWithdrawError('Please enter an amount greater than 0.');
+      return;
+    }
+
+    setIsWithdrawSubmitting(true);
+    const response = await onRecordWithdrawal(
+      withdrawCategoryId,
+      Number(withdrawAmount),
+      selectedStaffUsername
+    );
+    setIsWithdrawSubmitting(false);
+
+    if (response.success) {
+      closeWithdrawModal();
+    } else {
+      setWithdrawError(response.message);
+    }
   };
 
   const openEditModal = (cat: Category) => {
@@ -658,6 +734,13 @@ export function AdminDashboard({
           >
             <ArrowUpRight className="h-4 w-4" />
             Add more stock
+          </button>
+          <button
+            onClick={openWithdrawModal}
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold shadow-xs cursor-pointer transition-all border border-emerald-700/20"
+          >
+            <Send className="h-4 w-4" />
+            Record taken stock
           </button>
           <div className="text-sm text-slate-500 px-4 py-3 bg-white border border-slate-200 rounded-lg flex items-center justify-center sm:justify-start gap-2 shadow-xs">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -1244,434 +1327,276 @@ export function AdminDashboard({
         </div>
       </div>
 
-      {/* Category Edit Overlay Modal */}
-      <AnimatePresence>
-        {isEditCategoryOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={closeEditModal}
-              className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs"
+      {/* Category Edit Modal */}
+      <AppModal
+        open={isEditCategoryOpen}
+        onClose={closeEditModal}
+        title="Edit item"
+        description="Update name, floor, or stock amounts"
+        icon={<Pencil className="h-5 w-5" />}
+        accent="amber"
+      >
+        <form onSubmit={handleEditCategorySubmit} className="space-y-4">
+          {editError && <FormError message={editError} />}
+
+          <FormInput
+            label="Item name"
+            type="text"
+            required
+            value={editCatName}
+            onChange={(e) => setEditCatName(e.target.value)}
+            accent="amber"
+          />
+
+          <FormInput
+            label="Unit (e.g. pieces, boxes)"
+            type="text"
+            required
+            value={editCatUnit}
+            onChange={(e) => setEditCatUnit(e.target.value)}
+            accent="amber"
+          />
+
+          <PremiumSelect
+            label="Which floor"
+            value={editCatFloor}
+            onChange={(value) => setEditCatFloor(value as Floor)}
+            options={FLOOR_SELECT_OPTIONS}
+            placeholder="Choose floor..."
+            accent="amber"
+            required
+            name="editFloor"
+          />
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <FormInput
+              label="Total stock"
+              type="number"
+              required
+              min={0}
+              value={editCatInitial}
+              onChange={(e) => setEditCatInitial(e.target.value === '' ? '' : Number(e.target.value))}
+              accent="amber"
             />
-
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-              className="bg-white border border-slate-200 shadow-2xl rounded-xl w-full max-w-sm overflow-hidden relative z-10 max-h-[90vh] overflow-y-auto"
-            >
-              <div className="h-1 bg-amber-500 w-full" />
-
-              <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="p-1 px-1.5 rounded bg-slate-50 text-amber-600 border border-slate-100">
-                    <Pencil className="h-4 w-4" />
-                  </span>
-                  <h3 className="text-base font-bold text-slate-800">
-                    Edit item
-                  </h3>
-                </div>
-                <button
-                  type="button"
-                  onClick={closeEditModal}
-                  className="p-1 text-slate-400 hover:text-slate-600 transition-colors rounded hover:bg-slate-50 cursor-pointer"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-
-              <form onSubmit={handleEditCategorySubmit} className="p-6 space-y-4">
-                {editError && (
-                  <div className="bg-red-50 border border-red-200 text-red-655 p-2.5 text-xs rounded flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4 shrink-0" />
-                    {editError}
-                  </div>
-                )}
-                <div className="space-y-1.5">
-                  <label className="block text-sm font-semibold text-slate-600">
-                    Item name
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={editCatName}
-                    onChange={(e) => setEditCatName(e.target.value)}
-                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-3 text-base text-slate-900 focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="block text-sm font-semibold text-slate-600">
-                    Unit
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={editCatUnit}
-                    onChange={(e) => setEditCatUnit(e.target.value)}
-                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-3 text-base text-[#0F172A] focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="block text-sm font-semibold text-slate-600">
-                    Which floor
-                  </label>
-                  <select
-                    required
-                    value={editCatFloor}
-                    onChange={(e) => setEditCatFloor(e.target.value as Floor)}
-                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-3 text-base text-slate-900 focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
-                  >
-                    {FLOOR_OPTIONS.map((floor) => (
-                      <option key={floor} value={floor}>
-                        {floor}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="block text-sm font-semibold text-slate-600">
-                      Total stock
-                    </label>
-                    <input
-                      type="number"
-                      required
-                      min="0"
-                      value={editCatInitial}
-                      onChange={(e) => setEditCatInitial(e.target.value === '' ? '' : Number(e.target.value))}
-                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-3 text-base text-[#0F172A] focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="block text-sm font-semibold text-slate-600">
-                      Left in stock
-                    </label>
-                    <input
-                      type="number"
-                      required
-                      min="0"
-                      value={editCatCurrent}
-                      onChange={(e) => setEditCatCurrent(e.target.value === '' ? '' : Number(e.target.value))}
-                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-3 text-base text-[#0F172A] focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
-                    />
-                  </div>
-                </div>
-
-                <div className="pt-4 flex items-center justify-end gap-2 border-t border-slate-100 mt-4">
-                  <button
-                    type="button"
-                    onClick={closeEditModal}
-                    className="px-5 py-3 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg text-sm font-semibold transition-all cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-5 py-3 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg font-semibold text-sm transition-all cursor-pointer"
-                  >
-                    Save changes
-                  </button>
-                </div>
-              </form>
-            </motion.div>
+            <FormInput
+              label="Left in stock"
+              type="number"
+              required
+              min={0}
+              value={editCatCurrent}
+              onChange={(e) => setEditCatCurrent(e.target.value === '' ? '' : Number(e.target.value))}
+              accent="amber"
+            />
           </div>
-        )}
-      </AnimatePresence>
+
+          <ModalActions onCancel={closeEditModal} submitLabel="Save changes" submitAccent="amber" />
+        </form>
+      </AppModal>
 
       {/* Category Delete Confirmation Modal */}
-      <AnimatePresence>
-        {deletingCategory && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setDeletingCategoryId(null)}
-              className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs"
+      <AppModal
+        open={Boolean(deletingCategory)}
+        onClose={() => setDeletingCategoryId(null)}
+        title="Remove item?"
+        description={
+          deletingCategory
+            ? `Remove "${deletingCategory.name}" from your stock list? Past records of items taken will still be kept.`
+            : undefined
+        }
+        icon={<Trash2 className="h-5 w-5" />}
+        accent="red"
+      >
+        <ModalActions
+          onCancel={() => setDeletingCategoryId(null)}
+          submitLabel="Remove"
+          cancelLabel="Keep item"
+          submitType="button"
+          onSubmit={handleDeleteConfirm}
+          submitAccent="red"
+        />
+      </AppModal>
+
+      {/* Category Creation Modal */}
+      <AppModal
+        open={isAddCategoryOpen}
+        onClose={() => setIsAddCategoryOpen(false)}
+        title="Add new item"
+        description="Add a product to track on your stock list"
+        icon={<Plus className="h-5 w-5" />}
+        accent="amber"
+      >
+        <form onSubmit={handleAddCategorySubmit} className="space-y-4">
+          {catError && <FormError message={catError} />}
+
+          <FormInput
+            label="Item name"
+            type="text"
+            required
+            placeholder="e.g. Parag piece"
+            value={newCatName}
+            onChange={(e) => setNewCatName(e.target.value)}
+            accent="amber"
+          />
+
+          <FormInput
+            label="Unit (e.g. pieces, boxes)"
+            type="text"
+            required
+            placeholder="e.g. pieces"
+            value={newCatUnit}
+            onChange={(e) => setNewCatUnit(e.target.value)}
+            accent="amber"
+          />
+
+          <PremiumSelect
+            label="Which floor"
+            value={newCatFloor}
+            onChange={(value) => setNewCatFloor(value as Floor)}
+            options={FLOOR_SELECT_OPTIONS}
+            placeholder="Choose floor..."
+            accent="amber"
+            required
+            name="newFloor"
+          />
+
+          <FormInput
+            label="Starting amount"
+            type="number"
+            required
+            min={0}
+            placeholder="e.g. 100"
+            value={newCatInitial}
+            onChange={(e) => setNewCatInitial(e.target.value === '' ? '' : Number(e.target.value))}
+            accent="amber"
+          />
+
+          <ModalActions
+            onCancel={() => setIsAddCategoryOpen(false)}
+            submitLabel="Add item"
+            submitAccent="amber"
+          />
+        </form>
+      </AppModal>
+
+      {/* Add Stock Modal */}
+      <AppModal
+        open={isRestockOpen}
+        onClose={() => setIsRestockOpen(false)}
+        title="Add more stock"
+        description="Increase the total and remaining stock for an item"
+        icon={<ArrowUpRight className="h-5 w-5" />}
+        accent="amber"
+      >
+        <form onSubmit={handleRestockSubmit} className="space-y-4">
+          {restockError && <FormError message={restockError} />}
+
+          <PremiumSelect
+            label="Choose item"
+            value={selectedCatIdForRestock}
+            onChange={setSelectedCatIdForRestock}
+            options={stockSelectOptions}
+            placeholder="Choose an item..."
+            searchable
+            searchPlaceholder="Search items..."
+            accent="amber"
+            required
+            name="restockItem"
+          />
+
+          <FormInput
+            label="How much to add"
+            type="number"
+            required
+            min={1}
+            placeholder="e.g. 150"
+            value={restockAmount}
+            onChange={(e) => setRestockAmount(e.target.value === '' ? '' : Number(e.target.value))}
+            accent="amber"
+          />
+
+          <ModalActions
+            onCancel={() => setIsRestockOpen(false)}
+            submitLabel="Add stock"
+            submitAccent="amber"
+          />
+        </form>
+      </AppModal>
+
+      {/* Record withdrawal (admin) */}
+      <AppModal
+        open={isWithdrawOpen}
+        onClose={closeWithdrawModal}
+        title="Record taken stock"
+        description="Log items taken out and assign them to a staff member"
+        icon={<Send className="h-5 w-5" />}
+        accent="emerald"
+      >
+        {staffMembers.length === 0 ? (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600 leading-relaxed">
+              No staff accounts found. Add staff users before recording taken stock.
+            </p>
+            <button
+              type="button"
+              onClick={closeWithdrawModal}
+              className="w-full px-5 py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-semibold transition-all cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={handleWithdrawSubmit} className="space-y-4">
+            {withdrawError && <FormError message={withdrawError} />}
+
+            <PremiumSelect
+              label="Staff member"
+              value={selectedStaffUsername}
+              onChange={setSelectedStaffUsername}
+              options={staffSelectOptions}
+              placeholder="Choose staff..."
+              disabled={isWithdrawSubmitting}
+              searchable={staffSelectOptions.length > 4}
+              searchPlaceholder="Search staff..."
+              accent="emerald"
+              required
+              name="staffMember"
             />
 
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-              className="bg-white border border-slate-200 shadow-2xl rounded-xl w-full max-w-sm overflow-hidden relative z-10"
-            >
-              <div className="h-1 bg-red-500 w-full" />
-
-              <div className="p-6 space-y-4">
-                <div className="flex items-start gap-3">
-                  <span className="p-2 rounded-lg bg-red-50 text-red-600 border border-red-100 shrink-0">
-                    <Trash2 className="h-5 w-5" />
-                  </span>
-                  <div>
-                    <h3 className="text-base font-bold text-slate-900">Remove item?</h3>
-                    <p className="text-sm text-slate-500 mt-1 leading-relaxed">
-                      Remove <span className="font-semibold text-slate-800">&quot;{deletingCategory.name}&quot;</span> from your stock list?
-                      Past records of items taken will still be kept.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-end gap-2 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setDeletingCategoryId(null)}
-                    className="px-5 py-3 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg text-sm font-semibold transition-all cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDeleteConfirm}
-                    className="px-5 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold text-sm transition-all cursor-pointer"
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Category Creation Overlay Modal */}
-      <AnimatePresence>
-        {isAddCategoryOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            {/* Backdrop blur layer */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsAddCategoryOpen(false)}
-              className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs"
+            <PremiumSelect
+              label="Which item"
+              value={withdrawCategoryId}
+              onChange={setWithdrawCategoryId}
+              options={stockSelectOptions}
+              placeholder="Choose an item..."
+              disabled={isWithdrawSubmitting}
+              searchable
+              searchPlaceholder="Search items..."
+              accent="emerald"
+              required
+              name="withdrawItem"
             />
-            
-            {/* Modal Body Card */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-              className="bg-white border border-slate-200 shadow-2xl rounded-xl w-full max-w-sm overflow-hidden relative z-10"
-            >
-              {/* Top Accent line */}
-              <div className="h-1 bg-amber-500 w-full" />
-              
-              <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="p-1 px-1.5 rounded bg-slate-50 text-amber-600 border border-slate-100">
-                    <Plus className="h-4 w-4" />
-                  </span>
-                  <h3 className="text-base font-bold text-slate-800">
-                    Add new item
-                  </h3>
-                </div>
-                <button
-                  onClick={() => setIsAddCategoryOpen(false)}
-                  className="p-1 text-slate-400 hover:text-slate-600 transition-colors rounded hover:bg-slate-50 cursor-pointer"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
 
-              <form onSubmit={handleAddCategorySubmit} className="p-6 space-y-4">
-                {catError && (
-                  <div className="bg-red-50 border border-red-200 text-red-655 p-2.5 text-xs rounded flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4 shrink-0" />
-                    {catError}
-                  </div>
-                )}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="block text-sm font-semibold text-slate-600">
-                      Item name
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Copper Connectors"
-                      value={newCatName}
-                      onChange={(e) => setNewCatName(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-3 text-base text-slate-900 focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="block text-sm font-semibold text-slate-600">
-                      Unit (e.g. pieces, boxes)
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. pieces, meters"
-                      value={newCatUnit}
-                      onChange={(e) => setNewCatUnit(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-3 text-base text-[#0F172A] focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="block text-sm font-semibold text-slate-600">
-                    Which floor
-                  </label>
-                  <select
-                    required
-                    value={newCatFloor}
-                    onChange={(e) => setNewCatFloor(e.target.value as Floor)}
-                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-3 text-base text-slate-900 focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
-                  >
-                    {FLOOR_OPTIONS.map((floor) => (
-                      <option key={floor} value={floor}>
-                        {floor}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="block text-sm font-semibold text-slate-600">
-                    Starting amount
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    min="0"
-                    placeholder="e.g. 100"
-                    value={newCatInitial}
-                    onChange={(e) => setNewCatInitial(e.target.value === '' ? '' : Number(e.target.value))}
-                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-3 text-base text-[#0F172A] focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
-                  />
-                </div>
-
-                <div className="pt-4 flex items-center justify-end gap-2 border-t border-slate-100 mt-4">
-                  <button
-                    type="button"
-                    onClick={() => setIsAddCategoryOpen(false)}
-                    className="px-5 py-3 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg text-sm font-semibold transition-all cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-5 py-3 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg font-semibold text-sm transition-all cursor-pointer"
-                  >
-                    Add item
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Stock Refill / Reconcile Overlay Modal */}
-      <AnimatePresence>
-        {isRestockOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            {/* Backdrop blur layer */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsRestockOpen(false)}
-              className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs"
+            <FormInput
+              label="How many taken"
+              type="number"
+              required
+              min={1}
+              placeholder="e.g. 5"
+              value={withdrawAmount}
+              onChange={(e) => setWithdrawAmount(e.target.value === '' ? '' : Number(e.target.value))}
+              disabled={isWithdrawSubmitting}
+              accent="emerald"
             />
-            
-            {/* Modal Body Card */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              transition={{ type: 'spring', damping: 25, stiffness: 350 }}
-              className="bg-white border border-slate-200 shadow-2xl rounded-xl w-full max-w-sm overflow-hidden relative z-10"
-            >
-              {/* Top Accent line */}
-              <div className="h-1 bg-amber-500 w-full" />
-              
-              <div className="p-6 border-b border-slate-100 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className="p-1 px-1.5 rounded bg-slate-50 text-amber-600 border border-slate-100">
-                    <ArrowUpRight className="h-4 w-4" />
-                  </span>
-                  <h3 className="text-base font-bold text-slate-800">
-                    Add more stock
-                  </h3>
-                </div>
-                <button
-                  onClick={() => setIsRestockOpen(false)}
-                  className="p-1 text-slate-400 hover:text-slate-600 transition-colors rounded hover:bg-slate-50 cursor-pointer"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
 
-              <form onSubmit={handleRestockSubmit} className="p-6 space-y-4">
-                {restockError && (
-                  <div className="bg-red-50 border border-red-200 text-red-600 p-2.5 text-xs rounded flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4 shrink-0" />
-                    {restockError}
-                  </div>
-                )}
-
-                <div className="space-y-1.5">
-                  <label className="block text-sm font-semibold text-slate-600">
-                    Choose item
-                  </label>
-                  <select
-                    required
-                    value={selectedCatIdForRestock}
-                    onChange={(e) => setSelectedCatIdForRestock(e.target.value)}
-                    className="w-full bg-white border border-slate-200 rounded px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-amber-500 transition-colors shadow-2xs animate-fade-in"
-                  >
-                    <option value="">-- Choose Item --</option>
-                    {categories.map((cat) => (
-                      <option key={cat.id} value={cat.id}>
-                        {cat.name} · {cat.floor} ({cat.currentQuantity} remaining / {cat.initialStock} total {cat.unit})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="block text-sm font-semibold text-slate-600">
-                    How much to add
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    min="1"
-                    placeholder="e.g. 150"
-                    value={restockAmount}
-                    onChange={(e) => setRestockAmount(e.target.value === '' ? '' : Number(e.target.value))}
-                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-3 text-base text-slate-900 focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
-                  />
-                </div>
-
-                <div className="pt-4 flex items-center justify-end gap-2 border-t border-slate-100 mt-4">
-                  <button
-                    type="button"
-                    onClick={() => setIsRestockOpen(false)}
-                    className="px-5 py-3 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg text-sm font-semibold transition-all cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-5 py-3 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg font-semibold text-sm transition-all cursor-pointer"
-                  >
-                    Add stock
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
+            <ModalActions
+              onCancel={closeWithdrawModal}
+              submitLabel="Save record"
+              submitAccent="emerald"
+              isSubmitting={isWithdrawSubmitting}
+            />
+          </form>
         )}
-      </AnimatePresence>
+      </AppModal>
     </div>
   );
 }

@@ -20,6 +20,7 @@ import {
   deleteCategoryFromDb,
   fetchCategories,
   fetchWithdrawalLogs,
+  fetchStaffUsers,
   insertCategory,
   insertWithdrawalLog,
   updateCategoryInDb,
@@ -42,6 +43,7 @@ export default function App() {
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [logs, setLogs] = useState<WithdrawalLog[]>([]);
+  const [staffMembers, setStaffMembers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -57,12 +59,14 @@ export default function App() {
     setIsLoading(true);
     setLoadError(null);
     try {
-      const [categoriesData, logsData] = await Promise.all([
+      const [categoriesData, logsData, staffData] = await Promise.all([
         fetchCategories(),
         fetchWithdrawalLogs(),
+        fetchStaffUsers(),
       ]);
       setCategories(categoriesData);
       setLogs(logsData);
+      setStaffMembers(staffData);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : 'Could not load your stock. Please try again.';
@@ -215,7 +219,8 @@ export default function App() {
 
   const handleWithdraw = async (
     categoryId: string,
-    quantity: number
+    quantity: number,
+    staffUsername?: string
   ): Promise<{ success: boolean; message: string }> => {
     const category = categories.find((c) => c.id === categoryId);
 
@@ -229,6 +234,10 @@ export default function App() {
       return { success: false, message: errorMsg };
     }
 
+    const assignee = staffUsername?.trim() || currentUser?.username || 'unknown';
+    const recordedByAdmin =
+      currentUser?.role === 'Admin' && staffUsername && staffUsername !== currentUser.username;
+
     const updatedCategory: Category = {
       ...category,
       currentQuantity: category.currentQuantity - quantity,
@@ -237,7 +246,7 @@ export default function App() {
     const timestamp = getFormattedTimestamp();
     const newLogEntry: WithdrawalLog = {
       id: `trx-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      workerId: currentUser?.username || 'unknown',
+      workerId: assignee,
       categoryId,
       categoryName: category.name,
       quantity,
@@ -252,13 +261,15 @@ export default function App() {
         prev.map((cat) => (cat.id === categoryId ? updatedCategory : cat))
       );
       setLogs((prev) => [newLogEntry, ...prev]);
-      showToast(
-        `Recorded: ${quantity} ${category.unit} of "${category.name}" taken.`,
-        'success'
-      );
+      const toastMsg = recordedByAdmin
+        ? `Recorded: ${assignee} took ${quantity} ${category.unit} of "${category.name}".`
+        : `Recorded: ${quantity} ${category.unit} of "${category.name}" taken.`;
+      showToast(toastMsg, 'success');
       return {
         success: true,
-        message: `Done! You took ${quantity} ${category.unit} of "${category.name}".`,
+        message: recordedByAdmin
+          ? `Recorded for ${assignee}: ${quantity} ${category.unit} of "${category.name}".`
+          : `Done! You took ${quantity} ${category.unit} of "${category.name}".`,
       };
     } catch {
       showToast('Could not save this. Please try again.', 'error');
@@ -443,11 +454,15 @@ export default function App() {
           <AdminDashboard
             categories={categories}
             logs={logs}
+            staffMembers={staffMembers}
             onAddStock={handleAddStock}
             onAddNewCategory={handleAddNewCategory}
             onUpdateCategory={handleUpdateCategory}
             onDeleteCategory={handleDeleteCategory}
             onToggleLogStatus={handleToggleLogStatus}
+            onRecordWithdrawal={(categoryId, quantity, staffUsername) =>
+              handleWithdraw(categoryId, quantity, staffUsername)
+            }
             activeSection={activeSection}
           />
         ) : (

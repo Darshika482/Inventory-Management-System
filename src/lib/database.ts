@@ -83,6 +83,21 @@ export async function fetchAppUsers(): Promise<DbAppUser[]> {
   return data as DbAppUser[];
 }
 
+export async function fetchStaffUsers(): Promise<User[]> {
+  const { data, error } = await assertSupabase()
+    .from('app_users')
+    .select('id, username, role')
+    .eq('role', 'Worker')
+    .order('username');
+
+  if (error) throw error;
+  return (data as Pick<DbAppUser, 'id' | 'username' | 'role'>[]).map((row) => ({
+    id: row.id,
+    username: row.username,
+    role: row.role,
+  }));
+}
+
 export async function authenticateUser(
   username: string,
   password: string
