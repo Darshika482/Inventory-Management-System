@@ -17,7 +17,7 @@ export function Login({ onLogin }: LoginProps) {
     setError('');
 
     if (!username.trim() || !password.trim()) {
-      setError('Please fill in all fields.');
+      setError('Please enter both your name and password.');
       return;
     }
 
@@ -25,10 +25,10 @@ export function Login({ onLogin }: LoginProps) {
     try {
       const success = await onLogin(username.trim(), password);
       if (!success) {
-        setError('Invalid name or password.');
+        setError('Wrong name or password. Please try again.');
       }
     } catch {
-      setError('Unable to authenticate. Please try again.');
+      setError('Could not sign in right now. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -42,23 +42,23 @@ export function Login({ onLogin }: LoginProps) {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
-        className="w-full max-w-md bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden relative"
+        className="w-full max-w-lg bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden relative"
       >
-        <div className="h-1 bg-amber-500 w-full" />
+        <div className="h-1.5 bg-amber-500 w-full" />
 
         <div className="p-8 sm:p-10">
           <div className="flex justify-center mb-6">
-            <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 flex items-center justify-center relative">
-              <Shield className="h-8 w-8 text-amber-600" />
+            <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 flex items-center justify-center">
+              <Shield className="h-10 w-10 text-amber-600" />
             </div>
           </div>
 
           <div className="text-center mb-8">
-            <h1 className="font-sans text-2xl font-bold tracking-tight text-slate-900">
-              Akshay Traders Portal
+            <h1 className="text-3xl font-bold tracking-tight text-slate-900">
+              Akshay Traders
             </h1>
-            <p className="text-slate-500 text-xs mt-1.5 font-medium">
-              Role-Based Inventory Control Panel
+            <p className="text-slate-500 text-base mt-2">
+              Sign in to check and update your shop stock
             </p>
           </div>
 
@@ -67,46 +67,49 @@ export function Login({ onLogin }: LoginProps) {
               <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="bg-red-50 border border-red-200 text-red-600 p-3.5 rounded-md text-xs flex items-start gap-2.5"
+                className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl text-base flex items-start gap-3"
               >
-                <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+                <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
                 <span>{error}</span>
               </motion.div>
             )}
 
-            <div className="space-y-1.5">
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-slate-700">
+                Your name
+              </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <UserIcon className="h-4 w-4 text-slate-400" />
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <UserIcon className="h-5 w-5 text-slate-400" />
                 </div>
                 <input
                   type="text"
                   required
-                  placeholder="Enter your name"
+                  placeholder="Type your name"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   disabled={isSubmitting}
-                  className="block w-full pl-10 pr-3 py-2.5 bg-white border border-slate-200 rounded-md text-slate-900 placeholder-slate-400 text-xs focus:outline-none focus:border-[#0F172A] focus:ring-1 focus:ring-[#0F172A] transition-all disabled:opacity-60"
+                  className="block w-full pl-12 pr-4 py-3.5 bg-white border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 text-base focus:outline-none focus:border-[#0F172A] focus:ring-2 focus:ring-[#0F172A]/10 transition-all disabled:opacity-60"
                 />
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-500">
+            <div className="space-y-2">
+              <label className="block text-sm font-semibold text-slate-700">
                 Password
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                  <KeyRound className="h-4 w-4 text-slate-400" />
+                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                  <KeyRound className="h-5 w-5 text-slate-400" />
                 </div>
                 <input
                   type="password"
                   required
-                  placeholder="••••••••"
+                  placeholder="Type your password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={isSubmitting}
-                  className="block w-full pl-10 pr-3 py-2.5 bg-white border border-slate-200 rounded-md text-slate-900 placeholder-slate-400 text-xs focus:outline-none focus:border-[#0F172A] focus:ring-1 focus:ring-[#0F172A] transition-all disabled:opacity-60"
+                  className="block w-full pl-12 pr-4 py-3.5 bg-white border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 text-base focus:outline-none focus:border-[#0F172A] focus:ring-2 focus:ring-[#0F172A]/10 transition-all disabled:opacity-60"
                 />
               </div>
             </div>
@@ -114,15 +117,15 @@ export function Login({ onLogin }: LoginProps) {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full py-2.5 px-4 bg-[#0F172A] hover:bg-slate-800 disabled:opacity-60 text-white font-semibold uppercase tracking-wider rounded-md transition-colors focus:ring-2 focus:ring-[#0F172A] focus:outline-none flex items-center justify-center gap-2 cursor-pointer shadow-sm text-xs mt-2"
+              className="w-full py-3.5 px-4 bg-[#0F172A] hover:bg-slate-800 disabled:opacity-60 text-white font-semibold rounded-xl transition-colors focus:ring-2 focus:ring-[#0F172A] focus:outline-none flex items-center justify-center gap-2 cursor-pointer shadow-sm text-base mt-2"
             >
               {isSubmitting ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Authenticating...
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  Signing in...
                 </>
               ) : (
-                'Authenticate'
+                'Sign in'
               )}
             </button>
           </form>

@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Category, WithdrawalLog, Floor } from '../types';
-import { FLOOR_OPTIONS, getFloorBadgeClass } from '../lib/floors';
+import { FLOOR_OPTIONS, getFloorBadgeClass, getFloorShortLabel } from '../lib/floors';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -111,12 +111,12 @@ export function AdminDashboard({
     setCatError('');
 
     if (!newCatName.trim()) {
-      setCatError('Category name is required.');
+      setCatError('Please enter an item name.');
       return;
     }
 
     if (newCatInitial === '' || newCatInitial < 0) {
-      setCatError('Initial stock must be a non-negative number.');
+      setCatError('Starting amount must be zero or more.');
       return;
     }
 
@@ -126,7 +126,7 @@ export function AdminDashboard({
         c.floor === newCatFloor
     );
     if (nameExists) {
-      setCatError('Category with this name already exists on this floor.');
+      setCatError('An item with this name already exists on this floor.');
       return;
     }
 
@@ -144,12 +144,12 @@ export function AdminDashboard({
     setRestockError('');
 
     if (!selectedCatIdForRestock) {
-      setRestockError('Please select a category.');
+      setRestockError('Please choose an item.');
       return;
     }
 
     if (restockAmount === '' || restockAmount <= 0) {
-      setRestockError('Please enter a quantity greater than 0.');
+      setRestockError('Please enter an amount greater than 0.');
       return;
     }
 
@@ -183,17 +183,17 @@ export function AdminDashboard({
     if (!editingCategoryId) return;
 
     if (!editCatName.trim()) {
-      setEditError('Category name is required.');
+      setEditError('Please enter an item name.');
       return;
     }
 
     if (editCatInitial === '' || editCatInitial < 0) {
-      setEditError('Initial stock must be a non-negative number.');
+      setEditError('Total stock must be zero or more.');
       return;
     }
 
     if (editCatCurrent === '' || editCatCurrent < 0) {
-      setEditError('Current stock must be a non-negative number.');
+      setEditError('Remaining stock must be zero or more.');
       return;
     }
 
@@ -204,7 +204,7 @@ export function AdminDashboard({
         c.floor === editCatFloor
     );
     if (nameExists) {
-      setEditError('Another category with this name already exists on this floor.');
+      setEditError('Another item with this name already exists on this floor.');
       return;
     }
 
@@ -228,32 +228,53 @@ export function AdminDashboard({
     ? categories.find((c) => c.id === deletingCategoryId)
     : null;
 
-  const renderCategoryActions = (cat: Category) => (
-    <div className="flex items-center gap-1.5">
-      <button
-        type="button"
-        onClick={() => openEditModal(cat)}
-        title="Edit category"
-        className="p-1.5 text-slate-500 hover:text-amber-700 bg-white border border-slate-200 rounded shadow-2xs hover:border-amber-300 transition-colors cursor-pointer"
-      >
-        <Pencil className="h-3.5 w-3.5" />
-      </button>
-      <button
-        type="button"
-        onClick={() => setDeletingCategoryId(cat.id)}
-        title="Delete category"
-        className="p-1.5 text-slate-500 hover:text-red-600 bg-white border border-slate-200 rounded shadow-2xs hover:border-red-200 transition-colors cursor-pointer"
-      >
-        <Trash2 className="h-3.5 w-3.5" />
-      </button>
-    </div>
+  const renderCategoryActions = (cat: Category, variant: 'icon' | 'labeled' = 'icon') => (
+    variant === 'labeled' ? (
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => openEditModal(cat)}
+          className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors cursor-pointer"
+        >
+          <Pencil className="h-4 w-4" />
+          Edit
+        </button>
+        <button
+          type="button"
+          onClick={() => setDeletingCategoryId(cat.id)}
+          className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors cursor-pointer"
+        >
+          <Trash2 className="h-4 w-4" />
+          Remove
+        </button>
+      </div>
+    ) : (
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => openEditModal(cat)}
+          title="Edit item"
+          className="p-1.5 text-slate-500 hover:text-amber-700 bg-white border border-slate-200 rounded shadow-2xs hover:border-amber-300 transition-colors cursor-pointer"
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+        <button
+          type="button"
+          onClick={() => setDeletingCategoryId(cat.id)}
+          title="Remove item"
+          className="p-1.5 text-slate-500 hover:text-red-600 bg-white border border-slate-200 rounded shadow-2xs hover:border-red-200 transition-colors cursor-pointer"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    )
   );
 
   const renderFloorBadge = (floor: Floor) => (
     <span
-      className={`inline-flex items-center px-2 py-0.5 text-[9px] font-bold rounded-full border uppercase tracking-wider ${getFloorBadgeClass(floor)}`}
+      className={`inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-md border ${getFloorBadgeClass(floor)}`}
     >
-      {floor}
+      {getFloorShortLabel(floor)}
     </span>
   );
 
@@ -262,11 +283,11 @@ export function AdminDashboard({
     const ratio = current / initial;
     if (ratio < 0.2) {
       return {
-        label: 'Critical',
+        label: 'Very low',
         bg: 'bg-[#FEE2E2] text-[#991B1B] border-[#FECACA]',
         text: 'text-red-600',
         indicator: 'bg-[#991B1B]',
-        tooltip: 'Below 20% of initial capacity'
+        tooltip: 'Less than 20% left'
       };
     }
     if (ratio < 0.5) {
@@ -275,15 +296,15 @@ export function AdminDashboard({
         bg: 'bg-[#FEF3C7] text-[#92400E] border-[#FDE68A]',
         text: 'text-amber-600',
         indicator: 'bg-[#92400E]',
-        tooltip: 'Below 50% of initial capacity'
+        tooltip: 'Less than half left'
       };
     }
     return {
-      label: 'Healthy',
+      label: 'Good',
       bg: 'bg-[#DCFCE7] text-[#166534] border-[#BBF7D0]',
       text: 'text-emerald-700',
       indicator: 'bg-[#166534]',
-      tooltip: 'Optimal storage density'
+      tooltip: 'Plenty in stock'
     };
   };
 
@@ -393,18 +414,18 @@ export function AdminDashboard({
       doc.setTextColor(255, 255, 255);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(22);
-      doc.text('INVENTORY LOGISTICS STATUS REPORT', 14, 16);
+      doc.text('AKSHAY TRADERS — STOCK LIST', 14, 16);
 
       // Subtitle
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(11);
       doc.setTextColor(245, 158, 11); // amber-500
-      doc.text(`Shift Status: Active & Authenticated  •  Generated on: ${new Date().toLocaleString()}`, 14, 23);
+      doc.text(`Downloaded: ${new Date().toLocaleString()}`, 14, 23);
 
       // Summary indicators in header banner
       doc.setFontSize(10);
       doc.setTextColor(148, 163, 184); // slate-400
-      doc.text(`Total Stock Categories: ${stats.totalCategories}   |   Total Units In Stock: ${stats.totalItemsInStock}   |   Low Stock Warnings: ${stats.lowStockItems}`, 14, 30);
+      doc.text(`Item types: ${stats.totalCategories}   |   In stock: ${stats.totalItemsInStock}   |   Running low: ${stats.lowStockItems}`, 14, 30);
 
       // Accent border below banner
       doc.setDrawColor(245, 158, 11);
@@ -412,18 +433,18 @@ export function AdminDashboard({
       doc.line(0, 38, 210, 38);
 
       // Table mapping
-      const tableHeaders = [['Inventory Line Item', 'Floor', 'Measuring Unit', 'Total Stock', 'Stock Remaining', 'Remaining %', 'Logistics Status']];
+      const tableHeaders = [['Item', 'Floor', 'Unit', 'Total stock', 'Left', 'Remaining %', 'Status']];
       
       const tableRows = filteredAndSortedCategories.map((cat) => {
         const ratio = cat.currentQuantity / cat.initialStock;
         const percentage = cat.initialStock > 0
           ? Math.min(100, Math.round(ratio * 100))
           : 0;
-        let status = 'HEALTHY';
+        let status = 'Good';
         if (ratio < 0.2) {
-          status = 'CRITICAL ALERT';
+          status = 'Very low';
         } else if (ratio < 0.5) {
-          status = 'LOW SUPPLY';
+          status = 'Low';
         }
         return [
           cat.name,
@@ -473,9 +494,9 @@ export function AdminDashboard({
         didParseCell: (data) => {
           if (data.section === 'body' && data.column.index === 6) {
             const val = data.cell.raw as string;
-            if (val === 'CRITICAL ALERT') {
+            if (val === 'Very low') {
               data.cell.styles.textColor = [153, 27, 27];
-            } else if (val === 'LOW SUPPLY') {
+            } else if (val === 'Low') {
               data.cell.styles.textColor = [146, 64, 14];
             } else {
               data.cell.styles.textColor = [22, 101, 52];
@@ -492,7 +513,7 @@ export function AdminDashboard({
         doc.setFontSize(10);
         doc.setTextColor(148, 163, 184); // slate-400
         doc.text(`Page ${i} of ${pageCount}`, 14, 287);
-        doc.text('Secure Administrative Report  •  Inventory Dispatch Terminal  •  Verification Signed', 72, 287);
+        doc.text('Akshay Traders  •  Stock report', 72, 287);
       }
 
       doc.save(`inventory-status-report-${new Date().toISOString().split('T')[0]}.pdf`);
@@ -518,18 +539,18 @@ export function AdminDashboard({
       doc.setTextColor(255, 255, 255);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(22);
-      doc.text('WITHDRAWAL TRANSACTION LEDGER LOGS', 14, 16);
+      doc.text('AKSHAY TRADERS — TAKEN ITEMS HISTORY', 14, 16);
 
       // Subtitle
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(11);
       doc.setTextColor(245, 158, 11); // amber-500
-      doc.text(`Full Operational Audit Trail  •  Generated on: ${new Date().toLocaleString()}`, 14, 23);
+      doc.text(`Downloaded: ${new Date().toLocaleString()}`, 14, 23);
 
       // Metric lines
       doc.setFontSize(10);
       doc.setTextColor(148, 163, 184); // slate-400
-      doc.text(`Total Audit Actions Listed: ${filteredAndSortedLogs.length}   |   Approved Withdrawals: ${logs.filter(l => l.status === 'Approved').length}   |   Rejected/Reverted: ${logs.filter(l => l.status === 'Rejected').length}`, 14, 30);
+      doc.text(`Records shown: ${filteredAndSortedLogs.length}   |   Confirmed: ${logs.filter(l => l.status === 'Approved').length}   |   Undone: ${logs.filter(l => l.status === 'Rejected').length}`, 14, 30);
 
       // Border line accent
       doc.setDrawColor(245, 158, 11);
@@ -537,7 +558,7 @@ export function AdminDashboard({
       doc.line(0, 38, 210, 38);
 
       // Table mapping
-      const tableHeaders = [['Action Ledger ID', 'Staff Member', 'Category Disbursed', 'Units Taken', 'Timestamp', 'Audit Status']];
+      const tableHeaders = [['Reference', 'Staff', 'Item', 'Amount', 'When', 'Status']];
       
       const tableRows = filteredAndSortedLogs.map((log) => {
         return [
@@ -601,7 +622,7 @@ export function AdminDashboard({
         doc.setFontSize(10);
         doc.setTextColor(148, 163, 184);
         doc.text(`Page ${i} of ${pageCount}`, 14, 287);
-        doc.text('Secure Administrative Audit  •  Inventory Dispatch Terminal  •  Verification Signed', 85, 287);
+        doc.text('Akshay Traders  •  Stock report', 85, 287);
       }
 
       doc.save(`audit-reconciliation-ledger-${new Date().toISOString().split('T')[0]}.pdf`);
@@ -616,110 +637,31 @@ export function AdminDashboard({
       {/* Dynamic Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
         <div className="min-w-0">
-          <h2 className="font-sans text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
-            Admin Control Center
+          <h2 className="font-sans text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
+            Stock overview
           </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            Real-time analytics and inventory reconciliation tools
+          <p className="text-sm text-slate-500 mt-1">
+            See what you have and what has been taken
           </p>
         </div>
         <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
           <button
             onClick={() => setIsAddCategoryOpen(true)}
-            className="flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 bg-[#0F172A] hover:bg-slate-800 text-white rounded-md text-xs font-semibold shadow-xs cursor-pointer transition-all border border-slate-850"
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg text-sm font-semibold shadow-xs cursor-pointer transition-all border border-slate-850"
           >
-            <Plus className="h-3.5 w-3.5" />
-            Provision Category
+            <Plus className="h-4 w-4" />
+            Add new item
           </button>
           <button
             onClick={() => setIsRestockOpen(true)}
-            className="flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-md text-xs font-semibold shadow-xs cursor-pointer transition-all border border-amber-600/10"
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg text-sm font-semibold shadow-xs cursor-pointer transition-all border border-amber-600/10"
           >
-            <ArrowUpRight className="h-3.5 w-3.5" />
-            Inject Stock
+            <ArrowUpRight className="h-4 w-4" />
+            Add more stock
           </button>
-          <div className="text-xs font-mono text-slate-500 px-3 py-2 sm:py-1.5 bg-white border border-slate-200 rounded-md flex items-center justify-center sm:justify-start gap-2 shadow-xs">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            System Live
-          </div>
-        </div>
-      </div>
-
-      {/* High-Contrast Summary Stats Cards (Bento style) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Card 1 */}
-        <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-xs flex items-start justify-between relative overflow-hidden group">
-          <div className="absolute top-0 right-0 p-3 text-slate-100 group-hover:text-amber-500/10 transition-colors pointer-events-none">
-            <Layers className="h-16 w-16 -mr-4 -mt-4 font-black" />
-          </div>
-          <div className="space-y-1 z-10">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              Total Categories
-            </p>
-            <h3 className="font-sans text-3xl font-bold text-slate-900 tracking-tight">
-              {stats.totalCategories}
-            </h3>
-            <p className="text-[11px] text-slate-400">
-              Active stock line items
-            </p>
-          </div>
-        </div>
-
-        {/* Card 2 */}
-        <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-xs flex items-start justify-between relative overflow-hidden group">
-          <div className="absolute top-0 right-0 p-3 text-slate-100 group-hover:text-amber-500/10 transition-colors pointer-events-none">
-            <Database className="h-16 w-16 -mr-4 -mt-4 font-black" />
-          </div>
-          <div className="space-y-1 z-10">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              Total Units
-            </p>
-            <h3 className="font-sans text-3xl font-bold text-slate-900 tracking-tight">
-              {stats.totalItemsInStock.toLocaleString()}
-            </h3>
-            <p className="text-[11px] text-slate-400">
-              Across all categories
-            </p>
-          </div>
-        </div>
-
-        {/* Card 3 */}
-        <div className="bg-white p-5 rounded-lg border border-slate-200 shadow-xs flex items-start justify-between relative overflow-hidden group">
-          <div className="absolute top-0 right-0 p-3 text-slate-100 group-hover:text-amber-500/10 transition-colors pointer-events-none">
-            <ArrowUpRight className="h-16 w-16 -mr-4 -mt-4 font-black" />
-          </div>
-          <div className="space-y-1 z-10">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-              Total Disbursed
-            </p>
-            <h3 className="font-sans text-3xl font-bold text-amber-600 tracking-tight">
-              {stats.totalWithdrawals.toLocaleString()}
-            </h3>
-            <p className="text-[11px] text-slate-400">
-              Approved transactions
-            </p>
-          </div>
-        </div>
-
-        {/* Card 4 - Low Stock Panel */}
-        <div className={`p-5 rounded-lg border shadow-xs flex items-start justify-between relative overflow-hidden group transition-all duration-300 ${
-          stats.lowStockItems > 0 
-            ? 'bg-amber-50/50 border-amber-200' 
-            : 'bg-white border-slate-200'
-        }`}>
-          <div className="absolute top-0 right-0 p-3 text-slate-100 pointer-events-none">
-            <AlertTriangle className="h-16 w-16 -mr-4 -mt-4 font-black" />
-          </div>
-          <div className="space-y-1 z-10">
-            <p className={`text-xs font-semibold uppercase tracking-wider ${stats.lowStockItems > 0 ? 'text-amber-800' : 'text-slate-500'}`}>
-              Low Stock Alerts
-            </p>
-            <h3 className={`font-sans text-3xl font-bold tracking-tight ${stats.lowStockItems > 0 ? 'text-amber-600' : 'text-slate-900'}`}>
-              {stats.lowStockItems < 10 ? `0${stats.lowStockItems}` : stats.lowStockItems}
-            </h3>
-            <p className={`text-[11px] ${stats.lowStockItems > 0 ? 'text-amber-700 font-medium' : 'text-slate-400'}`}>
-              {stats.lowStockItems > 0 ? 'Requires action' : 'All stores balanced'}
-            </p>
+          <div className="text-sm text-slate-500 px-4 py-3 bg-white border border-slate-200 rounded-lg flex items-center justify-center sm:justify-start gap-2 shadow-xs">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+            Online
           </div>
         </div>
       </div>
@@ -735,80 +677,127 @@ export function AdminDashboard({
             className="space-y-8"
           >
             {/* Inventory Overview Panel (Table) */}
-            <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-xs">
-              <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col gap-4">
-                <div className="flex items-start gap-2.5 min-w-0">
-                  <ClipboardList className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
-                  <div className="min-w-0">
-                    <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800">
-                      Inventory Logistics Table
-                    </h3>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      Check balances, thresholds, and storage configurations
-                    </p>
+            <div className="bg-white border border-slate-200 rounded-xl md:rounded-lg overflow-hidden shadow-xs">
+              <div className="p-4 md:p-5 border-b border-slate-100 flex flex-col gap-3 md:gap-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <ClipboardList className="h-5 w-5 text-amber-600 shrink-0" />
+                    <div className="min-w-0">
+                      <h3 className="text-lg md:text-base font-bold text-slate-800">
+                        Stock list
+                      </h3>
+                      <p className="text-sm text-slate-500 mt-0.5 hidden md:block">
+                        All items and how much is left
+                      </p>
+                    </div>
                   </div>
+                  <span className="md:hidden shrink-0 text-sm font-semibold text-slate-600 bg-slate-100 px-3 py-1 rounded-full tabular-nums">
+                    {filteredAndSortedCategories.length} items
+                  </span>
                 </div>
 
-                {/* Table search & filter controls */}
-                <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2.5 sm:gap-3">
-                  <div className="relative w-full sm:w-auto sm:min-w-[12rem] sm:flex-1 sm:max-w-xs">
-                    <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-slate-450" />
-                    <input
-                      type="text"
-                      placeholder="Filter by keyword..."
-                      value={categorySearch}
-                      onChange={(e) => setCategorySearch(e.target.value)}
-                      className="bg-white border border-slate-200 rounded pl-8 pr-2.5 py-2 sm:py-1 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500 w-full transition-all"
-                    />
-                  </div>
+                {/* Search */}
+                <div className="relative w-full">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Search by name..."
+                    value={categorySearch}
+                    onChange={(e) => setCategorySearch(e.target.value)}
+                    className="bg-slate-50 md:bg-white border border-slate-200 rounded-xl md:rounded-lg pl-10 pr-4 py-3.5 md:py-3 text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500 focus:bg-white w-full transition-all"
+                  />
+                </div>
 
+                {/* Mobile filters */}
+                <div className="flex flex-col gap-2 md:hidden">
+                  <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 rounded-xl">
+                    {(['All', ...FLOOR_OPTIONS] as const).map((floor) => (
+                      <button
+                        key={floor}
+                        type="button"
+                        onClick={() => setFloorFilter(floor)}
+                        className={`px-2 py-2.5 text-sm font-semibold rounded-lg transition-colors cursor-pointer ${
+                          floorFilter === floor
+                            ? 'bg-white text-slate-900 shadow-sm'
+                            : 'text-slate-500'
+                        }`}
+                      >
+                        {floor === 'All' ? 'All' : getFloorShortLabel(floor)}
+                      </button>
+                    ))}
+                  </div>
                   <button
+                    type="button"
                     onClick={() => setLowStockFilterOnly(!lowStockFilterOnly)}
-                    className={`flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1 text-[11px] font-semibold rounded border uppercase tracking-wider transition-all cursor-pointer ${
+                    className={`flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl border transition-all cursor-pointer ${
+                      lowStockFilterOnly
+                        ? 'bg-amber-50 text-amber-800 border-amber-300'
+                        : 'bg-white text-slate-600 border-slate-200'
+                    }`}
+                  >
+                    <Filter className="h-4 w-4 shrink-0" />
+                    {lowStockFilterOnly ? 'Showing running low' : 'Show running low only'}
+                    {stats.lowStockItems > 0 && (
+                      <span className={`ml-0.5 px-1.5 py-0.5 text-xs rounded-full ${
+                        lowStockFilterOnly ? 'bg-amber-200 text-amber-900' : 'bg-slate-200 text-slate-700'
+                      }`}>
+                        {stats.lowStockItems}
+                      </span>
+                    )}
+                  </button>
+                </div>
+
+                {/* Desktop filters */}
+                <div className="hidden md:flex md:flex-wrap items-center gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setLowStockFilterOnly(!lowStockFilterOnly)}
+                    className={`flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-semibold rounded-lg border transition-all cursor-pointer ${
                       lowStockFilterOnly
                         ? 'bg-amber-50 text-amber-700 border-amber-300 shadow-2xs'
                         : 'bg-white border-slate-250 text-slate-500 hover:text-slate-850'
                     }`}
                   >
                     <Filter className="h-3 w-3 shrink-0" />
-                    <span className="truncate">Low Stock Only ({categories.filter((cat) => cat.currentQuantity < cat.initialStock * 0.2).length})</span>
+                    <span className="truncate">Only low stock ({stats.lowStockItems})</span>
                   </button>
 
-                  <div className="inline-flex rounded-md bg-slate-50 p-0.5 border border-slate-200 w-full sm:w-auto">
+                  <div className="inline-flex rounded-md bg-slate-50 p-0.5 border border-slate-200">
                     {(['All', ...FLOOR_OPTIONS] as const).map((floor) => (
                       <button
                         key={floor}
                         type="button"
                         onClick={() => setFloorFilter(floor)}
-                        className={`flex-1 sm:flex-none px-3 py-2 sm:py-1 text-[10px] uppercase tracking-wider rounded font-semibold cursor-pointer transition-colors ${
+                        className={`px-3 py-2 text-sm rounded-lg font-semibold cursor-pointer transition-colors ${
                           floorFilter === floor
                             ? 'bg-[#0F172A] text-white font-bold shadow-xs'
                             : 'text-slate-500 hover:text-slate-800'
                         }`}
                       >
-                        {floor === 'All' ? 'All Floors' : floor.replace(' Floor', '')}
+                        {floor === 'All' ? 'All Floors' : getFloorShortLabel(floor)}
                       </button>
                     ))}
                   </div>
 
                   <button
+                    type="button"
                     onClick={downloadInventoryPDF}
-                    className="flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1 text-[11px] font-semibold rounded-md border bg-[#0F172A] hover:bg-slate-800 text-white border-slate-850 uppercase tracking-wider transition-all cursor-pointer shadow-xs"
-                    title="Export complete inventory layout report to PDF"
+                    className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-semibold rounded-lg border bg-[#0F172A] hover:bg-slate-800 text-white border-slate-850 transition-all cursor-pointer shadow-xs"
+                    title="Download stock list as PDF"
                   >
                     <FileDown className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-                    Export PDF
+                    Download PDF
                   </button>
                 </div>
               </div>
 
               {/* Mobile card list */}
-              <div className="md:hidden divide-y divide-slate-100">
+              <div className="md:hidden p-3 space-y-3 bg-slate-50/80">
                 {filteredAndSortedCategories.length === 0 ? (
-                  <div className="p-6 text-center text-slate-400 italic text-xs leading-relaxed">
+                  <div className="p-8 text-center text-slate-500 text-sm leading-relaxed">
                     {categories.length === 0
-                      ? 'No inventory categories provisioned yet. Use "Provision Category" to add your first item.'
-                      : 'No logistics line items matched search constraints.'}
+                      ? 'No items added yet. Tap "Add new item" above to get started.'
+                      : 'No items match your search.'}
                   </div>
                 ) : (
                   filteredAndSortedCategories.map((cat) => {
@@ -818,49 +807,59 @@ export function AdminDashboard({
                       : 0;
 
                     return (
-                      <div key={cat.id} className="p-4 space-y-3">
-                        <div className="flex items-start justify-between gap-3">
+                      <div
+                        key={cat.id}
+                        className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-3"
+                      >
+                        <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
-                            <p className="font-semibold text-slate-900 truncate">{cat.name}</p>
-                            <div className="flex items-center gap-2 mt-1 flex-wrap">
+                            <h4 className="text-lg font-bold text-slate-900 leading-snug">{cat.name}</h4>
+                            <div className="flex items-center gap-2 mt-2 flex-wrap">
                               {renderFloorBadge(cat.floor)}
-                              <p className="text-[11px] text-slate-500 capitalize">{cat.unit}</p>
+                              <span className="text-sm text-slate-500">· {cat.unit}</span>
                             </div>
                           </div>
-                          <div className="flex flex-col items-end gap-2 shrink-0">
-                            <span
-                              title={status.tooltip}
-                              className={`inline-flex items-center gap-1 px-2.5 py-1 text-[9px] font-bold rounded-full border ${status.bg}`}
-                            >
-                              <span className={`w-1.5 h-1.5 rounded-full ${status.indicator}`} />
-                              {status.label}
-                            </span>
-                            {renderCategoryActions(cat)}
-                          </div>
+                          <span
+                            title={status.tooltip}
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full border shrink-0 ${status.bg}`}
+                          >
+                            <span className={`w-2 h-2 rounded-full ${status.indicator}`} />
+                            {status.label}
+                          </span>
                         </div>
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-slate-500">Stock Remaining</span>
-                          <span className="font-bold text-slate-800">{cat.currentQuantity}</span>
-                        </div>
-                        <div className="flex items-center justify-between text-xs">
-                          <span className="text-slate-500">Total Stock</span>
-                          <span className="font-semibold text-slate-700">{cat.initialStock}</span>
-                        </div>
-                        <div className="space-y-1">
-                          <div className="flex justify-between text-[10px] text-slate-400 font-bold">
-                            <span>Remaining %</span>
-                            <span>{percentage}%</span>
-                          </div>
-                          <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden border border-slate-200">
+
+                        <div className="bg-slate-50 rounded-lg px-4 py-3">
+                          <p className="text-3xl font-bold text-slate-900 tabular-nums leading-none">
+                            {cat.currentQuantity.toLocaleString()}
+                          </p>
+                          <p className="text-sm text-slate-500 mt-1">
+                            left · {cat.initialStock.toLocaleString()} total ({percentage}%)
+                          </p>
+                          <div className="w-full bg-white h-2.5 rounded-full overflow-hidden mt-3 border border-slate-200">
                             <div
-                              className={`h-full ${status.indicator} transition-all duration-300`}
+                              className={`h-full rounded-full ${status.indicator} transition-all duration-300`}
                               style={{ width: `${Math.min(percentage, 100)}%` }}
                             />
                           </div>
                         </div>
+
+                        <div className="pt-1">
+                          {renderCategoryActions(cat, 'labeled')}
+                        </div>
                       </div>
                     );
                   })
+                )}
+
+                {filteredAndSortedCategories.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={downloadInventoryPDF}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 rounded-xl transition-colors cursor-pointer"
+                  >
+                    <FileDown className="h-4 w-4 text-amber-600" />
+                    Download stock list (PDF)
+                  </button>
                 )}
               </div>
 
@@ -868,10 +867,10 @@ export function AdminDashboard({
               <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-500 tracking-wider select-none">
+                    <tr className="bg-slate-50 border-b border-slate-200 text-sm font-bold text-slate-500 tracking-wider select-none">
                       <th className="p-4 w-1/3 cursor-pointer hover:bg-slate-100/50" onClick={() => toggleSortCategories('name')}>
                         <div className="flex items-center gap-1.5">
-                           Category Name
+                           Item name
                           <ArrowUpDown className="h-3 w-3" />
                         </div>
                       </th>
@@ -879,7 +878,7 @@ export function AdminDashboard({
                       <th className="p-4 w-1/6">Floor</th>
                       <th className="p-4 w-1/5 cursor-pointer hover:bg-slate-100/50" onClick={() => toggleSortCategories('stock')}>
                         <div className="flex items-center gap-1.5">
-                          Stock Remaining
+                          Left in stock
                           <ArrowUpDown className="h-3 w-3" />
                         </div>
                       </th>
@@ -890,17 +889,17 @@ export function AdminDashboard({
                           <ArrowUpDown className="h-3 w-3" />
                         </div>
                       </th>
-                      <th className="p-4 w-1/6">Logistics Status</th>
+                      <th className="p-4 w-1/6">Stock level</th>
                       <th className="p-4 w-24 text-right">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 text-xs">
+                  <tbody className="divide-y divide-slate-100 text-sm">
                     <AnimatePresence>
                       {filteredAndSortedCategories.length === 0 ? (
                         <tr>
                           <td colSpan={7} className="p-8 text-center text-slate-400 italic">
                             {categories.length === 0
-                              ? 'No inventory categories provisioned yet. Use "Provision Category" to add your first item.'
+                              ? 'No items added yet. Tap "Add new item" to get started.'
                               : 'No logistics line items matched search constraints.'}
                           </td>
                         </tr>
@@ -937,7 +936,7 @@ export function AdminDashboard({
                               </td>
                               <td className="p-4">
                                 <div className="space-y-1">
-                                  <div className="flex justify-between text-[9px] text-slate-400 font-bold">
+                                  <div className="flex justify-between text-xs text-slate-400 font-bold">
                                     <span>{percentage}%</span>
                                   </div>
                                   <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden border border-slate-200">
@@ -951,7 +950,7 @@ export function AdminDashboard({
                               <td className="p-4">
                                 <span 
                                   title={status.tooltip}
-                                  className={`inline-flex items-center gap-1 px-2.5 py-1 text-[9px] font-bold rounded-full border ${status.bg}`}
+                                  className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-full border ${status.bg}`}
                                 >
                                   <span className={`w-1.5 h-1.5 rounded-full ${status.indicator}`} />
                                   {status.label}
@@ -985,11 +984,11 @@ export function AdminDashboard({
                 <div className="flex items-start gap-2.5 min-w-0">
                   <ClipboardList className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
                   <div className="min-w-0">
-                    <h3 className="text-sm font-bold uppercase tracking-wider text-slate-800">
-                      Withdrawal Transaction Ledger
+                    <h3 className="text-base font-bold text-slate-800">
+                      Taken items history
                     </h3>
-                    <p className="text-[11px] text-slate-500 mt-0.5">
-                      Review, audit or reject staff withdrawal submissions
+                    <p className="text-sm text-slate-500 mt-0.5">
+                      See what staff have taken and undo if needed
                     </p>
                   </div>
                 </div>
@@ -1000,10 +999,10 @@ export function AdminDashboard({
                     <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-slate-450" />
                     <input
                       type="text"
-                      placeholder="Search ledger logs..."
+                      placeholder="Search by name or date..."
                       value={logSearch}
                       onChange={(e) => setLogSearch(e.target.value)}
-                      className="bg-white border border-slate-200 rounded pl-8 pr-2.5 py-2 sm:py-1 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500 w-full transition-all"
+                      className="bg-white border border-slate-200 rounded-lg pl-9 pr-3 py-3 text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500 w-full transition-all"
                     />
                   </div>
 
@@ -1012,7 +1011,7 @@ export function AdminDashboard({
                       <button
                         key={status}
                         onClick={() => setLogStatusFilter(status)}
-                        className={`flex-1 sm:flex-none px-3 py-2 sm:py-1 text-[10px] uppercase tracking-wider rounded font-semibold cursor-pointer transition-colors ${
+                        className={`flex-1 sm:flex-none px-3 py-2.5 sm:py-2 text-sm rounded-lg font-semibold cursor-pointer transition-colors ${
                           logStatusFilter === status
                             ? 'bg-[#0F172A] text-white font-bold shadow-xs'
                             : 'text-slate-500 hover:text-slate-800'
@@ -1025,70 +1024,74 @@ export function AdminDashboard({
 
                   <button
                     onClick={downloadLogsPDF}
-                    className="flex items-center justify-center gap-1.5 px-3 py-2 sm:py-1 text-[11px] font-semibold rounded-md border bg-[#0F172A] hover:bg-slate-800 text-white border-slate-850 uppercase tracking-wider transition-all cursor-pointer shadow-xs"
+                    className="flex items-center justify-center gap-1.5 px-3 py-2.5 sm:py-2 text-sm font-semibold rounded-lg border bg-[#0F172A] hover:bg-slate-800 text-white border-slate-850 transition-all cursor-pointer shadow-xs"
                     title="Export withdrawal ledger log report to PDF"
                   >
                     <FileDown className="h-3.5 w-3.5 text-amber-500 shrink-0" />
-                    Export PDF
+                    Download PDF
                   </button>
                 </div>
               </div>
 
               {/* Mobile card list */}
-              <div className="md:hidden divide-y divide-slate-100">
+              <div className="md:hidden p-3 space-y-3 bg-slate-50/50">
                 {filteredAndSortedLogs.length === 0 ? (
-                  <div className="p-6 text-center text-slate-400 italic text-xs">
-                    No ledger logs available under criteria.
+                  <div className="p-6 text-center text-slate-400 italic text-sm">
+                    Nothing found.
                   </div>
                 ) : (
                   filteredAndSortedLogs.map((log) => (
                     <div
                       key={log.id}
-                      className={`p-4 space-y-3 ${log.status === 'Rejected' ? 'opacity-60' : ''}`}
+                      className={`bg-white border border-slate-200 rounded-xl p-4 shadow-xs ${
+                        log.status === 'Rejected' ? 'opacity-60' : ''
+                      }`}
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className={`font-semibold text-slate-900 truncate ${log.status === 'Rejected' ? 'line-through text-slate-400' : ''}`}>
+                        <div className="min-w-0 flex-1">
+                          <p className={`text-base font-bold text-slate-900 ${log.status === 'Rejected' ? 'line-through text-slate-400' : ''}`}>
                             {log.categoryName}
                           </p>
-                          <p className="text-[11px] text-amber-700 font-semibold flex items-center gap-1 mt-0.5">
-                            <HardHat className="h-3 w-3 opacity-60 shrink-0" />
+                          <p className="text-sm text-slate-500 flex items-center gap-1.5 mt-1">
+                            <HardHat className="h-3.5 w-3.5 shrink-0" />
                             {log.workerId}
                           </p>
                         </div>
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 text-[9px] font-bold rounded-full border shrink-0 ${
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-full border shrink-0 ${
                           log.status === 'Approved'
                             ? 'bg-[#DCFCE7] text-[#166534] border-[#BBF7D0]'
                             : 'bg-[#FEE2E2] text-[#991B1B] border-[#FECACA]'
                         }`}>
                           {log.status === 'Approved' ? (
                             <>
-                              <CheckCircle2 className="h-2.5 w-2.5" />
-                              Approved
+                              <CheckCircle2 className="h-3 w-3" />
+                              Confirmed
                             </>
                           ) : (
                             <>
-                              <XCircle className="h-2.5 w-2.5" />
-                              Rejected
+                              <XCircle className="h-3 w-3" />
+                              Undone
                             </>
                           )}
                         </span>
                       </div>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-slate-500">Quantity</span>
-                        <span className={`font-bold ${log.status === 'Rejected' ? 'line-through text-slate-400' : 'text-slate-800'}`}>
-                          {log.quantity}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-3 text-[11px] text-slate-500">
-                        <span className="truncate">{log.timestamp}</span>
-                        <button
-                          onClick={() => onToggleLogStatus(log.id)}
-                          title={log.status === 'Approved' ? 'Reject & Revert Stock' : 'Re-Approve (Deduct Stock)'}
-                          className="p-1.5 text-slate-500 hover:text-slate-800 bg-white border border-slate-200 rounded shadow-2xs hover:border-slate-350 transition-colors cursor-pointer shrink-0"
-                        >
-                          <RotateCcw className="h-3 w-3" />
-                        </button>
+                      <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
+                        <div>
+                          <p className={`text-xl font-bold tabular-nums ${log.status === 'Rejected' ? 'line-through text-slate-400' : 'text-slate-900'}`}>
+                            {log.quantity}
+                          </p>
+                          <p className="text-xs text-slate-500 mt-0.5">taken</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm text-slate-500">{log.timestamp}</p>
+                          <button
+                            onClick={() => onToggleLogStatus(log.id)}
+                            title={log.status === 'Approved' ? 'Undo — put stock back' : 'Confirm again — take stock'}
+                            className="p-2 text-slate-500 hover:text-slate-800 bg-slate-50 border border-slate-200 rounded-lg transition-colors cursor-pointer shrink-0"
+                          >
+                            <RotateCcw className="h-4 w-4" />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))
@@ -1099,7 +1102,7 @@ export function AdminDashboard({
               <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-500 tracking-wider select-none">
+                    <tr className="bg-slate-50 border-b border-slate-200 text-sm font-bold text-slate-500 tracking-wider select-none">
                       <th className="p-4 w-1/6 cursor-pointer hover:bg-slate-100/50" onClick={() => toggleSortLogs('worker')}>
                         <div className="flex items-center gap-1.5">
                           Staff Name
@@ -1108,7 +1111,7 @@ export function AdminDashboard({
                       </th>
                       <th className="p-4 w-1/4 cursor-pointer hover:bg-slate-100/50" onClick={() => toggleSortLogs('category')}>
                         <div className="flex items-center gap-1.5">
-                          Stock Category
+                          Item
                           <ArrowUpDown className="h-3 w-3" />
                         </div>
                       </th>
@@ -1120,24 +1123,24 @@ export function AdminDashboard({
                       </th>
                       <th className="p-4 w-1/4 cursor-pointer hover:bg-slate-100/50" onClick={() => toggleSortLogs('timestamp')}>
                         <div className="flex items-center gap-1.5">
-                          Timestamp
+                          When
                           <ArrowUpDown className="h-3 w-3" />
                         </div>
                       </th>
                       <th className="p-4 w-1/6 cursor-pointer hover:bg-slate-100/50" onClick={() => toggleSortLogs('status')}>
                         <div className="flex items-center gap-1.5">
-                          Status & Actions
+                          Status
                           <ArrowUpDown className="h-3 w-3" />
                         </div>
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 text-xs text-slate-700">
+                  <tbody className="divide-y divide-slate-100 text-sm text-slate-700">
                     <AnimatePresence>
                       {filteredAndSortedLogs.length === 0 ? (
                         <tr>
                           <td colSpan={5} className="p-8 text-center text-slate-400 italic">
-                            No ledger logs available under criteria.
+                            Nothing found.
                           </td>
                         </tr>
                       ) : (
@@ -1161,12 +1164,12 @@ export function AdminDashboard({
                             <td className="p-4 font-bold">
                               {log.quantity}
                             </td>
-                            <td className="p-4 text-[11px] text-slate-505 whitespace-nowrap">
+                            <td className="p-4 text-sm text-slate-505 whitespace-nowrap">
                               {log.timestamp}
                             </td>
                             <td className="p-4">
                               <div className="flex items-center gap-2">
-                                <span className={`inline-flex items-center gap-1 px-2.5 py-1 text-[9px] font-bold rounded-full border ${
+                                <span className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-full border ${
                                   log.status === 'Approved'
                                     ? 'bg-[#DCFCE7] text-[#166534] border-[#BBF7D0]'
                                     : 'bg-[#FEE2E2] text-[#991B1B] border-[#FECACA]'
@@ -1186,7 +1189,7 @@ export function AdminDashboard({
 
                                 <button
                                   onClick={() => onToggleLogStatus(log.id)}
-                                  title={log.status === 'Approved' ? 'Reject & Revert Stock' : 'Re-Approve (Deduct Stock)'}
+                                  title={log.status === 'Approved' ? 'Undo — put stock back' : 'Confirm again — take stock'}
                                   className="p-1.5 text-slate-500 hover:text-slate-800 bg-white border border-slate-200 rounded shadow-2xs hover:border-slate-350 transition-colors cursor-pointer"
                                 >
                                   <RotateCcw className="h-3 w-3" />
@@ -1204,6 +1207,42 @@ export function AdminDashboard({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Compact summary stats at page bottom */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 pt-2">
+        <div className="bg-white px-3 py-2.5 rounded-lg border border-slate-200 shadow-xs flex items-center gap-2.5">
+          <Layers className="h-4 w-4 text-slate-300 shrink-0" />
+          <div className="min-w-0">
+            <p className="text-xs text-slate-500 truncate">Item types</p>
+            <p className="text-lg font-bold text-slate-900 leading-tight">{stats.totalCategories}</p>
+          </div>
+        </div>
+        <div className="bg-white px-3 py-2.5 rounded-lg border border-slate-200 shadow-xs flex items-center gap-2.5">
+          <Database className="h-4 w-4 text-slate-300 shrink-0" />
+          <div className="min-w-0">
+            <p className="text-xs text-slate-500 truncate">Total pieces</p>
+            <p className="text-lg font-bold text-slate-900 leading-tight">{stats.totalItemsInStock.toLocaleString()}</p>
+          </div>
+        </div>
+        <div className="bg-white px-3 py-2.5 rounded-lg border border-slate-200 shadow-xs flex items-center gap-2.5">
+          <ArrowUpRight className="h-4 w-4 text-slate-300 shrink-0" />
+          <div className="min-w-0">
+            <p className="text-xs text-slate-500 truncate">Taken out</p>
+            <p className="text-lg font-bold text-amber-600 leading-tight">{stats.totalWithdrawals.toLocaleString()}</p>
+          </div>
+        </div>
+        <div className={`px-3 py-2.5 rounded-lg border shadow-xs flex items-center gap-2.5 ${
+          stats.lowStockItems > 0 ? 'bg-amber-50/50 border-amber-200' : 'bg-white border-slate-200'
+        }`}>
+          <AlertTriangle className={`h-4 w-4 shrink-0 ${stats.lowStockItems > 0 ? 'text-amber-400' : 'text-slate-300'}`} />
+          <div className="min-w-0">
+            <p className={`text-xs truncate ${stats.lowStockItems > 0 ? 'text-amber-800' : 'text-slate-500'}`}>Running low</p>
+            <p className={`text-lg font-bold leading-tight ${stats.lowStockItems > 0 ? 'text-amber-600' : 'text-slate-900'}`}>
+              {stats.lowStockItems}
+            </p>
+          </div>
+        </div>
+      </div>
 
       {/* Category Edit Overlay Modal */}
       <AnimatePresence>
@@ -1231,8 +1270,8 @@ export function AdminDashboard({
                   <span className="p-1 px-1.5 rounded bg-slate-50 text-amber-600 border border-slate-100">
                     <Pencil className="h-4 w-4" />
                   </span>
-                  <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                    Edit Category
+                  <h3 className="text-base font-bold text-slate-800">
+                    Edit item
                   </h3>
                 </div>
                 <button
@@ -1252,38 +1291,38 @@ export function AdminDashboard({
                   </div>
                 )}
                 <div className="space-y-1.5">
-                  <label className="block text-[10px] font-semibold uppercase text-slate-500 tracking-wider">
-                    Category Name
+                  <label className="block text-sm font-semibold text-slate-600">
+                    Item name
                   </label>
                   <input
                     type="text"
                     required
                     value={editCatName}
                     onChange={(e) => setEditCatName(e.target.value)}
-                    className="w-full bg-white border border-slate-200 rounded px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-3 text-base text-slate-900 focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="block text-[10px] font-semibold uppercase text-slate-500 tracking-wider">
-                    Measuring Unit
+                  <label className="block text-sm font-semibold text-slate-600">
+                    Unit
                   </label>
                   <input
                     type="text"
                     required
                     value={editCatUnit}
                     onChange={(e) => setEditCatUnit(e.target.value)}
-                    className="w-full bg-white border border-slate-200 rounded px-3 py-2 text-xs text-[#0F172A] focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-3 text-base text-[#0F172A] focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="block text-[10px] font-semibold uppercase text-slate-500 tracking-wider">
-                    Floor Location
+                  <label className="block text-sm font-semibold text-slate-600">
+                    Which floor
                   </label>
                   <select
                     required
                     value={editCatFloor}
                     onChange={(e) => setEditCatFloor(e.target.value as Floor)}
-                    className="w-full bg-white border border-slate-200 rounded px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-3 text-base text-slate-900 focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
                   >
                     {FLOOR_OPTIONS.map((floor) => (
                       <option key={floor} value={floor}>
@@ -1294,8 +1333,8 @@ export function AdminDashboard({
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <label className="block text-[10px] font-semibold uppercase text-slate-500 tracking-wider">
-                      Total Stock
+                    <label className="block text-sm font-semibold text-slate-600">
+                      Total stock
                     </label>
                     <input
                       type="number"
@@ -1303,12 +1342,12 @@ export function AdminDashboard({
                       min="0"
                       value={editCatInitial}
                       onChange={(e) => setEditCatInitial(e.target.value === '' ? '' : Number(e.target.value))}
-                      className="w-full bg-white border border-slate-200 rounded px-3 py-2 text-xs text-[#0F172A] focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
+                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-3 text-base text-[#0F172A] focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <label className="block text-[10px] font-semibold uppercase text-slate-500 tracking-wider">
-                      Stock Remaining
+                    <label className="block text-sm font-semibold text-slate-600">
+                      Left in stock
                     </label>
                     <input
                       type="number"
@@ -1316,7 +1355,7 @@ export function AdminDashboard({
                       min="0"
                       value={editCatCurrent}
                       onChange={(e) => setEditCatCurrent(e.target.value === '' ? '' : Number(e.target.value))}
-                      className="w-full bg-white border border-slate-200 rounded px-3 py-2 text-xs text-[#0F172A] focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
+                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-3 text-base text-[#0F172A] focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
                     />
                   </div>
                 </div>
@@ -1325,15 +1364,15 @@ export function AdminDashboard({
                   <button
                     type="button"
                     onClick={closeEditModal}
-                    className="px-4 py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-md text-xs font-semibold uppercase tracking-wider transition-all cursor-pointer"
+                    className="px-5 py-3 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg text-sm font-semibold transition-all cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-2 bg-[#0F172A] hover:bg-slate-800 text-white rounded-md font-semibold text-xs uppercase tracking-wider transition-all cursor-pointer"
+                    className="px-5 py-3 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg font-semibold text-sm transition-all cursor-pointer"
                   >
-                    Save Changes
+                    Save changes
                   </button>
                 </div>
               </form>
@@ -1369,10 +1408,10 @@ export function AdminDashboard({
                     <Trash2 className="h-5 w-5" />
                   </span>
                   <div>
-                    <h3 className="text-sm font-bold text-slate-900">Delete Category</h3>
-                    <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                      Remove <span className="font-semibold text-slate-800">&quot;{deletingCategory.name}&quot;</span> from inventory?
-                      Withdrawal logs for this item will be kept for audit history.
+                    <h3 className="text-base font-bold text-slate-900">Remove item?</h3>
+                    <p className="text-sm text-slate-500 mt-1 leading-relaxed">
+                      Remove <span className="font-semibold text-slate-800">&quot;{deletingCategory.name}&quot;</span> from your stock list?
+                      Past records of items taken will still be kept.
                     </p>
                   </div>
                 </div>
@@ -1381,14 +1420,14 @@ export function AdminDashboard({
                   <button
                     type="button"
                     onClick={() => setDeletingCategoryId(null)}
-                    className="px-4 py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-md text-xs font-semibold uppercase tracking-wider transition-all cursor-pointer"
+                    className="px-5 py-3 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg text-sm font-semibold transition-all cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="button"
                     onClick={handleDeleteConfirm}
-                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md font-semibold text-xs uppercase tracking-wider transition-all cursor-pointer"
+                    className="px-5 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold text-sm transition-all cursor-pointer"
                   >
                     Delete
                   </button>
@@ -1428,8 +1467,8 @@ export function AdminDashboard({
                   <span className="p-1 px-1.5 rounded bg-slate-50 text-amber-600 border border-slate-100">
                     <Plus className="h-4 w-4" />
                   </span>
-                  <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                    Provision New Category
+                  <h3 className="text-base font-bold text-slate-800">
+                    Add new item
                   </h3>
                 </div>
                 <button
@@ -1449,8 +1488,8 @@ export function AdminDashboard({
                 )}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <label className="block text-[10px] font-semibold uppercase text-slate-500 tracking-wider">
-                      Category Name
+                    <label className="block text-sm font-semibold text-slate-600">
+                      Item name
                     </label>
                     <input
                       type="text"
@@ -1458,12 +1497,12 @@ export function AdminDashboard({
                       placeholder="e.g. Copper Connectors"
                       value={newCatName}
                       onChange={(e) => setNewCatName(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
+                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-3 text-base text-slate-900 focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <label className="block text-[10px] font-semibold uppercase text-slate-500 tracking-wider">
-                      Measuring Unit
+                    <label className="block text-sm font-semibold text-slate-600">
+                      Unit (e.g. pieces, boxes)
                     </label>
                     <input
                       type="text"
@@ -1471,20 +1510,20 @@ export function AdminDashboard({
                       placeholder="e.g. pieces, meters"
                       value={newCatUnit}
                       onChange={(e) => setNewCatUnit(e.target.value)}
-                      className="w-full bg-white border border-slate-200 rounded px-3 py-2 text-xs text-[#0F172A] focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
+                      className="w-full bg-white border border-slate-200 rounded-lg px-3 py-3 text-base text-[#0F172A] focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
                     />
                   </div>
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="block text-[10px] font-semibold uppercase text-slate-500 tracking-wider">
-                    Floor Location
+                  <label className="block text-sm font-semibold text-slate-600">
+                    Which floor
                   </label>
                   <select
                     required
                     value={newCatFloor}
                     onChange={(e) => setNewCatFloor(e.target.value as Floor)}
-                    className="w-full bg-white border border-slate-200 rounded px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-3 text-base text-slate-900 focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
                   >
                     {FLOOR_OPTIONS.map((floor) => (
                       <option key={floor} value={floor}>
@@ -1495,8 +1534,8 @@ export function AdminDashboard({
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="block text-[10px] font-semibold uppercase text-slate-500 tracking-wider">
-                    Total Stock (Initial Quantity)
+                  <label className="block text-sm font-semibold text-slate-600">
+                    Starting amount
                   </label>
                   <input
                     type="number"
@@ -1505,7 +1544,7 @@ export function AdminDashboard({
                     placeholder="e.g. 100"
                     value={newCatInitial}
                     onChange={(e) => setNewCatInitial(e.target.value === '' ? '' : Number(e.target.value))}
-                    className="w-full bg-white border border-slate-200 rounded px-3 py-2 text-xs text-[#0F172A] focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-3 text-base text-[#0F172A] focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
                   />
                 </div>
 
@@ -1513,15 +1552,15 @@ export function AdminDashboard({
                   <button
                     type="button"
                     onClick={() => setIsAddCategoryOpen(false)}
-                    className="px-4 py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-md text-xs font-semibold uppercase tracking-wider transition-all cursor-pointer"
+                    className="px-5 py-3 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg text-sm font-semibold transition-all cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-2 bg-[#0F172A] hover:bg-slate-800 text-white rounded-md font-semibold text-xs uppercase tracking-wider transition-all cursor-pointer"
+                    className="px-5 py-3 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg font-semibold text-sm transition-all cursor-pointer"
                   >
-                    Register Line Item
+                    Add item
                   </button>
                 </div>
               </form>
@@ -1559,8 +1598,8 @@ export function AdminDashboard({
                   <span className="p-1 px-1.5 rounded bg-slate-50 text-amber-600 border border-slate-100">
                     <ArrowUpRight className="h-4 w-4" />
                   </span>
-                  <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                    Inject / Reconcile Stock
+                  <h3 className="text-base font-bold text-slate-800">
+                    Add more stock
                   </h3>
                 </div>
                 <button
@@ -1580,8 +1619,8 @@ export function AdminDashboard({
                 )}
 
                 <div className="space-y-1.5">
-                  <label className="block text-[10px] font-semibold uppercase text-slate-500 tracking-wider">
-                    Select Category
+                  <label className="block text-sm font-semibold text-slate-600">
+                    Choose item
                   </label>
                   <select
                     required
@@ -1599,8 +1638,8 @@ export function AdminDashboard({
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="block text-[10px] font-semibold uppercase text-slate-500 tracking-wider">
-                    Refill Quantity
+                  <label className="block text-sm font-semibold text-slate-600">
+                    How much to add
                   </label>
                   <input
                     type="number"
@@ -1609,7 +1648,7 @@ export function AdminDashboard({
                     placeholder="e.g. 150"
                     value={restockAmount}
                     onChange={(e) => setRestockAmount(e.target.value === '' ? '' : Number(e.target.value))}
-                    className="w-full bg-white border border-slate-200 rounded px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-3 text-base text-slate-900 focus:outline-none focus:border-amber-500 transition-colors shadow-2xs"
                   />
                 </div>
 
@@ -1617,15 +1656,15 @@ export function AdminDashboard({
                   <button
                     type="button"
                     onClick={() => setIsRestockOpen(false)}
-                    className="px-4 py-2 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-md text-xs font-semibold uppercase tracking-wider transition-all cursor-pointer"
+                    className="px-5 py-3 bg-slate-50 hover:bg-slate-100 text-slate-600 rounded-lg text-sm font-semibold transition-all cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="px-4 py-2 bg-[#0F172A] hover:bg-slate-800 text-white rounded-md font-semibold text-xs uppercase tracking-wider transition-all cursor-pointer"
+                    className="px-5 py-3 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg font-semibold text-sm transition-all cursor-pointer"
                   >
-                    Refill Stock
+                    Add stock
                   </button>
                 </div>
               </form>

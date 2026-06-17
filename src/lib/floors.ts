@@ -8,6 +8,10 @@ export function createCategoryId(name: string, floor: Floor): string {
   return `${nameSlug}-${floorSlug}`;
 }
 
+export function getFloorShortLabel(floor: Floor): string {
+  return floor === 'First Floor' ? '1st floor' : '2nd floor';
+}
+
 export function getFloorBadgeClass(floor: Floor): string {
   return floor === 'First Floor'
     ? 'bg-indigo-50 text-indigo-700 border-indigo-200'

@@ -65,7 +65,7 @@ export default function App() {
       setLogs(logsData);
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : 'Failed to connect to Supabase backend.';
+        err instanceof Error ? err.message : 'Could not load your stock. Please try again.';
       setLoadError(message);
     } finally {
       setIsLoading(false);
@@ -117,17 +117,17 @@ export default function App() {
       const user = await authenticateUser(username, password);
       if (!user) return false;
       setCurrentUser(user);
-      showToast(`Access Authorized. Logged in as ${user.username}`, 'success');
+      showToast(`Welcome back, ${user.username}!`, 'success');
       return true;
     } catch {
-      showToast('Unable to reach authentication service.', 'error');
+      showToast('Could not sign in right now. Please try again.', 'error');
       return false;
     }
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
-    showToast('Session terminated successfully.', 'info');
+    showToast('You have signed out.', 'info');
   };
 
   const handleAddNewCategory = async (
@@ -148,9 +148,9 @@ export default function App() {
     try {
       await insertCategory(newCategory);
       setCategories((prev) => [...prev, newCategory]);
-      showToast(`Category "${name}" provisioned on ${floor} with supply of ${initialStock} ${unit}.`, 'success');
+      showToast(`Added "${name}" on ${floor} with ${initialStock} ${unit} in stock.`, 'success');
     } catch {
-      showToast('Failed to save category to database.', 'error');
+      showToast('Could not save this item. Please try again.', 'error');
     }
   };
 
@@ -168,11 +168,11 @@ export default function App() {
       await updateCategoryInDb(updated);
       setCategories((prev) => prev.map((cat) => (cat.id === categoryId ? updated : cat)));
       showToast(
-        `Injected ${quantity} ${category.unit} into "${category.name}". Total stock is now ${updated.initialStock}.`,
+        `Added ${quantity} ${category.unit} to "${category.name}". Total stock is now ${updated.initialStock}.`,
         'success'
       );
     } catch {
-      showToast('Failed to update stock in database.', 'error');
+      showToast('Could not update stock. Please try again.', 'error');
     }
   };
 
@@ -194,9 +194,9 @@ export default function App() {
           log.categoryId === categoryId ? { ...log, categoryName: updates.name } : log
         )
       );
-      showToast(`Category "${updates.name}" updated successfully.`, 'success');
+      showToast(`"${updates.name}" updated successfully.`, 'success');
     } catch {
-      showToast('Failed to update category in database.', 'error');
+      showToast('Could not save changes. Please try again.', 'error');
     }
   };
 
@@ -207,9 +207,9 @@ export default function App() {
     try {
       await deleteCategoryFromDb(categoryId);
       setCategories((prev) => prev.filter((cat) => cat.id !== categoryId));
-      showToast(`Category "${category.name}" removed from inventory.`, 'info');
+      showToast(`"${category.name}" removed from your stock list.`, 'info');
     } catch {
-      showToast('Failed to delete category from database.', 'error');
+      showToast('Could not remove this item. Please try again.', 'error');
     }
   };
 
@@ -220,11 +220,11 @@ export default function App() {
     const category = categories.find((c) => c.id === categoryId);
 
     if (!category) {
-      return { success: false, message: 'Resource not found in storage index.' };
+      return { success: false, message: 'That item was not found.' };
     }
 
     if (category.currentQuantity < quantity) {
-      const errorMsg = `Declined: Quantity requested (${quantity} ${category.unit}) exceeds current inventory level (${category.currentQuantity} remaining).`;
+      const errorMsg = `Not enough stock. You asked for ${quantity} ${category.unit}, but only ${category.currentQuantity} are left.`;
       showToast(errorMsg, 'error');
       return { success: false, message: errorMsg };
     }
@@ -253,16 +253,16 @@ export default function App() {
       );
       setLogs((prev) => [newLogEntry, ...prev]);
       showToast(
-        `Allocated ${quantity} ${category.unit} of "${category.name}". Warehouse updated.`,
+        `Recorded: ${quantity} ${category.unit} of "${category.name}" taken.`,
         'success'
       );
       return {
         success: true,
-        message: `Transaction approved: Allocated ${quantity} ${category.unit} of "${category.name}".`,
+        message: `Done! You took ${quantity} ${category.unit} of "${category.name}".`,
       };
     } catch {
-      showToast('Failed to record withdrawal in database.', 'error');
-      return { success: false, message: 'Database error while processing withdrawal.' };
+      showToast('Could not save this. Please try again.', 'error');
+      return { success: false, message: 'Something went wrong. Please try again.' };
     }
   };
 
@@ -273,7 +273,7 @@ export default function App() {
     if (log.status === 'Approved') {
       const category = categories.find((c) => c.id === log.categoryId);
       if (!category) {
-        showToast('Restore failed: Connected category does not exist anymore.', 'error');
+        showToast('This item no longer exists, so stock cannot be restored.', 'error');
         return;
       }
 
@@ -292,22 +292,22 @@ export default function App() {
           prev.map((l) => (l.id === logId ? { ...l, status: 'Rejected' as const } : l))
         );
         showToast(
-          `Requisition rejected. Restored ${log.quantity} ${category.unit} to "${category.name}".`,
+          `Undone. Put back ${log.quantity} ${category.unit} of "${category.name}".`,
           'info'
         );
       } catch {
-        showToast('Failed to reject withdrawal in database.', 'error');
+        showToast('Could not undo this. Please try again.', 'error');
       }
     } else {
       const category = categories.find((c) => c.id === log.categoryId);
       if (!category) {
-        showToast('Restore failed: Connected category does not exist anymore.', 'error');
+        showToast('This item no longer exists, so stock cannot be restored.', 'error');
         return;
       }
 
       if (category.currentQuantity < log.quantity) {
         showToast(
-          `Cannot re-approve: Insufficient stock in "${category.name}" (${category.currentQuantity} remaining).`,
+          `Not enough stock in "${category.name}" — only ${category.currentQuantity} left.`,
           'error'
         );
         return;
@@ -328,11 +328,11 @@ export default function App() {
           prev.map((l) => (l.id === logId ? { ...l, status: 'Approved' as const } : l))
         );
         showToast(
-          `Requisition re-approved. Deducted ${log.quantity} ${category.unit} from "${category.name}".`,
+          `Confirmed again. Took ${log.quantity} ${category.unit} from "${category.name}".`,
           'success'
         );
       } catch {
-        showToast('Failed to approve withdrawal in database.', 'error');
+        showToast('Could not confirm this. Please try again.', 'error');
       }
     }
   };
@@ -354,13 +354,13 @@ export default function App() {
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">
               Akshay Traders
             </h1>
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-400">
-              Inventory Portal
+            <p className="text-sm text-slate-500">
+              Stock manager
             </p>
           </div>
 
-          <p className="text-sm font-medium text-slate-500">
-            Loading your stock dashboard...
+          <p className="text-base font-medium text-slate-500">
+            Loading your stock...
           </p>
         </div>
       </div>
@@ -372,18 +372,17 @@ export default function App() {
       <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-4">
         <div className="max-w-md w-full bg-white border border-red-200 rounded-xl p-6 shadow-lg text-center space-y-4">
           <AlertOctagon className="h-10 w-10 text-red-500 mx-auto" />
-          <h2 className="text-lg font-bold text-slate-900">Backend Connection Failed</h2>
-          <p className="text-sm text-slate-600">{loadError}</p>
-          <p className="text-xs text-slate-500 leading-relaxed">
-            Run <code className="bg-slate-100 px-1 rounded">supabase/schema.sql</code> in your
-            Supabase SQL Editor, then retry.
+          <h2 className="text-xl font-bold text-slate-900">Could not load your stock</h2>
+          <p className="text-base text-slate-600">{loadError}</p>
+          <p className="text-sm text-slate-500 leading-relaxed">
+            Check your internet connection and try again. If the problem continues, contact your manager.
           </p>
           <button
             type="button"
             onClick={loadData}
-            className="px-4 py-2 bg-[#0F172A] text-white rounded-md text-xs font-semibold uppercase tracking-wider cursor-pointer"
+            className="px-5 py-3 bg-[#0F172A] text-white rounded-xl text-base font-semibold cursor-pointer"
           >
-            Retry Connection
+            Try again
           </button>
         </div>
       </div>
@@ -431,10 +430,10 @@ export default function App() {
             <Menu className="h-5 w-5" />
           </button>
           <div className="min-w-0">
-            <p className="text-white font-bold text-sm uppercase tracking-tight truncate">
+            <p className="text-white font-bold text-base truncate">
               Akshay Traders
             </p>
-            <p className="text-[10px] text-slate-400 truncate">
+            <p className="text-sm text-slate-400 truncate">
               {currentUser.username} · {currentUser.role === 'Worker' ? 'Staff' : currentUser.role}
             </p>
           </div>
@@ -482,7 +481,7 @@ function ToastTray({ toasts, onRemove }: ToastTrayProps) {
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, x: 50, scale: 0.9 }}
             transition={{ type: 'spring', damping: 20, stiffness: 300 }}
-            className={`p-4 rounded-lg shadow-xl border text-xs flex items-start gap-3 relative ${toast.type === 'success'
+            className={`p-5 rounded-xl shadow-xl border text-base flex items-start gap-3 relative ${toast.type === 'success'
                 ? 'bg-[#DCFCE7] border-[#BBF7D0] text-[#166534]'
                 : toast.type === 'error'
                   ? 'bg-[#FEE2E2] border-[#FECACA] text-[#991B1B]'
