@@ -101,8 +101,7 @@ export function AdminDashboard({
   const [editError, setEditError] = useState('');
   const [deletingCategoryId, setDeletingCategoryId] = useState<string | null>(null);
 
-  // Table Search and Sorting States
-  const [categorySearch, setCategorySearch] = useState('');
+  // Table Sorting States
   const [floorFilter, setFloorFilter] = useState<'All' | Floor>('All');
   const [lowStockFilterOnly, setLowStockFilterOnly] = useState(false);
   const [catSortField, setCatSortField] = useState<SortFieldCategory>('name');
@@ -392,13 +391,9 @@ export function AdminDashboard({
   // Filter & sort categories
   const filteredAndSortedCategories = useMemo(() => {
     let result = categories.filter((cat) => {
-      const matchSearch =
-        cat.name.toLowerCase().includes(categorySearch.toLowerCase()) ||
-        cat.unit.toLowerCase().includes(categorySearch.toLowerCase()) ||
-        cat.floor.toLowerCase().includes(categorySearch.toLowerCase());
       const matchFloor = floorFilter === 'All' ? true : cat.floor === floorFilter;
       const isLowStock = cat.currentQuantity < cat.initialStock * 0.2;
-      return lowStockFilterOnly ? matchSearch && matchFloor && isLowStock : matchSearch && matchFloor;
+      return lowStockFilterOnly ? matchFloor && isLowStock : matchFloor;
     });
 
     result.sort((a, b) => {
@@ -419,7 +414,7 @@ export function AdminDashboard({
     });
 
     return result;
-  }, [categories, categorySearch, floorFilter, lowStockFilterOnly, catSortField, catSortDirection]);
+  }, [categories, floorFilter, lowStockFilterOnly, catSortField, catSortDirection]);
 
   const groupedCategories = useMemo(() => {
     const groups = groupCategoriesByNameAndFloor(filteredAndSortedCategories);
@@ -782,18 +777,6 @@ export function AdminDashboard({
                 </div>
 
                 <div className="flex items-center gap-2 flex-wrap">
-                  {/* Search */}
-                  <div className="relative flex-1 min-w-0">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
-                    <input
-                      type="text"
-                      placeholder="Search by name..."
-                      value={categorySearch}
-                      onChange={(e) => setCategorySearch(e.target.value)}
-                      className="bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-3 py-1.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500 focus:bg-white w-full transition-all"
-                    />
-                  </div>
-
                   {/* Floor filter */}
                   <div className="inline-flex rounded-lg bg-slate-100 p-0.5 shrink-0">
                     {(['All', ...FLOOR_OPTIONS] as const).map((floor) => (
@@ -841,7 +824,7 @@ export function AdminDashboard({
                   <div className="p-8 text-center text-slate-500 text-sm leading-relaxed">
                     {categories.length === 0
                       ? 'No items added yet. Tap the + button above to get started.'
-                      : 'No items match your search.'}
+                      : 'No items match your filters.'}
                   </div>
                 ) : (
                   groupedCategories.map((group) => {
@@ -950,7 +933,7 @@ export function AdminDashboard({
                           <td colSpan={8} className="p-8 text-center text-slate-400 italic">
                             {categories.length === 0
                               ? 'No items added yet. Tap the + button above to get started.'
-                              : 'No logistics line items matched search constraints.'}
+                              : 'No items match your filters.'}
                           </td>
                         </tr>
                       ) : (
