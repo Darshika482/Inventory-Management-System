@@ -743,14 +743,14 @@ export function AdminDashboard({
         <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
           <button
             onClick={() => setIsRestockOpen(true)}
-            className="flex items-center justify-center gap-2 px-4 py-3 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg text-sm font-semibold shadow-xs cursor-pointer transition-all border border-amber-600/10"
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold shadow-xs cursor-pointer transition-all border border-emerald-700/20"
           >
             <ArrowUpRight className="h-4 w-4" />
             Add more stock
           </button>
           <button
             onClick={openWithdrawModal}
-            className="flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-semibold shadow-xs cursor-pointer transition-all border border-emerald-700/20"
+            className="flex items-center justify-center gap-2 px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-bold shadow-xs cursor-pointer transition-all border border-red-700/20"
           >
             <Send className="h-4 w-4" />
             Record taken stock
