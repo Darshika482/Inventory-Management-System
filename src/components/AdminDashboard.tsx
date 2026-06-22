@@ -22,6 +22,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { Category, WithdrawalLog, Floor, User } from '../types';
 import { FLOOR_OPTIONS, getFloorBadgeClass, getFloorShortLabel } from '../lib/floors';
+import { groupCategoriesByNameAndFloor, sortGroupedCategories, getWorstVariant } from '../lib/groupCategories';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { PremiumSelect } from './PremiumSelect';
@@ -126,7 +127,7 @@ export function AdminDashboard({
   }, [categories, logs]);
 
   const stockSelectOptions = useMemo(
-    () => categories.map(categoryToSelectOption),
+    () => categories.map((cat) => categoryToSelectOption(cat, categories)),
     [categories]
   );
 
@@ -153,10 +154,11 @@ export function AdminDashboard({
     const nameExists = categories.some(
       (c) =>
         c.name.toLowerCase() === newCatName.trim().toLowerCase() &&
-        c.floor === newCatFloor
+        c.floor === newCatFloor &&
+        c.unit.toLowerCase() === newCatUnit.trim().toLowerCase()
     );
     if (nameExists) {
-      setCatError('An item with this name already exists on this floor.');
+      setCatError('An item with this name, unit, and floor already exists.');
       return;
     }
 
@@ -277,10 +279,11 @@ export function AdminDashboard({
       (c) =>
         c.id !== editingCategoryId &&
         c.name.toLowerCase() === editCatName.trim().toLowerCase() &&
-        c.floor === editCatFloor
+        c.floor === editCatFloor &&
+        c.unit.toLowerCase() === editCatUnit.trim().toLowerCase()
     );
     if (nameExists) {
-      setEditError('Another item with this name already exists on this floor.');
+      setEditError('Another item with this name, unit, and floor already exists.');
       return;
     }
 
@@ -415,6 +418,11 @@ export function AdminDashboard({
 
     return result;
   }, [categories, categorySearch, floorFilter, lowStockFilterOnly, catSortField, catSortDirection]);
+
+  const groupedCategories = useMemo(() => {
+    const groups = groupCategoriesByNameAndFloor(filteredAndSortedCategories);
+    return sortGroupedCategories(groups, catSortField, catSortDirection);
+  }, [filteredAndSortedCategories, catSortField, catSortDirection]);
 
   // Filter & sort logs
   const filteredAndSortedLogs = useMemo(() => {
@@ -775,7 +783,7 @@ export function AdminDashboard({
                     </div>
                   </div>
                   <span className="md:hidden shrink-0 text-sm font-semibold text-slate-600 bg-slate-100 px-3 py-1 rounded-full tabular-nums">
-                    {filteredAndSortedCategories.length} items
+                    {groupedCategories.length} items
                   </span>
                 </div>
 
@@ -876,30 +884,32 @@ export function AdminDashboard({
 
               {/* Mobile card list */}
               <div className="md:hidden p-3 space-y-3 bg-slate-50/80">
-                {filteredAndSortedCategories.length === 0 ? (
+                {groupedCategories.length === 0 ? (
                   <div className="p-8 text-center text-slate-500 text-sm leading-relaxed">
                     {categories.length === 0
                       ? 'No items added yet. Tap "Add new item" above to get started.'
                       : 'No items match your search.'}
                   </div>
                 ) : (
-                  filteredAndSortedCategories.map((cat) => {
-                    const status = getStockStatus(cat.currentQuantity, cat.initialStock);
-                    const percentage = cat.initialStock > 0
-                      ? Math.min(100, Math.round((cat.currentQuantity / cat.initialStock) * 100))
-                      : 0;
+                  groupedCategories.map((group) => {
+                    const worstVariant = getWorstVariant(group);
+                    const status = getStockStatus(worstVariant.currentQuantity, worstVariant.initialStock);
 
                     return (
                       <div
-                        key={cat.id}
+                        key={group.key}
                         className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-3"
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
-                            <h4 className="text-lg font-bold text-slate-900 leading-snug">{cat.name}</h4>
+                            <h4 className="text-lg font-bold text-slate-900 leading-snug">{group.name}</h4>
                             <div className="flex items-center gap-2 mt-2 flex-wrap">
-                              {renderFloorBadge(cat.floor)}
-                              <span className="text-sm text-slate-500">· {cat.unit}</span>
+                              {renderFloorBadge(group.floor)}
+                              {group.variants.length > 1 && (
+                                <span className="text-sm text-slate-500">
+                                  · {group.variants.length} units
+                                </span>
+                              )}
                             </div>
                           </div>
                           <span
@@ -911,30 +921,52 @@ export function AdminDashboard({
                           </span>
                         </div>
 
-                        <div className="bg-slate-50 rounded-lg px-4 py-3">
-                          <p className="text-3xl font-bold text-slate-900 tabular-nums leading-none">
-                            {cat.currentQuantity.toLocaleString()}
-                          </p>
-                          <p className="text-sm text-slate-500 mt-1">
-                            left · {cat.initialStock.toLocaleString()} total ({percentage}%)
-                          </p>
-                          <div className="w-full bg-white h-2.5 rounded-full overflow-hidden mt-3 border border-slate-200">
-                            <div
-                              className={`h-full rounded-full ${status.indicator} transition-all duration-300`}
-                              style={{ width: `${Math.min(percentage, 100)}%` }}
-                            />
-                          </div>
-                        </div>
+                        <div className="space-y-2.5">
+                          {group.variants.map((cat) => {
+                            const variantStatus = getStockStatus(cat.currentQuantity, cat.initialStock);
+                            const percentage = cat.initialStock > 0
+                              ? Math.min(100, Math.round((cat.currentQuantity / cat.initialStock) * 100))
+                              : 0;
 
-                        <div className="pt-1">
-                          {renderCategoryActions(cat, 'labeled')}
+                            return (
+                              <div key={cat.id} className="bg-slate-50 rounded-lg px-4 py-3 space-y-2.5">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-sm font-semibold text-slate-600">{cat.unit}</span>
+                                  <span
+                                    title={variantStatus.tooltip}
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full border ${variantStatus.bg}`}
+                                  >
+                                    <span className={`w-1.5 h-1.5 rounded-full ${variantStatus.indicator}`} />
+                                    {variantStatus.label}
+                                  </span>
+                                </div>
+                                <div>
+                                  <p className="text-3xl font-bold text-slate-900 tabular-nums leading-none">
+                                    {cat.currentQuantity.toLocaleString()}
+                                  </p>
+                                  <p className="text-sm text-slate-500 mt-1">
+                                    left · {cat.initialStock.toLocaleString()} total ({percentage}%)
+                                  </p>
+                                  <div className="w-full bg-white h-2.5 rounded-full overflow-hidden mt-3 border border-slate-200">
+                                    <div
+                                      className={`h-full rounded-full ${variantStatus.indicator} transition-all duration-300`}
+                                      style={{ width: `${Math.min(percentage, 100)}%` }}
+                                    />
+                                  </div>
+                                </div>
+                                <div className="pt-0.5">
+                                  {renderCategoryActions(cat, 'labeled')}
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     );
                   })
                 )}
 
-                {filteredAndSortedCategories.length > 0 && (
+                {groupedCategories.length > 0 && (
                   <button
                     type="button"
                     onClick={downloadInventoryPDF}
@@ -978,73 +1010,93 @@ export function AdminDashboard({
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-sm">
                     <AnimatePresence>
-                      {filteredAndSortedCategories.length === 0 ? (
+                      {groupedCategories.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="p-8 text-center text-slate-400 italic">
+                          <td colSpan={8} className="p-8 text-center text-slate-400 italic">
                             {categories.length === 0
                               ? 'No items added yet. Tap "Add new item" to get started.'
                               : 'No logistics line items matched search constraints.'}
                           </td>
                         </tr>
                       ) : (
-                        filteredAndSortedCategories.map((cat) => {
-                          const status = getStockStatus(cat.currentQuantity, cat.initialStock);
-                          const percentage = cat.initialStock > 0
-                      ? Math.min(100, Math.round((cat.currentQuantity / cat.initialStock) * 100))
-                      : 0;
+                        groupedCategories.flatMap((group) =>
+                          group.variants.map((cat, variantIndex) => {
+                            const status = getStockStatus(cat.currentQuantity, cat.initialStock);
+                            const percentage = cat.initialStock > 0
+                              ? Math.min(100, Math.round((cat.currentQuantity / cat.initialStock) * 100))
+                              : 0;
+                            const isFirstVariant = variantIndex === 0;
 
-                          return (
-                            <motion.tr 
-                              key={cat.id}
-                              initial={{ opacity: 0 }}
-                              animate={{ opacity: 1 }}
-                              exit={{ opacity: 0 }}
-                              transition={{ duration: 0.15 }}
-                              className="hover:bg-slate-50/50 transition-colors"
-                            >
-                              <td className="p-4 font-semibold text-slate-900 whitespace-nowrap overflow-hidden text-ellipsis">
-                                {cat.name}
-                              </td>
-                              <td className="p-4 text-slate-505">
-                                {cat.unit}
-                              </td>
-                              <td className="p-4">
-                                {renderFloorBadge(cat.floor)}
-                              </td>
-                              <td className="p-4 text-slate-800">
-                                <span className="font-extrabold text-sm tracking-tight">{cat.currentQuantity}</span>
-                              </td>
-                              <td className="p-4 text-slate-600 font-semibold">
-                                {cat.initialStock}
-                              </td>
-                              <td className="p-4">
-                                <div className="space-y-1">
-                                  <div className="flex justify-between text-xs text-slate-400 font-bold">
-                                    <span>{percentage}%</span>
+                            return (
+                              <motion.tr
+                                key={cat.id}
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: 0.15 }}
+                                className={`hover:bg-slate-50/50 transition-colors ${!isFirstVariant ? 'border-t-0' : ''}`}
+                              >
+                                {isFirstVariant ? (
+                                  <td
+                                    rowSpan={group.variants.length}
+                                    className="p-4 font-semibold text-slate-900 align-top border-r border-slate-100"
+                                  >
+                                    <div className="space-y-1">
+                                      <span className="block">{group.name}</span>
+                                      {group.variants.length > 1 && (
+                                        <span className="text-xs font-medium text-slate-400">
+                                          {group.variants.length} units
+                                        </span>
+                                      )}
+                                    </div>
+                                  </td>
+                                ) : null}
+                                <td className="p-4 text-slate-600 font-medium">
+                                  {cat.unit}
+                                </td>
+                                {isFirstVariant ? (
+                                  <td
+                                    rowSpan={group.variants.length}
+                                    className="p-4 align-top border-r border-slate-100"
+                                  >
+                                    {renderFloorBadge(group.floor)}
+                                  </td>
+                                ) : null}
+                                <td className="p-4 text-slate-800">
+                                  <span className="font-extrabold text-sm tracking-tight">{cat.currentQuantity}</span>
+                                </td>
+                                <td className="p-4 text-slate-600 font-semibold">
+                                  {cat.initialStock}
+                                </td>
+                                <td className="p-4">
+                                  <div className="space-y-1">
+                                    <div className="flex justify-between text-xs text-slate-400 font-bold">
+                                      <span>{percentage}%</span>
+                                    </div>
+                                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden border border-slate-200">
+                                      <div
+                                        className={`h-full ${status.indicator} transition-all duration-300`}
+                                        style={{ width: `${Math.min(percentage, 100)}%` }}
+                                      />
+                                    </div>
                                   </div>
-                                  <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden border border-slate-200">
-                                    <div 
-                                      className={`h-full ${status.indicator} transition-all duration-300`} 
-                                      style={{ width: `${Math.min(percentage, 100)}%` }} 
-                                    />
-                                  </div>
-                                </div>
-                              </td>
-                              <td className="p-4">
-                                <span 
-                                  title={status.tooltip}
-                                  className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-full border ${status.bg}`}
-                                >
-                                  <span className={`w-1.5 h-1.5 rounded-full ${status.indicator}`} />
-                                  {status.label}
-                                </span>
-                              </td>
-                              <td className="p-4 text-right">
-                                {renderCategoryActions(cat)}
-                              </td>
-                            </motion.tr>
-                          );
-                        })
+                                </td>
+                                <td className="p-4">
+                                  <span
+                                    title={status.tooltip}
+                                    className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-full border ${status.bg}`}
+                                  >
+                                    <span className={`w-1.5 h-1.5 rounded-full ${status.indicator}`} />
+                                    {status.label}
+                                  </span>
+                                </td>
+                                <td className="p-4 text-right">
+                                  {renderCategoryActions(cat)}
+                                </td>
+                              </motion.tr>
+                            );
+                          })
+                        )
                       )}
                     </AnimatePresence>
                   </tbody>
@@ -1349,7 +1401,7 @@ export function AdminDashboard({
           />
 
           <FormInput
-            label="Unit (e.g. pieces, boxes)"
+            label="Unit (e.g. pieces, 146, 124 Dr.)"
             type="text"
             required
             value={editCatUnit}
@@ -1439,10 +1491,10 @@ export function AdminDashboard({
           />
 
           <FormInput
-            label="Unit (e.g. pieces, boxes)"
+            label="Unit (e.g. pieces, 146, 124 Dr.)"
             type="text"
             required
-            placeholder="e.g. pieces"
+            placeholder="e.g. pieces or 146"
             value={newCatUnit}
             onChange={(e) => setNewCatUnit(e.target.value)}
             accent="amber"

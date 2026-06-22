@@ -2,10 +2,15 @@ export type Floor = 'First Floor' | 'Second Floor';
 
 export const FLOOR_OPTIONS: Floor[] = ['First Floor', 'Second Floor'];
 
-export function createCategoryId(name: string, floor: Floor): string {
-  const nameSlug = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+function slugify(value: string): string {
+  return value.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+}
+
+export function createCategoryId(name: string, floor: Floor, unit: string): string {
+  const nameSlug = slugify(name);
   const floorSlug = floor === 'First Floor' ? 'first-floor' : 'second-floor';
-  return `${nameSlug}-${floorSlug}`;
+  const unitSlug = slugify(unit || 'pieces');
+  return `${nameSlug}-${floorSlug}-${unitSlug}`;
 }
 
 export function getFloorShortLabel(floor: Floor): string {

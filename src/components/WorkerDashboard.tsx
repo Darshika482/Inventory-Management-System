@@ -14,6 +14,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { Category, WithdrawalLog, User, Floor } from '../types';
 import { FLOOR_OPTIONS, getFloorBadgeClass, getFloorShortLabel } from '../lib/floors';
+import { groupCategoriesByNameAndFloor } from '../lib/groupCategories';
 import { categoryToSelectOption } from '../lib/selectOptions';
 import { PremiumSelect } from './PremiumSelect';
 import { AppModal } from './AppModal';
@@ -65,9 +66,14 @@ export function WorkerDashboard({ currentUser, categories, logs, onWithdraw }: W
     });
   }, [categories, directorySearch, floorFilter]);
 
-  const stockSelectOptions = useMemo(
-    () => filteredCategories.map(categoryToSelectOption),
+  const groupedCategories = useMemo(
+    () => groupCategoriesByNameAndFloor(filteredCategories),
     [filteredCategories]
+  );
+
+  const stockSelectOptions = useMemo(
+    () => filteredCategories.map((cat) => categoryToSelectOption(cat, categories)),
+    [filteredCategories, categories]
   );
 
   const renderFloorBadge = (floor: Floor) => (
@@ -445,23 +451,38 @@ export function WorkerDashboard({ currentUser, categories, logs, onWithdraw }: W
             </div>
 
             <div className="space-y-2.5 max-h-[300px] overflow-y-auto pr-1">
-              {filteredCategories.length === 0 ? (
+              {groupedCategories.length === 0 ? (
                 <div className="p-6 text-center text-slate-400 italic text-sm">
                   {categories.length === 0
                     ? "No items in stock yet."
                     : "No items match your search."}
                 </div>
               ) : (
-                filteredCategories.map((cat) => (
-                  <div key={cat.id} className="bg-slate-50 border border-slate-200 rounded-lg p-4 flex items-center justify-between gap-2 text-sm">
+                groupedCategories.map((group) => (
+                  <div key={group.key} className="bg-slate-50 border border-slate-200 rounded-lg p-4 text-sm space-y-2.5">
                     <div className="min-w-0">
-                      <span className="font-bold text-slate-900 block truncate">{cat.name}</span>
+                      <span className="font-bold text-slate-900 block truncate">{group.name}</span>
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
-                        {renderFloorBadge(cat.floor)}
-                        <span className="text-sm text-slate-500 font-semibold">
-                          {cat.currentQuantity} {cat.unit} left
-                        </span>
+                        {renderFloorBadge(group.floor)}
+                        {group.variants.length > 1 && (
+                          <span className="text-xs text-slate-400 font-medium">
+                            {group.variants.length} units
+                          </span>
+                        )}
                       </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      {group.variants.map((cat) => (
+                        <div
+                          key={cat.id}
+                          className="flex items-center justify-between gap-2 bg-white border border-slate-200 rounded-md px-3 py-2"
+                        >
+                          <span className="text-sm font-semibold text-slate-600">{cat.unit}</span>
+                          <span className="text-sm text-slate-500 font-semibold tabular-nums">
+                            {cat.currentQuantity} left
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 ))

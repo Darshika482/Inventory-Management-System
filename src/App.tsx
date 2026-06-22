@@ -141,7 +141,7 @@ export default function App() {
     floor: Floor
   ) => {
     const newCategory: Category = {
-      id: createCategoryId(name, floor),
+      id: createCategoryId(name, floor, unit),
       name,
       unit,
       floor,

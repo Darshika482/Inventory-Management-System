@@ -16,11 +16,23 @@ export const FLOOR_SELECT_OPTIONS: PremiumSelectOption[] = FLOOR_OPTIONS.map((fl
   icon: 'floor' as const,
 }));
 
-export function categoryToSelectOption(category: Category): PremiumSelectOption {
+export function categoryToSelectOption(
+  category: Category,
+  allCategories?: Category[]
+): PremiumSelectOption {
+  const hasSameNameOnFloor = allCategories?.some(
+    (c) =>
+      c.id !== category.id &&
+      c.name.toLowerCase() === category.name.toLowerCase() &&
+      c.floor === category.floor
+  );
+
   return {
     value: category.id,
-    label: category.name,
-    description: getFloorShortLabel(category.floor),
+    label: hasSameNameOnFloor ? `${category.name} · ${category.unit}` : category.name,
+    description: hasSameNameOnFloor
+      ? `${getFloorShortLabel(category.floor)} · ${category.unit}`
+      : getFloorShortLabel(category.floor),
     hint: `${category.currentQuantity.toLocaleString()} ${category.unit} left`,
     icon: 'item',
   };
