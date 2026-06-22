@@ -15,6 +15,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Category, WithdrawalLog, User, Floor } from '../types';
 import { FLOOR_OPTIONS, getFloorBadgeClass, getFloorShortLabel } from '../lib/floors';
 import { groupCategoriesByNameAndFloor } from '../lib/groupCategories';
+import { QuantityCalculation } from './QuantityCalculation';
 import { categoryToSelectOption } from '../lib/selectOptions';
 import { PremiumSelect } from './PremiumSelect';
 import { AppModal } from './AppModal';
@@ -459,8 +460,8 @@ export function WorkerDashboard({ currentUser, categories, logs, onWithdraw }: W
                 </div>
               ) : (
                 groupedCategories.map((group) => (
-                  <div key={group.key} className="bg-slate-50 border border-slate-200 rounded-lg p-4 text-sm space-y-2.5">
-                    <div className="min-w-0">
+                  <div key={group.key} className="bg-slate-50 border border-slate-200 rounded-lg overflow-hidden text-sm">
+                    <div className="px-3 py-2.5 border-b border-slate-200 bg-white">
                       <span className="font-bold text-slate-900 block truncate">{group.name}</span>
                       <div className="flex items-center gap-2 mt-1 flex-wrap">
                         {renderFloorBadge(group.floor)}
@@ -471,15 +472,22 @@ export function WorkerDashboard({ currentUser, categories, logs, onWithdraw }: W
                         )}
                       </div>
                     </div>
-                    <div className="space-y-1.5">
+                    <div className="divide-y divide-slate-200">
                       {group.variants.map((cat) => (
                         <div
                           key={cat.id}
-                          className="flex items-center justify-between gap-2 bg-white border border-slate-200 rounded-md px-3 py-2"
+                          className="flex items-center justify-between gap-3 px-3 py-2.5"
                         >
-                          <span className="text-sm font-semibold text-slate-600">{cat.unit}</span>
-                          <span className="text-sm text-slate-500 font-semibold tabular-nums">
-                            {cat.currentQuantity} left
+                          <div className="min-w-0">
+                            <span className="text-sm text-slate-600 block">{cat.unit}</span>
+                            <span className="text-sm font-bold text-slate-900 tabular-nums">{cat.currentQuantity} left</span>
+                          </div>
+                          <span className="text-xs text-slate-400 tabular-nums shrink-0">
+                            <QuantityCalculation
+                              unit={cat.unit}
+                              count={cat.currentQuantity}
+                              className="text-xs text-slate-400 tabular-nums"
+                            />
                           </span>
                         </div>
                       ))}

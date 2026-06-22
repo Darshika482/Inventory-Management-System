@@ -23,6 +23,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Category, WithdrawalLog, Floor, User } from '../types';
 import { FLOOR_OPTIONS, getFloorBadgeClass, getFloorShortLabel } from '../lib/floors';
 import { groupCategoriesByNameAndFloor, sortGroupedCategories, getWorstVariant } from '../lib/groupCategories';
+import { QuantityCalculation } from './QuantityCalculation';
+import { formatTotalQuantity, calculateTotalQuantity } from '../lib/unitQuantity';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { PremiumSelect } from './PremiumSelect';
@@ -719,23 +721,26 @@ export function AdminDashboard({
     <div className="flex-1 overflow-y-auto bg-[#F8FAFC] p-4 sm:p-6 md:p-8 space-y-6 sm:space-y-8 font-sans text-slate-900 selection:bg-amber-500 selection:text-white">
       
       {/* Dynamic Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
-        <div className="min-w-0">
-          <h2 className="font-sans text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
-            Stock overview
-          </h2>
-          <p className="text-sm text-slate-500 mt-1">
-            See what you have and what has been taken
-          </p>
+      <div className="flex flex-col gap-4 border-b border-slate-200 pb-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="font-sans text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
+              Stock overview
+            </h2>
+            <p className="text-sm text-slate-500 mt-1">
+              See what you have and what has been taken
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsAddCategoryOpen(true)}
+            title="Add new item"
+            className="shrink-0 p-2.5 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg shadow-xs cursor-pointer transition-all border border-slate-850"
+          >
+            <Plus className="h-5 w-5" />
+          </button>
         </div>
         <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
-          <button
-            onClick={() => setIsAddCategoryOpen(true)}
-            className="flex items-center justify-center gap-2 px-4 py-3 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg text-sm font-semibold shadow-xs cursor-pointer transition-all border border-slate-850"
-          >
-            <Plus className="h-4 w-4" />
-            Add new item
-          </button>
           <button
             onClick={() => setIsRestockOpen(true)}
             className="flex items-center justify-center gap-2 px-4 py-3 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg text-sm font-semibold shadow-xs cursor-pointer transition-all border border-amber-600/10"
@@ -887,7 +892,7 @@ export function AdminDashboard({
                 {groupedCategories.length === 0 ? (
                   <div className="p-8 text-center text-slate-500 text-sm leading-relaxed">
                     {categories.length === 0
-                      ? 'No items added yet. Tap "Add new item" above to get started.'
+                      ? 'No items added yet. Tap the + button above to get started.'
                       : 'No items match your search.'}
                   </div>
                 ) : (
@@ -898,68 +903,50 @@ export function AdminDashboard({
                     return (
                       <div
                         key={group.key}
-                        className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-3"
+                        className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-xs"
                       >
-                        <div className="flex items-start justify-between gap-2">
+                        <div className="px-4 py-3 border-b border-slate-100 flex items-start justify-between gap-3">
                           <div className="min-w-0 flex-1">
-                            <h4 className="text-lg font-bold text-slate-900 leading-snug">{group.name}</h4>
-                            <div className="flex items-center gap-2 mt-2 flex-wrap">
+                            <h4 className="text-base font-bold text-slate-900 leading-snug">{group.name}</h4>
+                            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                               {renderFloorBadge(group.floor)}
                               {group.variants.length > 1 && (
-                                <span className="text-sm text-slate-500">
-                                  · {group.variants.length} units
+                                <span className="text-xs text-slate-400 font-medium">
+                                  {group.variants.length} units
                                 </span>
                               )}
                             </div>
                           </div>
                           <span
                             title={status.tooltip}
-                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full border shrink-0 ${status.bg}`}
+                            className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-xs font-semibold rounded-full border shrink-0 ${status.bg}`}
                           >
-                            <span className={`w-2 h-2 rounded-full ${status.indicator}`} />
+                            <span className={`w-1.5 h-1.5 rounded-full ${status.indicator}`} />
                             {status.label}
                           </span>
                         </div>
 
-                        <div className="space-y-2.5">
-                          {group.variants.map((cat) => {
-                            const variantStatus = getStockStatus(cat.currentQuantity, cat.initialStock);
-                            const percentage = cat.initialStock > 0
-                              ? Math.min(100, Math.round((cat.currentQuantity / cat.initialStock) * 100))
-                              : 0;
-
-                            return (
-                              <div key={cat.id} className="bg-slate-50 rounded-lg px-4 py-3 space-y-2.5">
-                                <div className="flex items-center justify-between gap-2">
-                                  <span className="text-sm font-semibold text-slate-600">{cat.unit}</span>
-                                  <span
-                                    title={variantStatus.tooltip}
-                                    className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full border ${variantStatus.bg}`}
-                                  >
-                                    <span className={`w-1.5 h-1.5 rounded-full ${variantStatus.indicator}`} />
-                                    {variantStatus.label}
-                                  </span>
-                                </div>
-                                <div>
-                                  <p className="text-3xl font-bold text-slate-900 tabular-nums leading-none">
-                                    {cat.currentQuantity.toLocaleString()}
-                                  </p>
-                                  <p className="text-sm text-slate-500 mt-1">
-                                    left · {cat.initialStock.toLocaleString()} total ({percentage}%)
-                                  </p>
-                                  <div className="w-full bg-white h-2.5 rounded-full overflow-hidden mt-3 border border-slate-200">
-                                    <div
-                                      className={`h-full rounded-full ${variantStatus.indicator} transition-all duration-300`}
-                                      style={{ width: `${Math.min(percentage, 100)}%` }}
-                                    />
-                                  </div>
-                                </div>
-                                <div className="pt-0.5">
-                                  {renderCategoryActions(cat, 'labeled')}
-                                </div>
+                        <div className="divide-y divide-slate-100">
+                          {group.variants.map((cat) => (
+                            <div key={cat.id} className="flex items-center gap-3 px-4 py-3">
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm text-slate-600">{cat.unit}</p>
+                                <p className="text-sm font-bold text-slate-900 mt-0.5 tabular-nums">
+                                  {cat.currentQuantity.toLocaleString()} left
+                                </p>
                               </div>
-                            );
-                          })}
+                              <p className="text-xs text-slate-400 tabular-nums shrink-0">
+                                <QuantityCalculation
+                                  unit={cat.unit}
+                                  count={cat.currentQuantity}
+                                  className="text-xs text-slate-400 tabular-nums"
+                                />
+                              </p>
+                              <div className="shrink-0">
+                                {renderCategoryActions(cat, 'icon')}
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     );
@@ -1014,7 +1001,7 @@ export function AdminDashboard({
                         <tr>
                           <td colSpan={8} className="p-8 text-center text-slate-400 italic">
                             {categories.length === 0
-                              ? 'No items added yet. Tap "Add new item" to get started.'
+                              ? 'No items added yet. Tap the + button above to get started.'
                               : 'No logistics line items matched search constraints.'}
                           </td>
                         </tr>
@@ -1063,10 +1050,24 @@ export function AdminDashboard({
                                   </td>
                                 ) : null}
                                 <td className="p-4 text-slate-800">
-                                  <span className="font-extrabold text-sm tracking-tight">{cat.currentQuantity}</span>
+                                  <span className="font-extrabold text-sm tracking-tight tabular-nums">
+                                    {cat.currentQuantity.toLocaleString()}
+                                  </span>
+                                  {calculateTotalQuantity(cat.unit, cat.currentQuantity) !== null && (
+                                    <span className="block text-xs text-slate-400 tabular-nums mt-0.5">
+                                      = {calculateTotalQuantity(cat.unit, cat.currentQuantity)!.toLocaleString()}
+                                    </span>
+                                  )}
                                 </td>
                                 <td className="p-4 text-slate-600 font-semibold">
-                                  {cat.initialStock}
+                                  <span className="font-semibold text-sm tabular-nums">
+                                    {cat.initialStock.toLocaleString()}
+                                  </span>
+                                  {calculateTotalQuantity(cat.unit, cat.initialStock) !== null && (
+                                    <span className="block text-xs text-slate-400 tabular-nums mt-0.5">
+                                      = {calculateTotalQuantity(cat.unit, cat.initialStock)!.toLocaleString()}
+                                    </span>
+                                  )}
                                 </td>
                                 <td className="p-4">
                                   <div className="space-y-1">

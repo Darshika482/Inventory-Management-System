@@ -1,5 +1,6 @@
 import { Category, User } from '../types';
 import { FLOOR_OPTIONS, getFloorShortLabel } from './floors';
+import { formatTotalQuantity, formatStockHint } from './unitQuantity';
 
 export type PremiumSelectOption = {
   value: string;
@@ -33,7 +34,7 @@ export function categoryToSelectOption(
     description: hasSameNameOnFloor
       ? `${getFloorShortLabel(category.floor)} · ${category.unit}`
       : getFloorShortLabel(category.floor),
-    hint: `${category.currentQuantity.toLocaleString()} ${category.unit} left`,
+    hint: `${formatTotalQuantity(category.unit, category.currentQuantity)} · ${formatStockHint(category.unit, category.currentQuantity)}`,
     icon: 'item',
   };
 }
