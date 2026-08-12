@@ -25,12 +25,22 @@ export function FormInput({ label, accent = 'amber', className = '', ...props }:
 
 interface FormErrorProps {
   message: string;
+  /** Technical line worth passing on to a developer, shown quietly under the message. */
+  detail?: string;
 }
 
-export function FormError({ message }: FormErrorProps) {
+export function FormError({ message, detail }: FormErrorProps) {
   return (
-    <div className="bg-red-50 border border-red-200 text-red-700 p-3.5 text-sm rounded-xl leading-relaxed">
+    <div
+      role="alert"
+      className="bg-red-50 border border-red-200 text-red-700 p-3.5 text-sm rounded-xl leading-relaxed"
+    >
       {message}
+      {detail && (
+        <p className="mt-2 pt-2 border-t border-red-200/70 text-xs text-red-600/90 break-words">
+          {detail}
+        </p>
+      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Banknote,
   Building2,
@@ -36,7 +36,9 @@ import {
   isPhotoFillAvailable,
   PhotoReadError,
 } from '../lib/extractBill';
+import { describeDbError, FriendlyError } from '../lib/dbErrors';
 import { shrinkImage } from '../lib/imageTools';
+import { playSuccessChime, unlockSound } from '../lib/sounds';
 import { AppModal } from './AppModal';
 import { FormError, FormInput, ModalActions } from './FormInput';
 import { DateField } from './DateField';
@@ -100,6 +102,32 @@ function todayISO(): string {
   return `${now.getFullYear()}-${mm}-${dd}`;
 }
 
+/**
+ * Where the message belongs. A validation message points at a field near the
+ * top of the form; a failed save belongs beside the button that was pressed,
+ * which in these long forms is a whole screen away from the top.
+ */
+type FormProblem = FriendlyError & { near: 'fields' | 'save' };
+
+function fieldProblem(message: string): FormProblem {
+  return { message, detail: '', near: 'fields' };
+}
+
+function saveProblem(err: unknown, sentenceStart: string): FormProblem {
+  return { ...describeDbError(err, sentenceStart), near: 'save' };
+}
+
+/** Carries the message to the person rather than expecting them to go find it. */
+function useProblemScroll(problem: FormProblem | null) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (problem) ref.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [problem]);
+
+  return ref;
+}
+
 function referenceLabel(method: PaymentMethod): string {
   if (method === 'Cheque') return 'Cheque number';
   if (method === 'Bank transfer') return 'UTR / reference number';
@@ -111,7 +139,7 @@ export function BillsSection({ showToast }: BillsSectionProps) {
   const [bills, setBills] = useState<PurchaseBill[]>([]);
   const [payments, setPayments] = useState<BillPayment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<FriendlyError | null>(null);
 
   // List controls
   const [view, setView] = useState<'bills' | 'firms'>('bills');
@@ -138,10 +166,9 @@ export function BillsSection({ showToast }: BillsSectionProps) {
       ]);
       setBills(billsData);
       setPayments(paymentsData);
-    } catch {
-      setLoadError(
-        'Could not load your party bills. Check your internet and try again. If this keeps happening, the bills table may not be set up in the database yet.'
-      );
+    } catch (err) {
+      console.error('Loading the bills failed:', err);
+      setLoadError(describeDbError(err, 'Your party bills could not be loaded'));
     } finally {
       setIsLoading(false);
     }
@@ -273,7 +300,10 @@ export function BillsSection({ showToast }: BillsSectionProps) {
         <div className="max-w-md w-full bg-white border border-red-200 rounded-xl p-6 shadow-lg text-center space-y-4">
           <ReceiptText className="h-10 w-10 text-red-500 mx-auto" />
           <h2 className="text-xl font-bold text-slate-900">Could not load party bills</h2>
-          <p className="text-sm text-slate-600 leading-relaxed">{loadError}</p>
+          <p className="text-sm text-slate-600 leading-relaxed">{loadError.message}</p>
+          {loadError.detail && (
+            <p className="text-xs text-slate-400 leading-relaxed break-words">{loadError.detail}</p>
+          )}
           <button
             type="button"
             onClick={loadData}
@@ -1116,9 +1146,10 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
   const [gstAmount, setGstAmount] = useState('');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [savedPhotoUrl, setSavedPhotoUrl] = useState<string | null>(null);
-  const [error, setError] = useState('');
+  const [problem, setProblem] = useState<FormProblem | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
+  const problemRef = useProblemScroll(problem);
 
   const gross = rows.reduce((sum, row) => sum + parseNum(row.amount), 0);
   const totalDiscount = discountRows.reduce((sum, row) => sum + parseNum(row.amount), 0);
@@ -1137,7 +1168,7 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
     setGstAmount('');
     setPhotoFile(null);
     setSavedPhotoUrl(null);
-    setError('');
+    setProblem(null);
     setIsSaving(false);
     setIsExtracting(false);
   };
@@ -1164,7 +1195,7 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
     setGstAmount(source.gstAmount ? String(source.gstAmount) : '');
     setSavedPhotoUrl(source.photoUrl);
     setPhotoFile(null);
-    setError('');
+    setProblem(null);
     setIsSaving(false);
     setIsExtracting(false);
   };
@@ -1201,7 +1232,7 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
 
   const fillFromPhoto = async (file: File) => {
     setIsExtracting(true);
-    setError('');
+    setProblem(null);
     try {
       const extracted = await extractBillFromImage(file);
       if (extracted.firmName) setFirmName(extracted.firmName);
@@ -1227,6 +1258,7 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
           }))
         );
       }
+      playSuccessChime();
       showToast(
         'Details filled from the photo. Please check every line and correct anything that is wrong before saving.',
         'info'
@@ -1244,12 +1276,14 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
   };
 
   const handleAutoFill = () => {
+    unlockSound();
     if (photoFile) fillFromPhoto(photoFile);
   };
 
   /** Reads the already-saved bill photo again, for when the first read was wrong. */
   const handleReadSavedPhotoAgain = async () => {
     if (!savedPhotoUrl) return;
+    unlockSound();
     setIsExtracting(true);
     let file: File;
     try {
@@ -1270,14 +1304,14 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setProblem(null);
 
     if (!firmName.trim()) {
-      setError('Please enter the party name (who you bought from).');
+      setProblem(fieldProblem('Please enter the party name (who you bought from).'));
       return;
     }
     if (!billNo.trim()) {
-      setError('Please enter the bill number.');
+      setProblem(fieldProblem('Please enter the bill number.'));
       return;
     }
     const items: BillLineItem[] = rows
@@ -1290,15 +1324,19 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
         amount: parseNum(row.amount),
       }));
     if (items.length === 0) {
-      setError('Please add at least one item with its amount.');
+      setProblem(fieldProblem('Please add at least one item with its amount.'));
       return;
     }
     if (items.some((item) => !item.name)) {
-      setError('Every item needs a name.');
+      setProblem(fieldProblem('Every item needs a name.'));
       return;
     }
     if (net <= 0) {
-      setError('The final amount to pay must be more than zero. Check the amounts and discounts.');
+      setProblem(
+        fieldProblem(
+          'The final amount to pay must be more than zero. Check the amounts and discounts.'
+        )
+      );
       return;
     }
     const discounts = discountRows
@@ -1336,12 +1374,11 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
       else await insertPurchaseBill(saved);
       reset();
       onSaved(saved, Boolean(bill));
-    } catch {
+    } catch (err) {
+      console.error('Saving the bill failed:', err);
       setIsSaving(false);
-      setError(
-        bill
-          ? 'Could not save your changes. Please check your internet and try again.'
-          : 'Could not save the bill. Please check your internet and try again.'
+      setProblem(
+        saveProblem(err, bill ? 'Your changes could not be saved' : 'The bill could not be saved')
       );
     }
   };
@@ -1360,7 +1397,11 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
       accent="amber"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        {error && <FormError message={error} />}
+        {problem?.near === 'fields' && (
+          <div ref={problemRef}>
+            <FormError message={problem.message} />
+          </div>
+        )}
 
         {savedPhotoUrl && !photoFile && (
           <div className="space-y-2">
@@ -1686,6 +1727,15 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
           </div>
         </div>
 
+        {problem?.near === 'save' && (
+          <div ref={problemRef}>
+            <FormError
+              message={`${problem.message} Nothing you typed here is lost — the bill stays on screen until it saves.`}
+              detail={problem.detail}
+            />
+          </div>
+        )}
+
         <ModalActions
           onCancel={handleClose}
           submitLabel={isEditing ? 'Save changes' : 'Save bill'}
@@ -1714,14 +1764,16 @@ function AddPaymentModal({ bill, balance, onClose, onSaved, showToast }: AddPaym
   const [reference, setReference] = useState('');
   const [bankName, setBankName] = useState('');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [error, setError] = useState('');
+  const [problem, setProblem] = useState<FormProblem | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
+  const problemRef = useProblemScroll(problem);
 
   const handleAutoFill = async () => {
     if (!photoFile) return;
+    unlockSound();
     setIsExtracting(true);
-    setError('');
+    setProblem(null);
     try {
       const extracted = await extractPaymentFromImage(photoFile);
       if (extracted.amount > 0) setAmount(String(extracted.amount));
@@ -1729,6 +1781,7 @@ function AddPaymentModal({ bill, balance, onClose, onSaved, showToast }: AddPaym
       if (extracted.method) setMethod(extracted.method);
       if (extracted.reference) setReference(extracted.reference);
       if (extracted.bankName) setBankName(extracted.bankName);
+      playSuccessChime();
       showToast('Details filled from the screenshot. Please check them once before saving.', 'info');
     } catch (err) {
       showToast(
@@ -1744,16 +1797,18 @@ function AddPaymentModal({ bill, balance, onClose, onSaved, showToast }: AddPaym
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setProblem(null);
 
     const amountNum = parseNum(amount);
     if (amountNum <= 0) {
-      setError('Please enter the amount you paid.');
+      setProblem(fieldProblem('Please enter the amount you paid.'));
       return;
     }
     if (amountNum > balance) {
-      setError(
-        `This is more than what is left to pay (${formatMoney(balance)}). Please check the amount.`
+      setProblem(
+        fieldProblem(
+          `This is more than what is left to pay (${formatMoney(balance)}). Please check the amount.`
+        )
       );
       return;
     }
@@ -1782,9 +1837,10 @@ function AddPaymentModal({ bill, balance, onClose, onSaved, showToast }: AddPaym
     try {
       await insertBillPayment(payment);
       onSaved(payment, bill.firmName);
-    } catch {
+    } catch (err) {
+      console.error('Saving the payment failed:', err);
       setIsSaving(false);
-      setError('Could not save the payment. Please check your internet and try again.');
+      setProblem(saveProblem(err, 'The payment could not be saved'));
     }
   };
 
@@ -1798,7 +1854,11 @@ function AddPaymentModal({ bill, balance, onClose, onSaved, showToast }: AddPaym
       accent="emerald"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        {error && <FormError message={error} />}
+        {problem?.near === 'fields' && (
+          <div ref={problemRef}>
+            <FormError message={problem.message} />
+          </div>
+        )}
 
         <PhotoPicker
           label="Add payment screenshot or cheque photo"
@@ -1885,6 +1945,15 @@ function AddPaymentModal({ bill, balance, onClose, onSaved, showToast }: AddPaym
             disabled={isSaving}
             accent="emerald"
           />
+        )}
+
+        {problem?.near === 'save' && (
+          <div ref={problemRef}>
+            <FormError
+              message={`${problem.message} Nothing you typed here is lost — it stays on screen until it saves.`}
+              detail={problem.detail}
+            />
+          </div>
         )}
 
         <ModalActions

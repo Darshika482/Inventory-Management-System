@@ -16,6 +16,7 @@ import {
   DbWithdrawalLog,
   supabase,
 } from './supabase';
+import { isTransientError, RequestTimeoutError } from './dbErrors';
 
 function assertSupabase() {
   if (!supabase) {
@@ -24,6 +25,80 @@ function assertSupabase() {
     );
   }
   return supabase;
+}
+
+const DB_TIMEOUT_MS = 12_000;
+const UPLOAD_TIMEOUT_MS = 30_000;
+/** Two extra attempts, spaced out enough to ride over a short drop in signal. */
+const RETRY_DELAYS_MS = [700, 2000];
+/**
+ * Retries are only worth it while somebody is still willing to wait. A dropped
+ * connection fails instantly and gets all three attempts in about three
+ * seconds; a stalled one burns the whole budget and gives up here instead.
+ */
+const RETRY_BUDGET_MS = 25_000;
+
+interface DbResponse<T> {
+  data: T | null;
+  error: { message?: string; code?: string; details?: string; hint?: string } | null;
+}
+
+type DbRequest<T> = (signal: AbortSignal) => PromiseLike<DbResponse<T>>;
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Without a deadline a stalled request never settles, so the form sits on
+ * "Saving..." forever and the button looks dead.
+ */
+async function runOnce<T>(request: DbRequest<T>, timeoutMs: number): Promise<T | null> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    const { data, error } = await request(controller.signal);
+    if (error) throw error;
+    return data;
+  } catch (err) {
+    throw timedOut ? new RequestTimeoutError() : err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+interface RunDbOptions {
+  /**
+   * For inserts whose id is generated here: if a retry hits a duplicate key,
+   * the attempt before it did land and only its reply was lost.
+   */
+  duplicateMeansSaved?: boolean;
+}
+
+/** Retries the failures that are worth retrying, and only those. */
+async function runDb<T>(request: DbRequest<T>, options: RunDbOptions = {}): Promise<T | null> {
+  const { duplicateMeansSaved = false } = options;
+  const startedAt = Date.now();
+
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await runOnce(request, DB_TIMEOUT_MS);
+    } catch (err) {
+      const code = (err as { code?: string })?.code;
+      if (attempt > 0 && duplicateMeansSaved && code === '23505') return null;
+
+      const outOfAttempts = attempt >= RETRY_DELAYS_MS.length;
+      const outOfTime = Date.now() - startedAt >= RETRY_BUDGET_MS;
+      if (outOfAttempts || outOfTime || !isTransientError(err)) throw err;
+
+      await wait(RETRY_DELAYS_MS[attempt]);
+    }
+  }
 }
 
 function mapCategory(row: DbCategory): Category {
@@ -337,55 +412,63 @@ function toBillPaymentRow(payment: BillPayment): DbBillPayment {
 }
 
 export async function fetchPurchaseBills(): Promise<PurchaseBill[]> {
-  const { data, error } = await assertSupabase()
-    .from('purchase_bills')
-    .select('*')
-    .order('created_at', { ascending: false });
-
-  if (error) throw error;
-  return (data as DbPurchaseBill[]).map(mapPurchaseBill);
+  const data = await runDb<DbPurchaseBill[]>((signal) =>
+    assertSupabase()
+      .from('purchase_bills')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .abortSignal(signal)
+  );
+  return (data ?? []).map(mapPurchaseBill);
 }
 
 export async function fetchBillPayments(): Promise<BillPayment[]> {
-  const { data, error } = await assertSupabase()
-    .from('bill_payments')
-    .select('*')
-    .order('created_at', { ascending: false });
-
-  if (error) throw error;
-  return (data as DbBillPayment[]).map(mapBillPayment);
+  const data = await runDb<DbBillPayment[]>((signal) =>
+    assertSupabase()
+      .from('bill_payments')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .abortSignal(signal)
+  );
+  return (data ?? []).map(mapBillPayment);
 }
 
 export async function insertPurchaseBill(bill: PurchaseBill): Promise<void> {
-  const { error } = await assertSupabase()
-    .from('purchase_bills')
-    .insert(toPurchaseBillRow(bill));
-  if (error) throw error;
+  await runDb(
+    (signal) =>
+      assertSupabase().from('purchase_bills').insert(toPurchaseBillRow(bill)).abortSignal(signal),
+    { duplicateMeansSaved: true }
+  );
 }
 
 export async function updatePurchaseBillInDb(bill: PurchaseBill): Promise<void> {
-  const { error } = await assertSupabase()
-    .from('purchase_bills')
-    .update(toPurchaseBillRow(bill))
-    .eq('id', bill.id);
-  if (error) throw error;
+  await runDb((signal) =>
+    assertSupabase()
+      .from('purchase_bills')
+      .update(toPurchaseBillRow(bill))
+      .eq('id', bill.id)
+      .abortSignal(signal)
+  );
 }
 
 export async function deletePurchaseBillFromDb(billId: string): Promise<void> {
-  const { error } = await assertSupabase().from('purchase_bills').delete().eq('id', billId);
-  if (error) throw error;
+  await runDb((signal) =>
+    assertSupabase().from('purchase_bills').delete().eq('id', billId).abortSignal(signal)
+  );
 }
 
 export async function insertBillPayment(payment: BillPayment): Promise<void> {
-  const { error } = await assertSupabase()
-    .from('bill_payments')
-    .insert(toBillPaymentRow(payment));
-  if (error) throw error;
+  await runDb(
+    (signal) =>
+      assertSupabase().from('bill_payments').insert(toBillPaymentRow(payment)).abortSignal(signal),
+    { duplicateMeansSaved: true }
+  );
 }
 
 export async function deleteBillPaymentFromDb(paymentId: string): Promise<void> {
-  const { error } = await assertSupabase().from('bill_payments').delete().eq('id', paymentId);
-  if (error) throw error;
+  await runDb((signal) =>
+    assertSupabase().from('bill_payments').delete().eq('id', paymentId).abortSignal(signal)
+  );
 }
 
 /**
@@ -397,9 +480,17 @@ export async function uploadBillPhoto(file: File, folder: 'bills' | 'payments'):
   try {
     const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
     const path = `${folder}/${Date.now()}-${Math.floor(Math.random() * 100000)}.${ext}`;
-    const { error } = await assertSupabase()
-      .storage.from('bill-photos')
-      .upload(path, file, { contentType: file.type || 'image/jpeg' });
+
+    // Storage uploads cannot be aborted, but they must still be given up on:
+    // a stalled upload used to hold the whole save hostage.
+    const { error } = await Promise.race([
+      assertSupabase()
+        .storage.from('bill-photos')
+        .upload(path, file, { contentType: file.type || 'image/jpeg' }),
+      wait(UPLOAD_TIMEOUT_MS).then(() => ({
+        error: { message: 'The photo took too long to upload.' },
+      })),
+    ]);
 
     if (error) {
       console.warn('Could not upload photo:', error.message);
