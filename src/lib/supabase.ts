@@ -47,3 +47,30 @@ export type DbStockAddition = {
   timestamp: string;
   created_at: string;
 };
+
+export type DbPurchaseBill = {
+  id: string;
+  firm_name: string;
+  bill_no: string;
+  bill_date: string | null;
+  lr_no: string;
+  transport_name: string;
+  items: { name: string; quantity: number; rate: number; amount: number }[];
+  gross_amount: number;
+  discount: number;
+  net_amount: number;
+  photo_url: string | null;
+  created_at: string;
+};
+
+export type DbBillPayment = {
+  id: string;
+  bill_id: string;
+  paid_on: string | null;
+  amount: number;
+  method: 'Cash' | 'Cheque' | 'Bank transfer' | 'UPI';
+  reference: string;
+  bank_name: string;
+  photo_url: string | null;
+  created_at: string;
+};

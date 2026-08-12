@@ -1,5 +1,21 @@
-import { Category, Floor, StockAddition, WithdrawalLog, User } from '../types';
-import { DbAppUser, DbCategory, DbStockAddition, DbWithdrawalLog, supabase } from './supabase';
+import {
+  BillPayment,
+  Category,
+  Floor,
+  PurchaseBill,
+  StockAddition,
+  WithdrawalLog,
+  User,
+} from '../types';
+import {
+  DbAppUser,
+  DbBillPayment,
+  DbCategory,
+  DbPurchaseBill,
+  DbStockAddition,
+  DbWithdrawalLog,
+  supabase,
+} from './supabase';
 
 function assertSupabase() {
   if (!supabase) {
@@ -231,5 +247,145 @@ export async function insertStockAddition(entry: StockAddition): Promise<void> {
     }
   } catch {
     // Table may not exist yet — silently skip
+  }
+}
+
+// Firm bills (purchases) & payments
+
+function mapPurchaseBill(row: DbPurchaseBill): PurchaseBill {
+  return {
+    id: row.id,
+    firmName: row.firm_name,
+    billNo: row.bill_no,
+    billDate: row.bill_date ?? '',
+    lrNo: row.lr_no ?? '',
+    transportName: row.transport_name ?? '',
+    items: Array.isArray(row.items)
+      ? row.items.map((item) => ({
+          name: item.name ?? '',
+          quantity: Number(item.quantity) || 0,
+          rate: Number(item.rate) || 0,
+          amount: Number(item.amount) || 0,
+        }))
+      : [],
+    grossAmount: Number(row.gross_amount) || 0,
+    discount: Number(row.discount) || 0,
+    netAmount: Number(row.net_amount) || 0,
+    photoUrl: row.photo_url,
+    createdAt: row.created_at,
+  };
+}
+
+function toPurchaseBillRow(bill: PurchaseBill): DbPurchaseBill {
+  return {
+    id: bill.id,
+    firm_name: bill.firmName,
+    bill_no: bill.billNo,
+    bill_date: bill.billDate || null,
+    lr_no: bill.lrNo,
+    transport_name: bill.transportName,
+    items: bill.items,
+    gross_amount: bill.grossAmount,
+    discount: bill.discount,
+    net_amount: bill.netAmount,
+    photo_url: bill.photoUrl,
+    created_at: bill.createdAt,
+  };
+}
+
+function mapBillPayment(row: DbBillPayment): BillPayment {
+  return {
+    id: row.id,
+    billId: row.bill_id,
+    paidOn: row.paid_on ?? '',
+    amount: Number(row.amount) || 0,
+    method: row.method,
+    reference: row.reference ?? '',
+    bankName: row.bank_name ?? '',
+    photoUrl: row.photo_url,
+    createdAt: row.created_at,
+  };
+}
+
+function toBillPaymentRow(payment: BillPayment): DbBillPayment {
+  return {
+    id: payment.id,
+    bill_id: payment.billId,
+    paid_on: payment.paidOn || null,
+    amount: payment.amount,
+    method: payment.method,
+    reference: payment.reference,
+    bank_name: payment.bankName,
+    photo_url: payment.photoUrl,
+    created_at: payment.createdAt,
+  };
+}
+
+export async function fetchPurchaseBills(): Promise<PurchaseBill[]> {
+  const { data, error } = await assertSupabase()
+    .from('purchase_bills')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data as DbPurchaseBill[]).map(mapPurchaseBill);
+}
+
+export async function fetchBillPayments(): Promise<BillPayment[]> {
+  const { data, error } = await assertSupabase()
+    .from('bill_payments')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return (data as DbBillPayment[]).map(mapBillPayment);
+}
+
+export async function insertPurchaseBill(bill: PurchaseBill): Promise<void> {
+  const { error } = await assertSupabase()
+    .from('purchase_bills')
+    .insert(toPurchaseBillRow(bill));
+  if (error) throw error;
+}
+
+export async function deletePurchaseBillFromDb(billId: string): Promise<void> {
+  const { error } = await assertSupabase().from('purchase_bills').delete().eq('id', billId);
+  if (error) throw error;
+}
+
+export async function insertBillPayment(payment: BillPayment): Promise<void> {
+  const { error } = await assertSupabase()
+    .from('bill_payments')
+    .insert(toBillPaymentRow(payment));
+  if (error) throw error;
+}
+
+export async function deleteBillPaymentFromDb(paymentId: string): Promise<void> {
+  const { error } = await assertSupabase().from('bill_payments').delete().eq('id', paymentId);
+  if (error) throw error;
+}
+
+/**
+ * Uploads a bill photo / payment screenshot to the `bill-photos` bucket.
+ * Returns the public URL, or null if the upload failed (the record can still
+ * be saved without a photo).
+ */
+export async function uploadBillPhoto(file: File, folder: 'bills' | 'payments'): Promise<string | null> {
+  try {
+    const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
+    const path = `${folder}/${Date.now()}-${Math.floor(Math.random() * 100000)}.${ext}`;
+    const { error } = await assertSupabase()
+      .storage.from('bill-photos')
+      .upload(path, file, { contentType: file.type || 'image/jpeg' });
+
+    if (error) {
+      console.warn('Could not upload photo:', error.message);
+      return null;
+    }
+
+    const { data } = assertSupabase().storage.from('bill-photos').getPublicUrl(path);
+    return data.publicUrl ?? null;
+  } catch {
+    return null;
   }
 }

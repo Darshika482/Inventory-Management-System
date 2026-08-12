@@ -33,6 +33,7 @@ import autoTable from 'jspdf-autotable';
 import { PremiumSelect } from './PremiumSelect';
 import { AppModal } from './AppModal';
 import { FormInput, FormError, ModalActions } from './FormInput';
+import { DateRangePicker } from './DateRangePicker';
 import { categoryToSelectOption, staffToSelectOption, FLOOR_SELECT_OPTIONS } from '../lib/selectOptions';
 
 interface AdminDashboardProps {
@@ -783,13 +784,13 @@ export function AdminDashboard({
     <div className="flex-1 overflow-y-auto bg-[#F8FAFC] p-4 sm:p-6 md:p-8 space-y-6 sm:space-y-8 font-sans text-slate-900 selection:bg-amber-500 selection:text-white">
       
       {/* Dynamic Header */}
-      <div className="flex flex-col gap-4 border-b border-slate-200 pb-5">
-        <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:gap-4 border-b border-slate-200 pb-4 sm:pb-5">
+        <div className="flex items-start justify-between gap-2 sm:gap-3">
           <div className="min-w-0">
-            <h2 className="font-sans text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
+            <h2 className="font-sans text-lg sm:text-3xl font-bold tracking-tight text-slate-900">
               Stock overview
             </h2>
-            <p className="text-sm text-slate-500 mt-1">
+            <p className="text-xs sm:text-sm text-slate-500 mt-0.5 sm:mt-1">
               See what you have and what has been taken
             </p>
           </div>
@@ -797,24 +798,25 @@ export function AdminDashboard({
             type="button"
             onClick={() => setIsAddCategoryOpen(true)}
             title="Add new item"
-            className="shrink-0 p-2.5 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg shadow-xs cursor-pointer transition-all border border-slate-850"
+            className="shrink-0 flex items-center gap-1.5 px-2.5 py-2 sm:px-3.5 sm:py-2.5 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap shadow-xs cursor-pointer transition-all border border-slate-850"
           >
-            <Plus className="h-5 w-5" />
+            <Plus className="h-4 w-4 sm:h-5 sm:w-5" />
+            Add new item
           </button>
         </div>
-        <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
+        <div className="flex flex-row sm:flex-wrap items-stretch sm:items-center gap-2 sm:gap-2.5 w-full sm:w-auto">
           <button
             onClick={() => setIsRestockOpen(true)}
-            className="flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold shadow-xs cursor-pointer transition-all border border-emerald-700/20"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3 py-2.5 sm:px-4 sm:py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs sm:text-sm font-bold shadow-xs cursor-pointer transition-all border border-emerald-700/20"
           >
-            <ArrowUpRight className="h-4 w-4" />
-            Add more stock
+            <ArrowUpRight className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            Add stock
           </button>
           <button
             onClick={openWithdrawModal}
-            className="flex items-center justify-center gap-2 px-4 py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-bold shadow-xs cursor-pointer transition-all border border-red-700/20"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3 py-2.5 sm:px-4 sm:py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs sm:text-sm font-bold shadow-xs cursor-pointer transition-all border border-red-700/20"
           >
-            <Send className="h-4 w-4" />
+            <Send className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             Record taken stock
           </button>
         </div>
@@ -1368,7 +1370,7 @@ export function AdminDashboard({
 
                 {/* Date filter presets */}
                 <div className="flex flex-col gap-3">
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
                     {([
                       { key: 'all' as const, label: 'All time' },
                       { key: 'today' as const, label: 'Today' },
@@ -1380,13 +1382,15 @@ export function AdminDashboard({
                         key={key}
                         type="button"
                         onClick={() => setStockAddedPreset(key)}
-                        className={`px-3.5 py-2 text-sm rounded-lg font-semibold cursor-pointer transition-all border ${
+                        className={`inline-flex items-center justify-center px-3.5 py-2.5 sm:py-2 text-sm rounded-lg font-semibold cursor-pointer transition-all border ${
+                          key === 'custom' ? 'col-span-2 sm:col-span-1' : ''
+                        } ${
                           stockAddedPreset === key
                             ? 'bg-[#0F172A] text-white border-slate-800 shadow-xs'
                             : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-800'
                         }`}
                       >
-                        {key === 'custom' && <CalendarRange className="h-3.5 w-3.5 inline mr-1.5 -mt-0.5" />}
+                        {key === 'custom' && <CalendarRange className="h-3.5 w-3.5 mr-1.5" />}
                         {label}
                       </button>
                     ))}
@@ -1399,35 +1403,16 @@ export function AdminDashboard({
                       animate={{ opacity: 1, height: 'auto' }}
                       exit={{ opacity: 0, height: 0 }}
                       transition={{ duration: 0.2 }}
-                      className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3 p-3.5 bg-slate-50 rounded-xl border border-slate-200"
+                      className="p-3.5 bg-slate-50 rounded-xl border border-slate-200"
                     >
-                      <div className="flex-1 min-w-0">
-                        <label className="block text-xs font-semibold text-slate-500 mb-1.5">From</label>
-                        <input
-                          type="date"
-                          value={customDateFrom}
-                          onChange={(e) => setCustomDateFrom(e.target.value)}
-                          className="w-full px-3 py-2.5 text-sm font-medium text-slate-900 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-amber-500 transition-colors"
-                        />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <label className="block text-xs font-semibold text-slate-500 mb-1.5">To</label>
-                        <input
-                          type="date"
-                          value={customDateTo}
-                          onChange={(e) => setCustomDateTo(e.target.value)}
-                          className="w-full px-3 py-2.5 text-sm font-medium text-slate-900 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-amber-500 transition-colors"
-                        />
-                      </div>
-                      {(customDateFrom || customDateTo) && (
-                        <button
-                          type="button"
-                          onClick={() => { setCustomDateFrom(''); setCustomDateTo(''); }}
-                          className="shrink-0 px-3 py-2.5 text-sm font-semibold text-slate-500 hover:text-slate-800 bg-white border border-slate-200 rounded-lg transition-colors cursor-pointer"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      )}
+                      <DateRangePicker
+                        value={{ from: customDateFrom, to: customDateTo }}
+                        onChange={({ from, to }) => {
+                          setCustomDateFrom(from);
+                          setCustomDateTo(to);
+                        }}
+                        disableFuture
+                      />
                     </motion.div>
                   )}
 
@@ -1780,7 +1765,7 @@ export function AdminDashboard({
       <AppModal
         open={isRestockOpen}
         onClose={() => setIsRestockOpen(false)}
-        title="Add more stock"
+        title="Add stock"
         description="Increase the total and remaining stock for an item"
         icon={<ArrowUpRight className="h-5 w-5" />}
         accent="amber"

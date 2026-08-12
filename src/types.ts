@@ -39,3 +39,41 @@ export interface StockAddition {
   timestamp: string;
   createdAt: string;
 }
+
+// --- Firm bills (purchases) ---
+
+export type PaymentMethod = 'Cash' | 'Cheque' | 'Bank transfer' | 'UPI';
+
+export interface BillLineItem {
+  name: string;
+  quantity: number;
+  rate: number;
+  amount: number;
+}
+
+export interface PurchaseBill {
+  id: string;
+  firmName: string;
+  billNo: string;
+  billDate: string; // YYYY-MM-DD, may be empty if unknown
+  lrNo: string;
+  transportName: string;
+  items: BillLineItem[];
+  grossAmount: number;
+  discount: number;
+  netAmount: number;
+  photoUrl: string | null;
+  createdAt: string;
+}
+
+export interface BillPayment {
+  id: string;
+  billId: string;
+  paidOn: string; // YYYY-MM-DD
+  amount: number;
+  method: PaymentMethod;
+  reference: string; // cheque no. / UTR / UPI transaction id
+  bankName: string;
+  photoUrl: string | null;
+  createdAt: string;
+}

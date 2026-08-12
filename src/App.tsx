@@ -14,6 +14,7 @@ import { User, Category, WithdrawalLog, StockAddition, Floor } from './types';
 import { Login } from './components/Login';
 import { Sidebar } from './components/Sidebar';
 import { AdminDashboard } from './components/AdminDashboard';
+import { BillsSection } from './components/BillsSection';
 import { WorkerDashboard } from './components/WorkerDashboard';
 import {
   authenticateUser,
@@ -484,7 +485,9 @@ export default function App() {
           </div>
         </header>
 
-        {currentUser.role === 'Admin' ? (
+        {currentUser.role === 'Admin' && activeSection === 'bills' ? (
+          <BillsSection showToast={showToast} />
+        ) : currentUser.role === 'Admin' ? (
           <AdminDashboard
             categories={categories}
             logs={logs}
