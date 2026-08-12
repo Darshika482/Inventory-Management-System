@@ -965,6 +965,7 @@ function PhotoPicker({
 }: PhotoPickerProps) {
   const [preview, setPreview] = useState<string | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const cameraInputId = `${inputId}-camera`;
 
   useEffect(() => {
     if (!file) {
@@ -977,16 +978,36 @@ function PhotoPicker({
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
+  const handlePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const selected = e.target.files?.[0] ?? null;
+    e.target.value = '';
+    // Camera photos are 8-15 MB; shrink before AI reading / upload
+    // so everything stays fast even on slow mobile data.
+    onSelect(selected ? await shrinkImage(selected) : null);
+  };
+
   return (
     <div className="space-y-2">
       {!file ? (
-        <label
-          htmlFor={inputId}
-          className="flex items-center justify-center gap-2 w-full px-4 py-4 border-2 border-dashed border-slate-300 hover:border-amber-400 rounded-xl text-sm font-semibold text-slate-600 bg-slate-50 cursor-pointer transition-colors"
-        >
-          <Camera className="h-4 w-4 text-amber-600" />
-          {label}
-        </label>
+        <div className="space-y-2">
+          <p className="text-sm font-semibold text-slate-700">{label}</p>
+          <div className="grid grid-cols-2 gap-2">
+            <label
+              htmlFor={cameraInputId}
+              className="flex items-center justify-center gap-2 px-4 py-4 border-2 border-dashed border-slate-300 hover:border-amber-400 rounded-xl text-sm font-semibold text-slate-600 bg-slate-50 cursor-pointer transition-colors"
+            >
+              <Camera className="h-4 w-4 text-amber-600" />
+              Take photo
+            </label>
+            <label
+              htmlFor={inputId}
+              className="flex items-center justify-center gap-2 px-4 py-4 border-2 border-dashed border-slate-300 hover:border-amber-400 rounded-xl text-sm font-semibold text-slate-600 bg-slate-50 cursor-pointer transition-colors"
+            >
+              <ImageIcon className="h-4 w-4 text-amber-600" />
+              Gallery
+            </label>
+          </div>
+        </div>
       ) : (
         <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl p-2.5">
           {preview && (
@@ -1022,18 +1043,14 @@ function PhotoPicker({
         </div>
       )}
       <input
-        id={inputId}
+        id={cameraInputId}
         type="file"
         accept="image/*"
+        capture="environment"
         className="hidden"
-        onChange={async (e) => {
-          const selected = e.target.files?.[0] ?? null;
-          e.target.value = '';
-          // Camera photos are 8-15 MB; shrink before AI reading / upload
-          // so everything stays fast even on slow mobile data.
-          onSelect(selected ? await shrinkImage(selected) : null);
-        }}
+        onChange={handlePick}
       />
+      <input id={inputId} type="file" accept="image/*" className="hidden" onChange={handlePick} />
 
       {file && onAutoFill && isPhotoFillAvailable && (
         <button
@@ -1394,7 +1411,7 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
         )}
 
         <PhotoPicker
-          label={savedPhotoUrl ? 'Replace bill photo (camera or gallery)' : 'Add bill photo (camera or gallery)'}
+          label={savedPhotoUrl ? 'Replace bill photo' : 'Add bill photo'}
           file={photoFile}
           onSelect={setPhotoFile}
           onAutoFill={handleAutoFill}
