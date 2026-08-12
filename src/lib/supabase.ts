@@ -16,6 +16,7 @@ export type DbCategory = {
   floor: string;
   initial_stock: number;
   current_quantity: number;
+  created_at: string;
 };
 
 export type DbWithdrawalLog = {
@@ -33,4 +34,16 @@ export type DbAppUser = {
   username: string;
   role: 'Admin' | 'Worker';
   password_hash: string;
+};
+
+export type DbStockAddition = {
+  id: string;
+  category_id: string;
+  category_name: string;
+  quantity: number;
+  floor: string;
+  unit: string;
+  type: 'new' | 'restock';
+  timestamp: string;
+  created_at: string;
 };

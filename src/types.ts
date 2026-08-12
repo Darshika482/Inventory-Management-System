@@ -15,6 +15,7 @@ export interface Category {
   floor: Floor;
   initialStock: number;
   currentQuantity: number;
+  createdAt: string;
 }
 
 export interface WithdrawalLog {
@@ -25,4 +26,16 @@ export interface WithdrawalLog {
   quantity: number;
   timestamp: string; // formatted e.g., "Jun 9, 2026 at 3:42 PM"
   status: 'Approved' | 'Rejected';
+}
+
+export interface StockAddition {
+  id: string;
+  categoryId: string;
+  categoryName: string;
+  quantity: number;
+  floor: Floor;
+  unit: string;
+  type: 'new' | 'restock';
+  timestamp: string;
+  createdAt: string;
 }

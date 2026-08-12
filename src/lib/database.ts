@@ -1,5 +1,5 @@
-import { Category, Floor, WithdrawalLog, User } from '../types';
-import { DbAppUser, DbCategory, DbWithdrawalLog, supabase } from './supabase';
+import { Category, Floor, StockAddition, WithdrawalLog, User } from '../types';
+import { DbAppUser, DbCategory, DbStockAddition, DbWithdrawalLog, supabase } from './supabase';
 
 function assertSupabase() {
   if (!supabase) {
@@ -18,6 +18,7 @@ function mapCategory(row: DbCategory): Category {
     floor: (row.floor === 'Second Floor' ? 'Second Floor' : 'First Floor') as Floor,
     initialStock: row.initial_stock,
     currentQuantity: row.current_quantity,
+    createdAt: row.created_at,
   };
 }
 
@@ -41,6 +42,7 @@ function toCategoryRow(category: Category): DbCategory {
     floor: category.floor,
     initial_stock: category.initialStock,
     current_quantity: category.currentQuantity,
+    created_at: category.createdAt,
   };
 }
 
@@ -170,4 +172,64 @@ export async function updateWithdrawalLogStatus(
     .eq('id', logId);
 
   if (error) throw error;
+}
+
+// Stock additions
+
+function mapStockAddition(row: DbStockAddition): StockAddition {
+  return {
+    id: row.id,
+    categoryId: row.category_id,
+    categoryName: row.category_name,
+    quantity: row.quantity,
+    floor: (row.floor === 'Second Floor' ? 'Second Floor' : 'First Floor') as Floor,
+    unit: row.unit,
+    type: row.type,
+    timestamp: row.timestamp,
+    createdAt: row.created_at,
+  };
+}
+
+function toStockAdditionRow(entry: StockAddition): DbStockAddition {
+  return {
+    id: entry.id,
+    category_id: entry.categoryId,
+    category_name: entry.categoryName,
+    quantity: entry.quantity,
+    floor: entry.floor,
+    unit: entry.unit,
+    type: entry.type,
+    timestamp: entry.timestamp,
+    created_at: entry.createdAt,
+  };
+}
+
+export async function fetchStockAdditions(): Promise<StockAddition[]> {
+  try {
+    const { data, error } = await assertSupabase()
+      .from('stock_additions')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      if (error.code === '42P01' || error.message?.includes('404')) return [];
+      throw error;
+    }
+    return (data as DbStockAddition[]).map(mapStockAddition);
+  } catch {
+    return [];
+  }
+}
+
+export async function insertStockAddition(entry: StockAddition): Promise<void> {
+  try {
+    const { error } = await assertSupabase()
+      .from('stock_additions')
+      .insert(toStockAdditionRow(entry));
+    if (error && error.code !== '42P01') {
+      console.warn('Could not log stock addition:', error.message);
+    }
+  } catch {
+    // Table may not exist yet — silently skip
+  }
 }

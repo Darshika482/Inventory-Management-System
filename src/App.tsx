@@ -10,7 +10,7 @@ import {
   Loader2,
   Warehouse,
 } from 'lucide-react';
-import { User, Category, WithdrawalLog, Floor } from './types';
+import { User, Category, WithdrawalLog, StockAddition, Floor } from './types';
 import { Login } from './components/Login';
 import { Sidebar } from './components/Sidebar';
 import { AdminDashboard } from './components/AdminDashboard';
@@ -21,7 +21,9 @@ import {
   fetchCategories,
   fetchWithdrawalLogs,
   fetchStaffUsers,
+  fetchStockAdditions,
   insertCategory,
+  insertStockAddition,
   insertWithdrawalLog,
   updateCategoryInDb,
   updateCategoryNameInLogs,
@@ -43,6 +45,7 @@ export default function App() {
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [logs, setLogs] = useState<WithdrawalLog[]>([]);
+  const [stockAdditions, setStockAdditions] = useState<StockAddition[]>([]);
   const [staffMembers, setStaffMembers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -59,13 +62,15 @@ export default function App() {
     setIsLoading(true);
     setLoadError(null);
     try {
-      const [categoriesData, logsData, staffData] = await Promise.all([
+      const [categoriesData, logsData, stockAdditionsData, staffData] = await Promise.all([
         fetchCategories(),
         fetchWithdrawalLogs(),
+        fetchStockAdditions(),
         fetchStaffUsers(),
       ]);
       setCategories(categoriesData);
       setLogs(logsData);
+      setStockAdditions(stockAdditionsData);
       setStaffMembers(staffData);
     } catch (err) {
       const message =
@@ -147,11 +152,26 @@ export default function App() {
       floor,
       initialStock,
       currentQuantity: initialStock,
+      createdAt: new Date().toISOString(),
+    };
+
+    const additionLog: StockAddition = {
+      id: `sa-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      categoryId: newCategory.id,
+      categoryName: name,
+      quantity: initialStock,
+      floor,
+      unit,
+      type: 'new',
+      timestamp: getFormattedTimestamp(),
+      createdAt: new Date().toISOString(),
     };
 
     try {
       await insertCategory(newCategory);
+      await insertStockAddition(additionLog);
       setCategories((prev) => [...prev, newCategory]);
+      setStockAdditions((prev) => [additionLog, ...prev]);
       showToast(`Added "${name}" on ${floor} with ${initialStock} ${unit} in stock.`, 'success');
     } catch {
       showToast('Could not save this item. Please try again.', 'error');
@@ -168,9 +188,23 @@ export default function App() {
       currentQuantity: category.currentQuantity + quantity,
     };
 
+    const additionLog: StockAddition = {
+      id: `sa-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      categoryId,
+      categoryName: category.name,
+      quantity,
+      floor: category.floor,
+      unit: category.unit,
+      type: 'restock',
+      timestamp: getFormattedTimestamp(),
+      createdAt: new Date().toISOString(),
+    };
+
     try {
       await updateCategoryInDb(updated);
+      await insertStockAddition(additionLog);
       setCategories((prev) => prev.map((cat) => (cat.id === categoryId ? updated : cat)));
+      setStockAdditions((prev) => [additionLog, ...prev]);
       showToast(
         `Added ${quantity} ${category.unit} to "${category.name}". Total stock is now ${updated.initialStock}.`,
         'success'
@@ -454,6 +488,7 @@ export default function App() {
           <AdminDashboard
             categories={categories}
             logs={logs}
+            stockAdditions={stockAdditions}
             staffMembers={staffMembers}
             onAddStock={handleAddStock}
             onAddNewCategory={handleAddNewCategory}

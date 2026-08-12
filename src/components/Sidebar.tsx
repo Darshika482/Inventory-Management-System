@@ -1,5 +1,5 @@
 import React from 'react';
-import { LogOut, Shield, User as UserIcon, Package, FileClock, Warehouse, X } from 'lucide-react';
+import { LogOut, Shield, User as UserIcon, Package, FileClock, CalendarPlus, Warehouse, X } from 'lucide-react';
 import { User } from '../types';
 
 interface SidebarProps {
@@ -113,6 +113,17 @@ export function Sidebar({
             >
               <FileClock className="h-5 w-5 shrink-0" />
               Taken items
+            </button>
+            <button
+              onClick={() => handleNavClick('stock-added')}
+              className={`w-full flex items-center gap-3 px-6 py-4 text-base transition-colors cursor-pointer text-left ${
+                activeSection === 'stock-added'
+                  ? 'bg-white/5 text-white border-l-4 border-amber-500 font-semibold'
+                  : 'text-slate-300 hover:text-white hover:bg-white/5 border-l-4 border-transparent'
+              }`}
+            >
+              <CalendarPlus className="h-5 w-5 shrink-0" />
+              Stock added
             </button>
           </>
         ) : (

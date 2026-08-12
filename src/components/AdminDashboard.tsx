@@ -17,10 +17,13 @@ import {
   CheckCircle2,
   XCircle,
   HardHat,
-  FileDown
+  FileDown,
+  CalendarDays,
+  CalendarRange,
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Category, WithdrawalLog, Floor, User } from '../types';
+import { Category, StockAddition, WithdrawalLog, Floor, User } from '../types';
 import { FLOOR_OPTIONS, getFloorBadgeClass, getFloorShortLabel } from '../lib/floors';
 import { groupCategoriesByNameAndFloor, sortGroupedCategories, getWorstVariant } from '../lib/groupCategories';
 import { QuantityCalculation } from './QuantityCalculation';
@@ -35,6 +38,7 @@ import { categoryToSelectOption, staffToSelectOption, FLOOR_SELECT_OPTIONS } fro
 interface AdminDashboardProps {
   categories: Category[];
   logs: WithdrawalLog[];
+  stockAdditions: StockAddition[];
   staffMembers: User[];
   onAddStock: (categoryId: string, quantity: number) => void;
   onAddNewCategory: (name: string, unit: string, initialStock: number, floor: Floor) => void;
@@ -58,6 +62,7 @@ type SortFieldLog = 'worker' | 'category' | 'quantity' | 'timestamp' | 'status';
 export function AdminDashboard({ 
   categories, 
   logs, 
+  stockAdditions,
   staffMembers,
   onAddStock, 
   onAddNewCategory,
@@ -111,6 +116,13 @@ export function AdminDashboard({
   const [logStatusFilter, setLogStatusFilter] = useState<'All' | 'Approved' | 'Rejected'>('All');
   const [logSortField, setLogSortField] = useState<SortFieldLog>('timestamp');
   const [logSortDirection, setLogSortDirection] = useState<'asc' | 'desc'>('desc');
+
+  // Stock Added date filter
+  type DatePreset = 'all' | 'today' | 'last-week' | 'last-month' | 'custom';
+  const [stockAddedPreset, setStockAddedPreset] = useState<DatePreset>('all');
+  const [customDateFrom, setCustomDateFrom] = useState('');
+  const [customDateTo, setCustomDateTo] = useState('');
+  const [stockAddedSearch, setStockAddedSearch] = useState('');
 
   // Compute Summary Statistics
   const stats = useMemo(() => {
@@ -460,6 +472,61 @@ export function AdminDashboard({
     return result;
   }, [logs, logSearch, logStatusFilter, logSortField, logSortDirection]);
 
+  // Stock Added date-range filtering
+  const stockAddedDateRange = useMemo((): { from: Date; to: Date } => {
+    const now = new Date();
+    const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const endOfDay = new Date(startOfDay.getTime() + 86400000 - 1);
+
+    if (stockAddedPreset === 'all') {
+      return { from: new Date(0), to: endOfDay };
+    }
+    if (stockAddedPreset === 'today') {
+      return { from: startOfDay, to: endOfDay };
+    }
+    if (stockAddedPreset === 'last-week') {
+      const weekAgo = new Date(startOfDay);
+      weekAgo.setDate(weekAgo.getDate() - 7);
+      return { from: weekAgo, to: endOfDay };
+    }
+    if (stockAddedPreset === 'last-month') {
+      const monthAgo = new Date(startOfDay);
+      monthAgo.setMonth(monthAgo.getMonth() - 1);
+      return { from: monthAgo, to: endOfDay };
+    }
+    // custom
+    const from = customDateFrom ? new Date(customDateFrom + 'T00:00:00') : new Date(0);
+    const to = customDateTo ? new Date(customDateTo + 'T23:59:59.999') : endOfDay;
+    return { from, to };
+  }, [stockAddedPreset, customDateFrom, customDateTo]);
+
+  const stockAddedFiltered = useMemo(() => {
+    const { from, to } = stockAddedDateRange;
+    return stockAdditions
+      .filter((entry) => {
+        const created = new Date(entry.createdAt);
+        if (created < from || created > to) return false;
+        if (stockAddedSearch.trim()) {
+          const q = stockAddedSearch.toLowerCase();
+          return (
+            entry.categoryName.toLowerCase().includes(q) ||
+            entry.floor.toLowerCase().includes(q) ||
+            entry.unit.toLowerCase().includes(q)
+          );
+        }
+        return true;
+      })
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [stockAdditions, stockAddedDateRange, stockAddedSearch]);
+
+  const stockAddedTotalPieces = useMemo(
+    () => stockAddedFiltered.reduce((sum, entry) => sum + entry.quantity, 0),
+    [stockAddedFiltered]
+  );
+
+  const formatDateLabel = (date: Date) =>
+    date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
   const toggleSortCategories = (field: SortFieldCategory) => {
     if (catSortField === field) {
       setCatSortDirection(prev => prev === 'asc' ? 'desc' : 'asc');
@@ -754,7 +821,7 @@ export function AdminDashboard({
       </div>
 
       <AnimatePresence mode="wait">
-        {activeSection === 'overview' ? (
+        {activeSection === 'overview' && (
           <motion.div
             key="overview-section"
             initial={{ opacity: 0, y: 10 }}
@@ -1036,7 +1103,9 @@ export function AdminDashboard({
               </div>
             </div>
           </motion.div>
-        ) : (
+        )}
+
+        {activeSection === 'logs' && (
           <motion.div
             key="logs-section"
             initial={{ opacity: 0, y: 10 }}
@@ -1265,6 +1334,251 @@ export function AdminDashboard({
                             </td>
                           </motion.tr>
                         ))
+                      )}
+                    </AnimatePresence>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {activeSection === 'stock-added' && (
+          <motion.div
+            key="stock-added-section"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+            className="space-y-6"
+          >
+            <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-xs">
+              <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col gap-4">
+                <div className="flex items-start gap-2.5 min-w-0">
+                  <CalendarDays className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <h3 className="text-base font-bold text-slate-800">
+                      Stock added by date
+                    </h3>
+                    <p className="text-sm text-slate-500 mt-0.5">
+                      See which items were added to your stock on a particular day or range
+                    </p>
+                  </div>
+                </div>
+
+                {/* Date filter presets */}
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {([
+                      { key: 'all' as const, label: 'All time' },
+                      { key: 'today' as const, label: 'Today' },
+                      { key: 'last-week' as const, label: 'Last 7 days' },
+                      { key: 'last-month' as const, label: 'Last 30 days' },
+                      { key: 'custom' as const, label: 'Custom range' },
+                    ]).map(({ key, label }) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setStockAddedPreset(key)}
+                        className={`px-3.5 py-2 text-sm rounded-lg font-semibold cursor-pointer transition-all border ${
+                          stockAddedPreset === key
+                            ? 'bg-[#0F172A] text-white border-slate-800 shadow-xs'
+                            : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-800'
+                        }`}
+                      >
+                        {key === 'custom' && <CalendarRange className="h-3.5 w-3.5 inline mr-1.5 -mt-0.5" />}
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Custom date range picker */}
+                  {stockAddedPreset === 'custom' && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="flex flex-col sm:flex-row items-stretch sm:items-end gap-3 p-3.5 bg-slate-50 rounded-xl border border-slate-200"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <label className="block text-xs font-semibold text-slate-500 mb-1.5">From</label>
+                        <input
+                          type="date"
+                          value={customDateFrom}
+                          onChange={(e) => setCustomDateFrom(e.target.value)}
+                          className="w-full px-3 py-2.5 text-sm font-medium text-slate-900 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-amber-500 transition-colors"
+                        />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <label className="block text-xs font-semibold text-slate-500 mb-1.5">To</label>
+                        <input
+                          type="date"
+                          value={customDateTo}
+                          onChange={(e) => setCustomDateTo(e.target.value)}
+                          className="w-full px-3 py-2.5 text-sm font-medium text-slate-900 bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-amber-500 transition-colors"
+                        />
+                      </div>
+                      {(customDateFrom || customDateTo) && (
+                        <button
+                          type="button"
+                          onClick={() => { setCustomDateFrom(''); setCustomDateTo(''); }}
+                          className="shrink-0 px-3 py-2.5 text-sm font-semibold text-slate-500 hover:text-slate-800 bg-white border border-slate-200 rounded-lg transition-colors cursor-pointer"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
+                    </motion.div>
+                  )}
+
+                  {/* Search + summary */}
+                  <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2.5">
+                    <div className="relative w-full sm:w-auto sm:min-w-[12rem] sm:flex-1 sm:max-w-xs">
+                      <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-slate-450" />
+                      <input
+                        type="text"
+                        placeholder="Search items..."
+                        value={stockAddedSearch}
+                        onChange={(e) => setStockAddedSearch(e.target.value)}
+                        className="bg-white border border-slate-200 rounded-lg pl-9 pr-3 py-3 text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500 w-full transition-all"
+                      />
+                    </div>
+                    <div className="flex items-center gap-3 text-sm">
+                      <span className="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg font-bold tabular-nums">
+                        {stockAddedFiltered.length} {stockAddedFiltered.length === 1 ? 'item' : 'items'}
+                      </span>
+                      <span className="text-slate-400 font-medium tabular-nums">
+                        {stockAddedTotalPieces.toLocaleString()} total pieces
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Date range label */}
+              <div className="px-4 py-2 bg-slate-50/80 border-b border-slate-100 flex items-center gap-2">
+                <CalendarDays className="h-3.5 w-3.5 text-slate-400" />
+                <span className="text-xs font-semibold text-slate-500">
+                  {stockAddedPreset === 'all' && 'All time — every stock addition ever recorded'}
+                  {stockAddedPreset === 'today' && `Today — ${formatDateLabel(new Date())}`}
+                  {stockAddedPreset === 'last-week' && `${formatDateLabel(stockAddedDateRange.from)} – ${formatDateLabel(stockAddedDateRange.to)}`}
+                  {stockAddedPreset === 'last-month' && `${formatDateLabel(stockAddedDateRange.from)} – ${formatDateLabel(stockAddedDateRange.to)}`}
+                  {stockAddedPreset === 'custom' && (
+                    customDateFrom || customDateTo
+                      ? `${customDateFrom ? formatDateLabel(new Date(customDateFrom + 'T00:00:00')) : 'Start'} – ${customDateTo ? formatDateLabel(new Date(customDateTo + 'T00:00:00')) : 'Now'}`
+                      : 'All time'
+                  )}
+                </span>
+              </div>
+
+              {/* Mobile card list */}
+              <div className="md:hidden p-3 space-y-3 bg-slate-50/50">
+                {stockAddedFiltered.length === 0 ? (
+                  <div className="p-8 text-center text-slate-400 text-sm leading-relaxed">
+                    <CalendarDays className="h-8 w-8 mx-auto text-slate-300 mb-3" />
+                    <p className="font-semibold text-slate-500">No items found</p>
+                    <p className="mt-1">No stock was added in this date range.</p>
+                  </div>
+                ) : (
+                  stockAddedFiltered.map((entry) => {
+                    const addedDate = new Date(entry.createdAt);
+                    return (
+                      <div key={entry.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-base font-bold text-slate-900">{entry.categoryName}</p>
+                            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                              {renderFloorBadge(entry.floor)}
+                              <span className="text-xs text-slate-500 font-medium">{entry.unit}</span>
+                            </div>
+                          </div>
+                          <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-xs font-semibold rounded-full border shrink-0 ${
+                            entry.type === 'new'
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-blue-50 text-blue-700 border-blue-200'
+                          }`}>
+                            {entry.type === 'new' ? 'New item' : 'Restocked'}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
+                          <div>
+                            <p className="text-xl font-bold text-slate-900 tabular-nums">{entry.quantity.toLocaleString()}</p>
+                            <p className="text-xs text-slate-500">{entry.unit} added</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xs text-slate-400">
+                              {addedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} at{' '}
+                              {addedDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Desktop table */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-sm font-bold text-slate-500 tracking-wider select-none">
+                      <th className="p-4">Item name</th>
+                      <th className="p-4">Unit</th>
+                      <th className="p-4">Floor</th>
+                      <th className="p-4">Quantity added</th>
+                      <th className="p-4">Type</th>
+                      <th className="p-4">Added on</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-sm">
+                    <AnimatePresence>
+                      {stockAddedFiltered.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="p-10 text-center">
+                            <CalendarDays className="h-8 w-8 mx-auto text-slate-300 mb-3" />
+                            <p className="text-sm font-semibold text-slate-500">No items found</p>
+                            <p className="text-sm text-slate-400 mt-1">No stock was added in this date range.</p>
+                          </td>
+                        </tr>
+                      ) : (
+                        stockAddedFiltered.map((entry) => {
+                          const addedDate = new Date(entry.createdAt);
+                          return (
+                            <motion.tr
+                              key={entry.id}
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              exit={{ opacity: 0 }}
+                              transition={{ duration: 0.15 }}
+                              className="hover:bg-slate-50/50 transition-colors"
+                            >
+                              <td className="p-4 font-semibold text-slate-900">{entry.categoryName}</td>
+                              <td className="p-4 text-slate-600 font-medium">{entry.unit}</td>
+                              <td className="p-4">{renderFloorBadge(entry.floor)}</td>
+                              <td className="p-4">
+                                <span className="font-extrabold text-sm text-slate-800 tabular-nums">
+                                  {entry.quantity.toLocaleString()}
+                                </span>
+                              </td>
+                              <td className="p-4">
+                                <span className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-full border ${
+                                  entry.type === 'new'
+                                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                    : 'bg-blue-50 text-blue-700 border-blue-200'
+                                }`}>
+                                  {entry.type === 'new' ? 'New item' : 'Restocked'}
+                                </span>
+                              </td>
+                              <td className="p-4 text-sm text-slate-500 whitespace-nowrap">
+                                {addedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                                <span className="text-slate-400 ml-1">
+                                  {addedDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}
+                                </span>
+                              </td>
+                            </motion.tr>
+                          );
+                        })
                       )}
                     </AnimatePresence>
                   </tbody>
