@@ -8,12 +8,23 @@ html {
   font-size: 18px;
 }
 
+/* Phones: 16px keeps text large but stops long rupee amounts from being
+   squeezed out of cards. It is also the size iOS needs to not zoom into
+   an input when it is focused. */
+@media (max-width: 640px) {
+  html {
+    font-size: 16px;
+  }
+}
+
 body {
   font-family: var(--font-sans);
   font-size: 1rem;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+  overflow-x: hidden;
 }
 
 button,

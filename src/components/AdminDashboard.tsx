@@ -807,17 +807,17 @@ export function AdminDashboard({
         <div className="flex flex-row sm:flex-wrap items-stretch sm:items-center gap-2 sm:gap-2.5 w-full sm:w-auto">
           <button
             onClick={() => setIsRestockOpen(true)}
-            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3 py-2.5 sm:px-4 sm:py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs sm:text-sm font-bold shadow-xs cursor-pointer transition-all border border-emerald-700/20"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap shadow-xs cursor-pointer transition-all border border-emerald-700/20"
           >
             <ArrowUpRight className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
             Add stock
           </button>
           <button
             onClick={openWithdrawModal}
-            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3 py-2.5 sm:px-4 sm:py-3 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs sm:text-sm font-bold shadow-xs cursor-pointer transition-all border border-red-700/20"
+            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap shadow-xs cursor-pointer transition-all border border-red-700/20"
           >
             <Send className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-            Record taken stock
+            Take out stock
           </button>
         </div>
       </div>
@@ -1809,15 +1809,15 @@ export function AdminDashboard({
       <AppModal
         open={isWithdrawOpen}
         onClose={closeWithdrawModal}
-        title="Record taken stock"
-        description="Log items taken out and assign them to a staff member"
+        title="Take out stock"
+        description="Note down items taken out and who took them"
         icon={<Send className="h-5 w-5" />}
         accent="emerald"
       >
         {staffMembers.length === 0 ? (
           <div className="space-y-4">
             <p className="text-sm text-slate-600 leading-relaxed">
-              No staff accounts found. Add staff users before recording taken stock.
+              No staff accounts found. Add staff users before taking out stock.
             </p>
             <button
               type="button"

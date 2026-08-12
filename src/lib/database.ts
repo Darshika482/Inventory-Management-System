@@ -258,18 +258,30 @@ function mapPurchaseBill(row: DbPurchaseBill): PurchaseBill {
     firmName: row.firm_name,
     billNo: row.bill_no,
     billDate: row.bill_date ?? '',
+    gstNumber: row.gst_number ?? '',
     lrNo: row.lr_no ?? '',
     transportName: row.transport_name ?? '',
     items: Array.isArray(row.items)
       ? row.items.map((item) => ({
           name: item.name ?? '',
           quantity: Number(item.quantity) || 0,
+          unit: item.unit ?? '',
           rate: Number(item.rate) || 0,
           amount: Number(item.amount) || 0,
         }))
       : [],
     grossAmount: Number(row.gross_amount) || 0,
+    discounts:
+      Array.isArray(row.discounts) && row.discounts.length > 0
+        ? row.discounts.map((d) => ({
+            name: d.name || 'Discount',
+            amount: Number(d.amount) || 0,
+          }))
+        : Number(row.discount) > 0
+          ? [{ name: 'Discount', amount: Number(row.discount) }]
+          : [],
     discount: Number(row.discount) || 0,
+    gstAmount: Number(row.gst_amount) || 0,
     netAmount: Number(row.net_amount) || 0,
     photoUrl: row.photo_url,
     createdAt: row.created_at,
@@ -282,11 +294,14 @@ function toPurchaseBillRow(bill: PurchaseBill): DbPurchaseBill {
     firm_name: bill.firmName,
     bill_no: bill.billNo,
     bill_date: bill.billDate || null,
+    gst_number: bill.gstNumber,
     lr_no: bill.lrNo,
     transport_name: bill.transportName,
     items: bill.items,
     gross_amount: bill.grossAmount,
+    discounts: bill.discounts,
     discount: bill.discount,
+    gst_amount: bill.gstAmount,
     net_amount: bill.netAmount,
     photo_url: bill.photoUrl,
     created_at: bill.createdAt,

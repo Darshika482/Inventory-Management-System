@@ -7,6 +7,7 @@ import {
   FileText,
   Image as ImageIcon,
   Loader2,
+  Maximize2,
   Plus,
   ReceiptText,
   Search,
@@ -31,10 +32,13 @@ import {
   extractBillFromImage,
   extractPaymentFromImage,
   isPhotoFillAvailable,
+  PhotoReadError,
 } from '../lib/extractBill';
+import { shrinkImage } from '../lib/imageTools';
 import { AppModal } from './AppModal';
 import { FormError, FormInput, ModalActions } from './FormInput';
 import { DateField } from './DateField';
+import { ImageViewer } from './ImageViewer';
 
 interface BillsSectionProps {
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
@@ -43,11 +47,26 @@ interface BillsSectionProps {
 interface ItemRow {
   name: string;
   quantity: string;
+  unit: string;
   rate: string;
   amount: string;
 }
 
-const EMPTY_ROW: ItemRow = { name: '', quantity: '', rate: '', amount: '' };
+interface DiscountRow {
+  name: string;
+  amount: string;
+}
+
+interface PhotoToView {
+  url: string;
+  title: string;
+  subtitle: string;
+  downloadName: string;
+}
+
+const EMPTY_ROW: ItemRow = { name: '', quantity: '', unit: '', rate: '', amount: '' };
+
+const UNIT_SUGGESTIONS = ['Piece', 'Meter', 'Kg', 'Box', 'Dozen', 'Roll', 'Set', 'Bundle'];
 
 const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
   { value: 'Cash', label: 'Cash' },
@@ -104,6 +123,7 @@ export function BillsSection({ showToast }: BillsSectionProps) {
   const [paymentBillId, setPaymentBillId] = useState<string | null>(null);
   const [deletingBillId, setDeletingBillId] = useState<string | null>(null);
   const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
+  const [viewingPhoto, setViewingPhoto] = useState<PhotoToView | null>(null);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -117,7 +137,7 @@ export function BillsSection({ showToast }: BillsSectionProps) {
       setPayments(paymentsData);
     } catch {
       setLoadError(
-        'Could not load your firm bills. Check your internet and try again. If this keeps happening, the bills table may not be set up in the database yet.'
+        'Could not load your party bills. Check your internet and try again. If this keeps happening, the bills table may not be set up in the database yet.'
       );
     } finally {
       setIsLoading(false);
@@ -139,17 +159,6 @@ export function BillsSection({ showToast }: BillsSectionProps) {
 
   const getPaid = (billId: string) => paidByBill.get(billId) ?? 0;
   const getBalance = (bill: PurchaseBill) => Math.max(0, bill.netAmount - getPaid(bill.id));
-
-  const totals = useMemo(() => {
-    let purchased = 0;
-    let paid = 0;
-    for (const bill of bills) {
-      purchased += bill.netAmount;
-      paid += Math.min(getPaid(bill.id), bill.netAmount);
-    }
-    return { purchased, paid, due: Math.max(0, purchased - paid) };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bills, paidByBill]);
 
   const firmNames = useMemo(
     () => Array.from(new Set(bills.map((b) => b.firmName.trim()))).sort(),
@@ -240,7 +249,7 @@ export function BillsSection({ showToast }: BillsSectionProps) {
       <div className="flex-1 flex items-center justify-center bg-[#F8FAFC] p-6">
         <div className="flex flex-col items-center gap-3 text-slate-500">
           <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
-          <p className="text-base font-medium">Loading firm bills...</p>
+          <p className="text-base font-medium">Loading party bills...</p>
         </div>
       </div>
     );
@@ -251,7 +260,7 @@ export function BillsSection({ showToast }: BillsSectionProps) {
       <div className="flex-1 flex items-center justify-center bg-[#F8FAFC] p-6">
         <div className="max-w-md w-full bg-white border border-red-200 rounded-xl p-6 shadow-lg text-center space-y-4">
           <ReceiptText className="h-10 w-10 text-red-500 mx-auto" />
-          <h2 className="text-xl font-bold text-slate-900">Could not load firm bills</h2>
+          <h2 className="text-xl font-bold text-slate-900">Could not load party bills</h2>
           <p className="text-sm text-slate-600 leading-relaxed">{loadError}</p>
           <button
             type="button"
@@ -266,96 +275,53 @@ export function BillsSection({ showToast }: BillsSectionProps) {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto bg-[#F8FAFC] p-4 sm:p-6 md:p-8 space-y-5 font-sans text-slate-900 selection:bg-amber-500 selection:text-white">
-      {/* Header */}
-      <div className="flex flex-col gap-4 border-b border-slate-200 pb-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
-              Firm bills
-            </h2>
-            <p className="text-sm text-slate-500 mt-1">
-              Bills of goods bought from firms, and payments made to them
-            </p>
+    <div className="flex-1 overflow-y-auto bg-[#F8FAFC] p-3 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:p-6 md:p-8 space-y-4 sm:space-y-5 font-sans text-slate-900 selection:bg-amber-500 selection:text-white">
+      {/* View tabs + filters */}
+      <div className="flex flex-col gap-2 sm:gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex rounded-lg bg-slate-100 p-0.5">
+            {(
+              [
+                { key: 'bills' as const, label: 'Bills', shortLabel: 'Bills' },
+                { key: 'firms' as const, label: 'Party-wise total', shortLabel: 'By party' },
+              ]
+            ).map(({ key, label, shortLabel }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setView(key)}
+                className={`px-3 py-2 sm:px-4 text-sm rounded-md font-semibold cursor-pointer transition-colors whitespace-nowrap ${
+                  view === key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <span className="sm:hidden">{shortLabel}</span>
+                <span className="hidden sm:inline">{label}</span>
+              </button>
+            ))}
           </div>
           <button
             type="button"
             onClick={() => setIsAddBillOpen(true)}
-            className="shrink-0 flex items-center gap-2 px-4 py-3 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg text-sm font-bold shadow-xs cursor-pointer transition-all"
+            className="ml-auto shrink-0 flex items-center gap-1.5 px-3 py-2 sm:px-4 sm:py-2.5 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg text-sm font-bold whitespace-nowrap shadow-xs cursor-pointer transition-all"
           >
             <Plus className="h-4 w-4" />
             Add bill
           </button>
         </div>
 
-        {/* Money summary */}
-        <div className="grid grid-cols-3 gap-2 sm:gap-3">
-          <div className="bg-white px-3 py-3 rounded-xl border border-slate-200 shadow-xs min-w-0">
-            <p className="text-xs text-slate-500 truncate">Total purchases</p>
-            <p className="text-base sm:text-lg font-bold text-slate-900 leading-tight mt-0.5 truncate tabular-nums">
-              {formatMoney(totals.purchased)}
-            </p>
-          </div>
-          <div className="bg-white px-3 py-3 rounded-xl border border-slate-200 shadow-xs min-w-0">
-            <p className="text-xs text-slate-500 truncate">Paid</p>
-            <p className="text-base sm:text-lg font-bold text-emerald-700 leading-tight mt-0.5 truncate tabular-nums">
-              {formatMoney(totals.paid)}
-            </p>
-          </div>
-          <div
-            className={`px-3 py-3 rounded-xl border shadow-xs min-w-0 ${
-              totals.due > 0 ? 'bg-red-50/60 border-red-200' : 'bg-white border-slate-200'
-            }`}
-          >
-            <p className={`text-xs truncate ${totals.due > 0 ? 'text-red-700' : 'text-slate-500'}`}>
-              Left to pay
-            </p>
-            <p
-              className={`text-base sm:text-lg font-bold leading-tight mt-0.5 truncate tabular-nums ${
-                totals.due > 0 ? 'text-red-700' : 'text-slate-900'
-              }`}
-            >
-              {formatMoney(totals.due)}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* View tabs + filters */}
-      <div className="flex flex-col gap-3">
-        <div className="inline-flex rounded-lg bg-slate-100 p-0.5 self-start">
-          {(
-            [
-              { key: 'bills' as const, label: 'Bills' },
-              { key: 'firms' as const, label: 'Firm-wise total' },
-            ]
-          ).map(({ key, label }) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setView(key)}
-              className={`px-4 py-2 text-sm rounded-md font-semibold cursor-pointer transition-colors ${
-                view === key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
         {view === 'bills' && (
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
             <div className="relative w-full sm:max-w-xs">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search firm or bill number..."
+                placeholder="Search party or bill number..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="bg-white border border-slate-200 rounded-lg pl-9 pr-3 py-3 text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500 w-full transition-all"
+                className="bg-white border border-slate-200 rounded-lg pl-8 pr-3 py-2 text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500 w-full transition-all"
               />
             </div>
-            <div className="inline-flex rounded-md bg-slate-50 p-0.5 border border-slate-200 w-full sm:w-auto">
+            <div className="flex rounded-lg bg-slate-50 p-0.5 border border-slate-200 w-full sm:w-auto">
               {(
                 [
                   { key: 'all' as const, label: 'All' },
@@ -367,7 +333,7 @@ export function BillsSection({ showToast }: BillsSectionProps) {
                   key={key}
                   type="button"
                   onClick={() => setStatusFilter(key)}
-                  className={`flex-1 sm:flex-none px-3 py-2.5 sm:py-2 text-sm rounded-lg font-semibold cursor-pointer transition-colors ${
+                  className={`flex-1 sm:flex-none px-2 py-2 sm:px-3 text-xs sm:text-sm rounded-md font-semibold whitespace-nowrap cursor-pointer transition-colors ${
                     statusFilter === key
                       ? 'bg-[#0F172A] text-white font-bold shadow-xs'
                       : 'text-slate-500 hover:text-slate-800'
@@ -382,16 +348,16 @@ export function BillsSection({ showToast }: BillsSectionProps) {
 
         {view === 'bills' && firmFilter && (
           <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-2 pl-3 pr-2 py-1.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-full text-sm font-semibold">
-              <Building2 className="h-3.5 w-3.5" />
-              {firmFilter}
+            <span className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-full text-xs font-semibold max-w-full">
+              <Building2 className="h-3 w-3 shrink-0" />
+              <span className="truncate">{firmFilter}</span>
               <button
                 type="button"
                 onClick={() => setFirmFilter(null)}
-                className="p-0.5 hover:bg-amber-100 rounded-full cursor-pointer"
-                aria-label="Show all firms"
+                className="p-1 hover:bg-amber-100 rounded-full cursor-pointer shrink-0"
+                aria-label="Show all parties"
               >
-                <X className="h-3.5 w-3.5" />
+                <X className="h-3 w-3" />
               </button>
             </span>
           </div>
@@ -498,22 +464,28 @@ export function BillsSection({ showToast }: BillsSectionProps) {
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-4 mt-3 pt-3 border-t border-slate-100 text-sm">
-                      <div>
-                        <p className="text-xs text-slate-500">Bill amount</p>
-                        <p className="font-bold text-slate-900 tabular-nums">{formatMoney(bill.netAmount)}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-slate-500">Paid</p>
-                        <p className="font-bold text-emerald-700 tabular-nums">{formatMoney(paid)}</p>
+                    <div className="mt-3 pt-3 border-t border-slate-100 text-sm">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="min-w-0">
+                          <p className="text-xs text-slate-500">Bill amount</p>
+                          <p className="font-bold text-slate-900 tabular-nums truncate">
+                            {formatMoney(bill.netAmount)}
+                          </p>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-xs text-slate-500">Paid</p>
+                          <p className="font-bold text-emerald-700 tabular-nums truncate">
+                            {formatMoney(paid)}
+                          </p>
+                        </div>
                       </div>
                       {bill.transportName && (
-                        <div className="min-w-0 ml-auto text-right">
-                          <p className="text-xs text-slate-500 flex items-center justify-end gap-1">
-                            <Truck className="h-3 w-3" /> Transport
-                          </p>
-                          <p className="text-xs font-semibold text-slate-700 truncate">{bill.transportName}</p>
-                        </div>
+                        <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500 min-w-0">
+                          <Truck className="h-3.5 w-3.5 shrink-0" />
+                          <span className="font-semibold text-slate-700 truncate">
+                            {bill.transportName}
+                          </span>
+                        </p>
                       )}
                     </div>
                   </button>
@@ -556,115 +528,47 @@ export function BillsSection({ showToast }: BillsSectionProps) {
       >
         {detailBill && (
           <div className="space-y-5">
-            {/* Amount summary */}
-            <div className="grid grid-cols-3 gap-2">
-              <div className="bg-slate-50 rounded-xl p-3 border border-slate-100">
-                <p className="text-xs text-slate-500">Bill amount</p>
-                <p className="text-sm font-bold text-slate-900 tabular-nums mt-0.5">
-                  {formatMoney(detailBill.netAmount)}
-                </p>
-              </div>
-              <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-100">
-                <p className="text-xs text-emerald-700">Paid</p>
-                <p className="text-sm font-bold text-emerald-800 tabular-nums mt-0.5">
-                  {formatMoney(getPaid(detailBill.id))}
-                </p>
-              </div>
-              <div
-                className={`rounded-xl p-3 border ${
-                  getBalance(detailBill) > 0
-                    ? 'bg-red-50 border-red-100'
-                    : 'bg-slate-50 border-slate-100'
-                }`}
-              >
-                <p className={`text-xs ${getBalance(detailBill) > 0 ? 'text-red-700' : 'text-slate-500'}`}>
-                  Left to pay
-                </p>
-                <p
-                  className={`text-sm font-bold tabular-nums mt-0.5 ${
-                    getBalance(detailBill) > 0 ? 'text-red-700' : 'text-slate-900'
-                  }`}
-                >
-                  {formatMoney(getBalance(detailBill))}
-                </p>
-              </div>
+            {/* Amount summary — one row per amount on phones so nothing is cut off */}
+            <div className="space-y-2 sm:space-y-0 sm:grid sm:grid-cols-3 sm:gap-2">
+              <AmountTile label="Bill amount" value={formatMoney(detailBill.netAmount)} />
+              <AmountTile
+                label="Paid"
+                value={formatMoney(getPaid(detailBill.id))}
+                tone="emerald"
+              />
+              <AmountTile
+                label="Left to pay"
+                value={formatMoney(getBalance(detailBill))}
+                tone={getBalance(detailBill) > 0 ? 'red' : 'default'}
+              />
             </div>
 
             {/* Bill info */}
             <div className="space-y-2 text-sm">
               <InfoRow label="Bill number" value={detailBill.billNo || '—'} />
               <InfoRow label="Bill date" value={formatDate(detailBill.billDate)} />
+              <InfoRow label="GST number" value={detailBill.gstNumber || '—'} />
               <InfoRow label="LR number" value={detailBill.lrNo || '—'} />
               <InfoRow label="Transport" value={detailBill.transportName || '—'} />
             </div>
 
             {/* Items */}
-            <div>
-              <h4 className="text-sm font-bold text-slate-800 mb-2">Items on this bill</h4>
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-slate-50 text-xs font-bold text-slate-500 border-b border-slate-200">
-                      <th className="text-left px-3 py-2">Item</th>
-                      <th className="text-right px-3 py-2">Qty</th>
-                      <th className="text-right px-3 py-2">Rate</th>
-                      <th className="text-right px-3 py-2">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {detailBill.items.map((item, index) => (
-                      <tr key={index}>
-                        <td className="px-3 py-2 font-semibold text-slate-800">{item.name}</td>
-                        <td className="px-3 py-2 text-right tabular-nums text-slate-600">
-                          {item.quantity || '—'}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums text-slate-600">
-                          {item.rate ? formatMoney(item.rate) : '—'}
-                        </td>
-                        <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-900">
-                          {formatMoney(item.amount)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                  <tfoot className="border-t border-slate-200 text-sm">
-                    <tr>
-                      <td colSpan={3} className="px-3 py-2 text-right text-slate-500">Total</td>
-                      <td className="px-3 py-2 text-right font-semibold tabular-nums">
-                        {formatMoney(detailBill.grossAmount)}
-                      </td>
-                    </tr>
-                    {detailBill.discount > 0 && (
-                      <tr>
-                        <td colSpan={3} className="px-3 py-2 text-right text-slate-500">Discount</td>
-                        <td className="px-3 py-2 text-right font-semibold tabular-nums text-emerald-700">
-                          − {formatMoney(detailBill.discount)}
-                        </td>
-                      </tr>
-                    )}
-                    <tr className="bg-slate-50">
-                      <td colSpan={3} className="px-3 py-2 text-right font-bold text-slate-800">
-                        Final amount to pay
-                      </td>
-                      <td className="px-3 py-2 text-right font-bold tabular-nums text-slate-900">
-                        {formatMoney(detailBill.netAmount)}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            </div>
+            <BillItems bill={detailBill} />
 
             {detailBill.photoUrl && (
-              <a
-                href={detailBill.photoUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-2 text-sm font-semibold text-amber-700 hover:text-amber-800"
-              >
-                <ImageIcon className="h-4 w-4" />
-                View bill photo
-              </a>
+              <PhotoThumbButton
+                url={detailBill.photoUrl}
+                label="Bill photo"
+                hint="Tap to zoom, rotate or save"
+                onOpen={() =>
+                  setViewingPhoto({
+                    url: detailBill.photoUrl as string,
+                    title: detailBill.firmName,
+                    subtitle: `Bill ${detailBill.billNo || '—'} · ${formatDate(detailBill.billDate)}`,
+                    downloadName: `${detailBill.firmName} bill ${detailBill.billNo || ''}`,
+                  })
+                }
+              />
             )}
 
             {/* Payments */}
@@ -690,30 +594,37 @@ export function BillsSection({ showToast }: BillsSectionProps) {
                               {payment.method}
                             </span>
                           </p>
-                          <p className="text-xs text-slate-500 mt-0.5">
+                          <p className="text-xs text-slate-500 mt-0.5 break-words">
                             {formatDate(payment.paidOn)}
                             {payment.reference && ` · Ref: ${payment.reference}`}
                             {payment.bankName && ` · ${payment.bankName}`}
                           </p>
                           {payment.photoUrl && (
-                            <a
-                              href={payment.photoUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 hover:text-amber-800 mt-1"
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setViewingPhoto({
+                                  url: payment.photoUrl as string,
+                                  title: `${formatMoney(payment.amount)} · ${payment.method}`,
+                                  subtitle: `${detailBill.firmName} · ${formatDate(payment.paidOn)}`,
+                                  downloadName: `${detailBill.firmName} payment ${formatDate(payment.paidOn)}`,
+                                })
+                              }
+                              className="inline-flex items-center gap-1.5 mt-2 px-3 py-2 text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg cursor-pointer transition-colors"
                             >
-                              <ImageIcon className="h-3 w-3" />
+                              <ImageIcon className="h-3.5 w-3.5" />
                               View proof
-                            </a>
+                            </button>
                           )}
                         </div>
                         <button
                           type="button"
                           onClick={() => setDeletingPaymentId(payment.id)}
                           title="Remove this payment entry"
-                          className="p-1.5 text-slate-400 hover:text-red-600 bg-white border border-slate-200 rounded-lg cursor-pointer shrink-0"
+                          aria-label="Remove this payment entry"
+                          className="flex h-10 w-10 shrink-0 items-center justify-center text-slate-400 hover:text-red-600 bg-white border border-slate-200 rounded-lg cursor-pointer transition-colors"
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          <Trash2 className="h-4 w-4" />
                         </button>
                       </div>
                     ))}
@@ -799,7 +710,178 @@ export function BillsSection({ showToast }: BillsSectionProps) {
           submitAccent="red"
         />
       </AppModal>
+
+      {/* Full-screen photo viewer */}
+      <ImageViewer
+        open={Boolean(viewingPhoto)}
+        src={viewingPhoto?.url ?? null}
+        title={viewingPhoto?.title}
+        subtitle={viewingPhoto?.subtitle}
+        downloadName={viewingPhoto?.downloadName}
+        onClose={() => setViewingPhoto(null)}
+        onDownloadFailed={() =>
+          showToast('Could not save the photo, so it was opened in a new tab instead.', 'info')
+        }
+      />
     </div>
+  );
+}
+
+interface AmountTileProps {
+  label: string;
+  value: string;
+  tone?: 'default' | 'emerald' | 'red';
+}
+
+const amountTones: Record<NonNullable<AmountTileProps['tone']>, { box: string; label: string; value: string }> = {
+  default: {
+    box: 'bg-slate-50 border-slate-100',
+    label: 'text-slate-500',
+    value: 'text-slate-900',
+  },
+  emerald: {
+    box: 'bg-emerald-50 border-emerald-100',
+    label: 'text-emerald-700',
+    value: 'text-emerald-800',
+  },
+  red: {
+    box: 'bg-red-50 border-red-100',
+    label: 'text-red-700',
+    value: 'text-red-700',
+  },
+};
+
+function AmountTile({ label, value, tone = 'default' }: AmountTileProps) {
+  const styles = amountTones[tone];
+  return (
+    <div
+      className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 sm:block sm:px-3 sm:py-3 ${styles.box}`}
+    >
+      <p className={`text-xs ${styles.label}`}>{label}</p>
+      <p className={`text-sm font-bold tabular-nums sm:mt-0.5 ${styles.value}`}>{value}</p>
+    </div>
+  );
+}
+
+/**
+ * Items are shown as stacked cards on phones — a four column table gets
+ * squeezed to the point where the amount is unreadable on a small screen.
+ */
+function BillItems({ bill }: { bill: PurchaseBill }) {
+  return (
+    <div>
+      <h4 className="text-sm font-bold text-slate-800 mb-2">Items on this bill</h4>
+
+      <div className="space-y-2 sm:hidden">
+        {bill.items.map((item, index) => (
+          <div key={index} className="border border-slate-200 rounded-xl p-3 bg-white">
+            <p className="text-sm font-semibold text-slate-800 break-words">{item.name}</p>
+            <div className="flex items-end justify-between gap-3 mt-2 pt-2 border-t border-slate-100">
+              <p className="text-xs text-slate-500 tabular-nums">
+                {item.quantity ? `${item.quantity}${item.unit ? ` ${item.unit}` : ''}` : '—'}
+                {item.rate ? ` × ${formatMoney(item.rate)}` : ''}
+              </p>
+              <p className="text-sm font-bold text-slate-900 tabular-nums whitespace-nowrap">
+                {formatMoney(item.amount)}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="hidden sm:block border border-slate-200 rounded-xl overflow-hidden">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-slate-50 text-xs font-bold text-slate-500 border-b border-slate-200">
+              <th className="text-left px-3 py-2">Item</th>
+              <th className="text-right px-3 py-2">Qty</th>
+              <th className="text-right px-3 py-2">Rate</th>
+              <th className="text-right px-3 py-2">Amount</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {bill.items.map((item, index) => (
+              <tr key={index}>
+                <td className="px-3 py-2 font-semibold text-slate-800">{item.name}</td>
+                <td className="px-3 py-2 text-right tabular-nums text-slate-600 whitespace-nowrap">
+                  {item.quantity ? `${item.quantity}${item.unit ? ` ${item.unit}` : ''}` : '—'}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums text-slate-600">
+                  {item.rate ? formatMoney(item.rate) : '—'}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-900">
+                  {formatMoney(item.amount)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Totals */}
+      <div className="mt-2 border border-slate-200 rounded-xl overflow-hidden text-sm">
+        <div className="flex items-center justify-between gap-3 px-3 py-2">
+          <span className="text-slate-500">Total</span>
+          <span className="font-semibold tabular-nums">{formatMoney(bill.grossAmount)}</span>
+        </div>
+        {bill.discounts.map((d, index) => (
+          <div
+            key={index}
+            className="flex items-center justify-between gap-3 px-3 py-2 border-t border-slate-100"
+          >
+            <span className="text-slate-500">{d.name}</span>
+            <span className="font-semibold tabular-nums text-emerald-700">
+              − {formatMoney(d.amount)}
+            </span>
+          </div>
+        ))}
+        {bill.gstAmount > 0 && (
+          <div className="flex items-center justify-between gap-3 px-3 py-2 border-t border-slate-100">
+            <span className="text-slate-500">GST / tax</span>
+            <span className="font-semibold tabular-nums text-slate-700">
+              + {formatMoney(bill.gstAmount)}
+            </span>
+          </div>
+        )}
+        <div className="flex items-center justify-between gap-3 px-3 py-2.5 bg-slate-50 border-t border-slate-200">
+          <span className="font-bold text-slate-800">Final amount to pay</span>
+          <span className="font-bold tabular-nums text-slate-900 whitespace-nowrap">
+            {formatMoney(bill.netAmount)}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface PhotoThumbButtonProps {
+  url: string;
+  label: string;
+  hint: string;
+  onOpen: () => void;
+}
+
+function PhotoThumbButton({ url, label, hint, onOpen }: PhotoThumbButtonProps) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="w-full flex items-center gap-3 p-2.5 bg-white border border-slate-200 hover:border-amber-300 rounded-xl text-left cursor-pointer transition-colors"
+    >
+      <img
+        src={url}
+        alt=""
+        loading="lazy"
+        className="h-14 w-14 shrink-0 rounded-lg object-cover bg-slate-100 border border-slate-200"
+      />
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-bold text-slate-900">{label}</span>
+        <span className="block text-xs text-slate-500 mt-0.5">{hint}</span>
+      </span>
+      <span className="shrink-0 flex h-10 w-10 items-center justify-center rounded-lg bg-amber-50 text-amber-700 border border-amber-200">
+        <Maximize2 className="h-4 w-4" />
+      </span>
+    </button>
   );
 }
 
@@ -809,7 +891,7 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
       <ReceiptText className="h-10 w-10 mx-auto text-slate-300 mb-3" />
       <p className="text-base font-bold text-slate-700">No bills saved yet</p>
       <p className="text-sm text-slate-500 mt-1 leading-relaxed">
-        When goods arrive from a firm, save the bill here. You can then record every payment and
+        When goods arrive from a party, save the bill here. You can then record every payment and
         always know how much is left to pay.
       </p>
       <button
@@ -826,9 +908,9 @@ function EmptyState({ onAdd }: { onAdd: () => void }) {
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-slate-500">{label}</span>
-      <span className="font-semibold text-slate-900 text-right">{value}</span>
+    <div className="flex items-start justify-between gap-3">
+      <span className="text-slate-500 shrink-0">{label}</span>
+      <span className="font-semibold text-slate-900 text-right break-words min-w-0">{value}</span>
     </div>
   );
 }
@@ -855,10 +937,12 @@ function PhotoPicker({
   inputId,
 }: PhotoPickerProps) {
   const [preview, setPreview] = useState<string | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   useEffect(() => {
     if (!file) {
       setPreview(null);
+      setIsPreviewOpen(false);
       return;
     }
     const url = URL.createObjectURL(file);
@@ -879,17 +963,31 @@ function PhotoPicker({
       ) : (
         <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl p-2.5">
           {preview && (
-            <img
-              src={preview}
-              alt="Selected"
-              className="h-14 w-14 rounded-lg object-cover border border-slate-200 shrink-0"
-            />
+            <button
+              type="button"
+              onClick={() => setIsPreviewOpen(true)}
+              aria-label="Open the selected photo"
+              className="shrink-0 cursor-pointer"
+            >
+              <img
+                src={preview}
+                alt="Selected"
+                className="h-14 w-14 rounded-lg object-cover border border-slate-200"
+              />
+            </button>
           )}
-          <p className="text-sm text-slate-600 font-medium flex-1 min-w-0 truncate">{file.name}</p>
+          <button
+            type="button"
+            onClick={() => setIsPreviewOpen(true)}
+            className="flex-1 min-w-0 text-left cursor-pointer"
+          >
+            <span className="block text-sm text-slate-700 font-semibold truncate">{file.name}</span>
+            <span className="block text-xs text-slate-500 mt-0.5">Tap to check the photo</span>
+          </button>
           <button
             type="button"
             onClick={() => onSelect(null)}
-            className="p-2 text-slate-400 hover:text-red-600 cursor-pointer shrink-0"
+            className="flex h-10 w-10 shrink-0 items-center justify-center text-slate-400 hover:text-red-600 rounded-lg cursor-pointer"
             aria-label="Remove photo"
           >
             <X className="h-4 w-4" />
@@ -901,10 +999,12 @@ function PhotoPicker({
         type="file"
         accept="image/*"
         className="hidden"
-        onChange={(e) => {
+        onChange={async (e) => {
           const selected = e.target.files?.[0] ?? null;
-          onSelect(selected);
           e.target.value = '';
+          // Camera photos are 8-15 MB; shrink before AI reading / upload
+          // so everything stays fast even on slow mobile data.
+          onSelect(selected ? await shrinkImage(selected) : null);
         }}
       />
 
@@ -934,6 +1034,15 @@ function PhotoPicker({
           it needs a Gemini AI key to be added to the app settings.
         </p>
       )}
+
+      <ImageViewer
+        open={isPreviewOpen}
+        src={preview}
+        title={file?.name}
+        subtitle="Check that the whole bill is clear and readable"
+        downloadName={file ? file.name.replace(/\.[^.]+$/, '') : undefined}
+        onClose={() => setIsPreviewOpen(false)}
+      />
     </div>
   );
 }
@@ -952,26 +1061,32 @@ function AddBillModal({ open, onClose, firmNames, onSaved, showToast }: AddBillM
   const [firmName, setFirmName] = useState('');
   const [billNo, setBillNo] = useState('');
   const [billDate, setBillDate] = useState(todayISO());
+  const [gstNumber, setGstNumber] = useState('');
   const [lrNo, setLrNo] = useState('');
   const [transportName, setTransportName] = useState('');
   const [rows, setRows] = useState<ItemRow[]>([{ ...EMPTY_ROW }]);
-  const [discount, setDiscount] = useState('');
+  const [discountRows, setDiscountRows] = useState<DiscountRow[]>([]);
+  const [gstAmount, setGstAmount] = useState('');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
 
   const gross = rows.reduce((sum, row) => sum + parseNum(row.amount), 0);
-  const net = Math.max(0, gross - parseNum(discount));
+  const totalDiscount = discountRows.reduce((sum, row) => sum + parseNum(row.amount), 0);
+  const gst = parseNum(gstAmount);
+  const net = Math.max(0, gross - totalDiscount + gst);
 
   const reset = () => {
     setFirmName('');
     setBillNo('');
     setBillDate(todayISO());
+    setGstNumber('');
     setLrNo('');
     setTransportName('');
     setRows([{ ...EMPTY_ROW }]);
-    setDiscount('');
+    setDiscountRows([]);
+    setGstAmount('');
     setPhotoFile(null);
     setError('');
     setIsSaving(false);
@@ -1010,22 +1125,34 @@ function AddBillModal({ open, onClose, firmNames, onSaved, showToast }: AddBillM
       if (extracted.firmName) setFirmName(extracted.firmName);
       if (extracted.billNo) setBillNo(extracted.billNo);
       if (extracted.billDate) setBillDate(extracted.billDate);
+      if (extracted.gstNumber) setGstNumber(extracted.gstNumber);
       if (extracted.lrNo) setLrNo(extracted.lrNo);
       if (extracted.transportName) setTransportName(extracted.transportName);
-      if (extracted.discount > 0) setDiscount(String(extracted.discount));
+      if (extracted.discounts.length > 0) {
+        setDiscountRows(
+          extracted.discounts.map((d) => ({ name: d.name, amount: String(d.amount) }))
+        );
+      }
+      if (extracted.gstAmount > 0) setGstAmount(String(extracted.gstAmount));
       if (extracted.items.length > 0) {
         setRows(
           extracted.items.map((item) => ({
             name: item.name,
             quantity: item.quantity ? String(item.quantity) : '',
+            unit: item.unit,
             rate: item.rate ? String(item.rate) : '',
             amount: item.amount ? String(item.amount) : '',
           }))
         );
       }
       showToast('Details filled from the photo. Please check them once before saving.', 'info');
-    } catch {
-      showToast('Could not read the photo. Please fill the details by hand.', 'error');
+    } catch (err) {
+      showToast(
+        err instanceof PhotoReadError
+          ? err.message
+          : 'Could not read the photo. Please fill the details by hand.',
+        'error'
+      );
     } finally {
       setIsExtracting(false);
     }
@@ -1036,7 +1163,7 @@ function AddBillModal({ open, onClose, firmNames, onSaved, showToast }: AddBillM
     setError('');
 
     if (!firmName.trim()) {
-      setError('Please enter the firm name (who you bought from).');
+      setError('Please enter the party name (who you bought from).');
       return;
     }
     if (!billNo.trim()) {
@@ -1048,6 +1175,7 @@ function AddBillModal({ open, onClose, firmNames, onSaved, showToast }: AddBillM
       .map((row) => ({
         name: row.name.trim(),
         quantity: parseNum(row.quantity),
+        unit: row.unit.trim(),
         rate: parseNum(row.rate),
         amount: parseNum(row.amount),
       }));
@@ -1060,9 +1188,12 @@ function AddBillModal({ open, onClose, firmNames, onSaved, showToast }: AddBillM
       return;
     }
     if (net <= 0) {
-      setError('The final amount to pay must be more than zero. Check the amounts and discount.');
+      setError('The final amount to pay must be more than zero. Check the amounts and discounts.');
       return;
     }
+    const discounts = discountRows
+      .filter((row) => parseNum(row.amount) > 0)
+      .map((row) => ({ name: row.name.trim() || 'Discount', amount: parseNum(row.amount) }));
 
     setIsSaving(true);
     let photoUrl: string | null = null;
@@ -1078,11 +1209,14 @@ function AddBillModal({ open, onClose, firmNames, onSaved, showToast }: AddBillM
       firmName: firmName.trim(),
       billNo: billNo.trim(),
       billDate,
+      gstNumber: gstNumber.trim().toUpperCase(),
       lrNo: lrNo.trim(),
       transportName: transportName.trim(),
       items,
       grossAmount: Math.round(gross * 100) / 100,
-      discount: parseNum(discount),
+      discounts,
+      discount: Math.round(totalDiscount * 100) / 100,
+      gstAmount: Math.round(gst * 100) / 100,
       netAmount: Math.round(net * 100) / 100,
       photoUrl,
       createdAt: new Date().toISOString(),
@@ -1102,8 +1236,8 @@ function AddBillModal({ open, onClose, firmNames, onSaved, showToast }: AddBillM
     <AppModal
       open={open}
       onClose={handleClose}
-      title="Add firm bill"
-      description="Save a bill of goods you bought from a firm"
+      title="Add party bill"
+      description="Save a bill of goods you bought from a party"
       icon={<FileText className="h-5 w-5" />}
       accent="amber"
     >
@@ -1121,7 +1255,7 @@ function AddBillModal({ open, onClose, firmNames, onSaved, showToast }: AddBillM
         />
 
         <div className="space-y-1.5">
-          <label className="block text-sm font-semibold text-slate-700">Firm name</label>
+          <label className="block text-sm font-semibold text-slate-700">Party name</label>
           <input
             type="text"
             required
@@ -1158,6 +1292,18 @@ function AddBillModal({ open, onClose, firmNames, onSaved, showToast }: AddBillM
             accent="amber"
           />
         </div>
+
+        <FormInput
+          label="GST number of the party (optional)"
+          type="text"
+          placeholder="e.g. 24ABCDE1234F1Z5"
+          value={gstNumber}
+          onChange={(e) => setGstNumber(e.target.value.toUpperCase())}
+          disabled={isSaving}
+          maxLength={15}
+          accent="amber"
+          className="uppercase"
+        />
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <FormInput
@@ -1205,7 +1351,7 @@ function AddBillModal({ open, onClose, firmNames, onSaved, showToast }: AddBillM
                   </button>
                 )}
               </div>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 mb-1">Qty</label>
                   <input
@@ -1221,7 +1367,21 @@ function AddBillModal({ open, onClose, firmNames, onSaved, showToast }: AddBillM
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">Rate ₹</label>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">Unit</label>
+                  <input
+                    type="text"
+                    list="unit-suggestions"
+                    placeholder="e.g. Meter"
+                    value={row.unit}
+                    onChange={(e) => updateRow(index, { unit: e.target.value })}
+                    disabled={isSaving}
+                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2.5 text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500 transition-all"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 mb-1">Rate ₹ per unit</label>
                   <input
                     type="number"
                     inputMode="decimal"
@@ -1260,17 +1420,76 @@ function AddBillModal({ open, onClose, firmNames, onSaved, showToast }: AddBillM
             <Plus className="h-4 w-4" />
             Add another item
           </button>
+          <datalist id="unit-suggestions">
+            {UNIT_SUGGESTIONS.map((unit) => (
+              <option key={unit} value={unit} />
+            ))}
+          </datalist>
+        </div>
+
+        {/* Discounts */}
+        <div className="space-y-2.5">
+          <label className="block text-sm font-semibold text-slate-700">Discounts (if any)</label>
+          {discountRows.map((row, index) => (
+            <div key={index} className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="e.g. Cash discount"
+                value={row.name}
+                onChange={(e) =>
+                  setDiscountRows((prev) =>
+                    prev.map((r, i) => (i === index ? { ...r, name: e.target.value } : r))
+                  )
+                }
+                disabled={isSaving}
+                className="flex-1 min-w-0 bg-white border border-slate-200 rounded-lg px-3 py-2.5 text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500 transition-all"
+              />
+              <input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                step="any"
+                placeholder="₹"
+                value={row.amount}
+                onChange={(e) =>
+                  setDiscountRows((prev) =>
+                    prev.map((r, i) => (i === index ? { ...r, amount: e.target.value } : r))
+                  )
+                }
+                disabled={isSaving}
+                className="w-28 bg-white border border-slate-200 rounded-lg px-3 py-2.5 text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500 transition-all tabular-nums shrink-0"
+              />
+              <button
+                type="button"
+                onClick={() => setDiscountRows((prev) => prev.filter((_, i) => i !== index))}
+                disabled={isSaving}
+                className="p-2.5 text-slate-400 hover:text-red-600 bg-white border border-slate-200 rounded-lg cursor-pointer shrink-0"
+                aria-label="Remove this discount"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={() => setDiscountRows((prev) => [...prev, { name: '', amount: '' }])}
+            disabled={isSaving}
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-slate-600 bg-white hover:bg-slate-50 border border-dashed border-slate-300 rounded-xl cursor-pointer transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            Add a discount
+          </button>
         </div>
 
         <FormInput
-          label="Discount ₹ (if any)"
+          label="GST / tax amount ₹ (if any)"
           type="number"
           inputMode="decimal"
           min={0}
           step="any"
-          placeholder="0"
-          value={discount}
-          onChange={(e) => setDiscount(e.target.value)}
+          placeholder="CGST + SGST total"
+          value={gstAmount}
+          onChange={(e) => setGstAmount(e.target.value)}
           disabled={isSaving}
           accent="amber"
         />
@@ -1281,10 +1500,18 @@ function AddBillModal({ open, onClose, firmNames, onSaved, showToast }: AddBillM
             <span>Total of items</span>
             <span className="tabular-nums">{formatMoney(gross)}</span>
           </div>
-          {parseNum(discount) > 0 && (
-            <div className="flex items-center justify-between text-sm text-emerald-400">
-              <span>Discount</span>
-              <span className="tabular-nums">− {formatMoney(parseNum(discount))}</span>
+          {discountRows
+            .filter((row) => parseNum(row.amount) > 0)
+            .map((row, index) => (
+              <div key={index} className="flex items-center justify-between text-sm text-emerald-400">
+                <span>{row.name.trim() || 'Discount'}</span>
+                <span className="tabular-nums">− {formatMoney(parseNum(row.amount))}</span>
+              </div>
+            ))}
+          {gst > 0 && (
+            <div className="flex items-center justify-between text-sm text-slate-300">
+              <span>GST / tax</span>
+              <span className="tabular-nums">+ {formatMoney(gst)}</span>
             </div>
           )}
           <div className="flex items-center justify-between pt-1.5 border-t border-white/10 text-base font-bold">
@@ -1337,8 +1564,13 @@ function AddPaymentModal({ bill, balance, onClose, onSaved, showToast }: AddPaym
       if (extracted.reference) setReference(extracted.reference);
       if (extracted.bankName) setBankName(extracted.bankName);
       showToast('Details filled from the screenshot. Please check them once before saving.', 'info');
-    } catch {
-      showToast('Could not read the screenshot. Please fill the details by hand.', 'error');
+    } catch (err) {
+      showToast(
+        err instanceof PhotoReadError
+          ? err.message
+          : 'Could not read the screenshot. Please fill the details by hand.',
+        'error'
+      );
     } finally {
       setIsExtracting(false);
     }

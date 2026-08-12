@@ -47,7 +47,13 @@ export type PaymentMethod = 'Cash' | 'Cheque' | 'Bank transfer' | 'UPI';
 export interface BillLineItem {
   name: string;
   quantity: number;
+  unit: string; // e.g. Piece, Meter, Kg
   rate: number;
+  amount: number;
+}
+
+export interface BillDiscount {
+  name: string; // e.g. "Cash discount", "Scheme discount"
   amount: number;
 }
 
@@ -56,11 +62,14 @@ export interface PurchaseBill {
   firmName: string;
   billNo: string;
   billDate: string; // YYYY-MM-DD, may be empty if unknown
+  gstNumber: string;
   lrNo: string;
   transportName: string;
   items: BillLineItem[];
   grossAmount: number;
-  discount: number;
+  discounts: BillDiscount[];
+  discount: number; // total of all discounts
+  gstAmount: number;
   netAmount: number;
   photoUrl: string | null;
   createdAt: string;

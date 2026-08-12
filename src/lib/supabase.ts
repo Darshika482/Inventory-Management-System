@@ -53,11 +53,14 @@ export type DbPurchaseBill = {
   firm_name: string;
   bill_no: string;
   bill_date: string | null;
+  gst_number: string;
   lr_no: string;
   transport_name: string;
-  items: { name: string; quantity: number; rate: number; amount: number }[];
+  items: { name: string; quantity: number; unit?: string; rate: number; amount: number }[];
   gross_amount: number;
+  discounts: { name: string; amount: number }[];
   discount: number;
+  gst_amount: number;
   net_amount: number;
   photo_url: string | null;
   created_at: string;

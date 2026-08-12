@@ -7,6 +7,7 @@ create table if not exists public.purchase_bills (
   firm_name text not null,
   bill_no text not null,
   bill_date date,
+  gst_number text not null default '',
   lr_no text not null default '',
   transport_name text not null default '',
   items jsonb not null default '[]',
@@ -16,6 +17,14 @@ create table if not exists public.purchase_bills (
   photo_url text,
   created_at timestamptz not null default now()
 );
+
+-- Safe to re-run: adds the columns if the table was created before they existed
+alter table public.purchase_bills
+  add column if not exists gst_number text not null default '';
+alter table public.purchase_bills
+  add column if not exists gst_amount numeric not null default 0;
+alter table public.purchase_bills
+  add column if not exists discounts jsonb not null default '[]';
 
 alter table public.purchase_bills enable row level security;
 

@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence, useReducedMotion, type Transition } from 'motion/react';
 
 type ModalAccent = 'amber' | 'emerald' | 'red' | 'slate';
 
@@ -37,6 +37,29 @@ const accentMap: Record<
   },
 };
 
+// Matches the `sm` breakpoint, below which the modal is a bottom sheet.
+const SHEET_QUERY = '(max-width: 639px)';
+
+const sheetIn: Transition = { type: 'spring', stiffness: 400, damping: 36, mass: 0.9 };
+const dialogIn: Transition = { type: 'spring', stiffness: 460, damping: 34, mass: 0.8 };
+const sheetOut: Transition = { duration: 0.22, ease: [0.4, 0, 1, 1] };
+const dialogOut: Transition = { duration: 0.16, ease: [0.4, 0, 1, 1] };
+
+function useIsSheet() {
+  const [isSheet, setIsSheet] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia(SHEET_QUERY).matches
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia(SHEET_QUERY);
+    const onChange = (event: MediaQueryListEvent) => setIsSheet(event.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  return isSheet;
+}
+
 export function AppModal({
   open,
   onClose,
@@ -47,6 +70,44 @@ export function AppModal({
   children,
 }: AppModalProps) {
   const styles = accentMap[accent];
+  const isSheet = useIsSheet();
+  const reduceMotion = useReducedMotion();
+
+  useEffect(() => {
+    if (!open) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+
+    // Locking the page keeps the sheet from fighting background scroll on touch.
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [open, onClose]);
+
+  const panelMotion = reduceMotion
+    ? {
+        initial: { opacity: 0 },
+        animate: { opacity: 1, transition: { duration: 0.15 } },
+        exit: { opacity: 0, transition: { duration: 0.12 } },
+      }
+    : isSheet
+    ? {
+        initial: { y: '100%' },
+        animate: { y: 0, transition: sheetIn },
+        exit: { y: '100%', transition: sheetOut },
+      }
+    : {
+        initial: { opacity: 0, y: 12, scale: 0.96 },
+        animate: { opacity: 1, y: 0, scale: 1, transition: dialogIn },
+        exit: { opacity: 0, y: 8, scale: 0.98, transition: dialogOut },
+      };
 
   if (typeof document === 'undefined') return null;
 
@@ -60,6 +121,7 @@ export function AppModal({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
             onClick={onClose}
             className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm cursor-default"
           />
@@ -68,15 +130,15 @@ export function AppModal({
             role="dialog"
             aria-modal="true"
             aria-labelledby="app-modal-title"
-            initial={{ opacity: 0, y: 32, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 32, scale: 0.98 }}
-            transition={{ type: 'spring', damping: 28, stiffness: 320 }}
-            className="relative z-10 w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl shadow-slate-900/20 border border-slate-200/80 max-h-[min(92vh,760px)] flex flex-col"
+            initial={panelMotion.initial}
+            animate={panelMotion.animate}
+            exit={panelMotion.exit}
+            style={{ willChange: 'transform, opacity' }}
+            className="relative z-10 w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl shadow-slate-900/20 border border-slate-200/80 max-h-[92dvh] sm:max-h-[min(92vh,760px)] flex flex-col"
           >
             <div className={`h-1.5 shrink-0 rounded-t-3xl sm:rounded-t-2xl ${styles.bar}`} />
 
-            <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-4 sm:px-6 sm:pt-6 border-b border-slate-100 shrink-0">
+            <div className="flex items-start justify-between gap-3 px-4 pt-4 pb-4 sm:px-6 sm:pt-6 border-b border-slate-100 shrink-0">
               <div className="flex items-start gap-3 min-w-0">
                 <span
                   className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border ${styles.iconWrap}`}
@@ -102,7 +164,7 @@ export function AppModal({
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-5 sm:px-6 sm:py-6">
+            <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-6">
               {children}
             </div>
           </motion.div>

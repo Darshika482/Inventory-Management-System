@@ -134,7 +134,7 @@ export function Sidebar({
               }`}
             >
               <ReceiptText className="h-5 w-5 shrink-0" />
-              Firm bills
+              Party bills
             </button>
           </>
         ) : (
