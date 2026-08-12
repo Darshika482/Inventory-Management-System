@@ -8,6 +8,7 @@ import {
   Image as ImageIcon,
   Loader2,
   Maximize2,
+  Pencil,
   Plus,
   ReceiptText,
   Search,
@@ -26,6 +27,7 @@ import {
   fetchPurchaseBills,
   insertBillPayment,
   insertPurchaseBill,
+  updatePurchaseBillInDb,
   uploadBillPhoto,
 } from '../lib/database';
 import {
@@ -119,6 +121,7 @@ export function BillsSection({ showToast }: BillsSectionProps) {
 
   // Modals
   const [isAddBillOpen, setIsAddBillOpen] = useState(false);
+  const [editingBillId, setEditingBillId] = useState<string | null>(null);
   const [detailBillId, setDetailBillId] = useState<string | null>(null);
   const [paymentBillId, setPaymentBillId] = useState<string | null>(null);
   const [deletingBillId, setDeletingBillId] = useState<string | null>(null);
@@ -205,8 +208,17 @@ export function BillsSection({ showToast }: BillsSectionProps) {
   const detailBill = detailBillId ? bills.find((b) => b.id === detailBillId) ?? null : null;
   const paymentBill = paymentBillId ? bills.find((b) => b.id === paymentBillId) ?? null : null;
   const deletingBill = deletingBillId ? bills.find((b) => b.id === deletingBillId) ?? null : null;
+  const editingBill = editingBillId ? bills.find((b) => b.id === editingBillId) ?? null : null;
 
-  const handleBillSaved = (bill: PurchaseBill) => {
+  const handleBillSaved = (bill: PurchaseBill, wasEdited: boolean) => {
+    if (wasEdited) {
+      setBills((prev) => prev.map((b) => (b.id === bill.id ? bill : b)));
+      setEditingBillId(null);
+      // Back to the detail view so the corrected bill can be checked right away.
+      setDetailBillId(bill.id);
+      showToast(`Bill from "${bill.firmName}" updated.`, 'success');
+      return;
+    }
     setBills((prev) => [bill, ...prev]);
     setIsAddBillOpen(false);
     showToast(`Bill from "${bill.firmName}" saved — ${formatMoney(bill.netAmount)} to pay.`, 'success');
@@ -508,10 +520,14 @@ export function BillsSection({ showToast }: BillsSectionProps) {
         </div>
       )}
 
-      {/* Add bill modal */}
-      <AddBillModal
-        open={isAddBillOpen}
-        onClose={() => setIsAddBillOpen(false)}
+      {/* Add / edit bill modal */}
+      <BillFormModal
+        open={isAddBillOpen || Boolean(editingBill)}
+        bill={editingBill}
+        onClose={() => {
+          setIsAddBillOpen(false);
+          setEditingBillId(null);
+        }}
         firmNames={firmNames}
         onSaved={handleBillSaved}
         showToast={showToast}
@@ -645,6 +661,17 @@ export function BillsSection({ showToast }: BillsSectionProps) {
                   Add payment
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => {
+                  setDetailBillId(null);
+                  setEditingBillId(detailBill.id);
+                }}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold cursor-pointer transition-colors"
+              >
+                <Pencil className="h-4 w-4" />
+                Edit this bill
+              </button>
               <button
                 type="button"
                 onClick={() => setDeletingBillId(detailBill.id)}
@@ -802,7 +829,7 @@ function BillItems({ bill }: { bill: PurchaseBill }) {
           <tbody className="divide-y divide-slate-100">
             {bill.items.map((item, index) => (
               <tr key={index}>
-                <td className="px-3 py-2 font-semibold text-slate-800">{item.name}</td>
+                <td className="px-3 py-2 font-semibold text-slate-800 break-words">{item.name}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-slate-600 whitespace-nowrap">
                   {item.quantity ? `${item.quantity}${item.unit ? ` ${item.unit}` : ''}` : '—'}
                 </td>
@@ -1047,17 +1074,20 @@ function PhotoPicker({
   );
 }
 
-// --- Add bill modal ---
+// --- Add / edit bill modal ---
 
-interface AddBillModalProps {
+interface BillFormModalProps {
   open: boolean;
+  /** The saved bill being corrected, or null when adding a new one. */
+  bill: PurchaseBill | null;
   onClose: () => void;
   firmNames: string[];
-  onSaved: (bill: PurchaseBill) => void;
+  onSaved: (bill: PurchaseBill, wasEdited: boolean) => void;
   showToast: BillsSectionProps['showToast'];
 }
 
-function AddBillModal({ open, onClose, firmNames, onSaved, showToast }: AddBillModalProps) {
+function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: BillFormModalProps) {
+  const isEditing = Boolean(bill);
   const [firmName, setFirmName] = useState('');
   const [billNo, setBillNo] = useState('');
   const [billDate, setBillDate] = useState(todayISO());
@@ -1068,6 +1098,7 @@ function AddBillModal({ open, onClose, firmNames, onSaved, showToast }: AddBillM
   const [discountRows, setDiscountRows] = useState<DiscountRow[]>([]);
   const [gstAmount, setGstAmount] = useState('');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [savedPhotoUrl, setSavedPhotoUrl] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [isExtracting, setIsExtracting] = useState(false);
@@ -1088,10 +1119,45 @@ function AddBillModal({ open, onClose, firmNames, onSaved, showToast }: AddBillM
     setDiscountRows([]);
     setGstAmount('');
     setPhotoFile(null);
+    setSavedPhotoUrl(null);
     setError('');
     setIsSaving(false);
     setIsExtracting(false);
   };
+
+  const fillFormFrom = (source: PurchaseBill) => {
+    setFirmName(source.firmName);
+    setBillNo(source.billNo);
+    setBillDate(source.billDate || todayISO());
+    setGstNumber(source.gstNumber);
+    setLrNo(source.lrNo);
+    setTransportName(source.transportName);
+    setRows(
+      source.items.length > 0
+        ? source.items.map((item) => ({
+            name: item.name,
+            quantity: item.quantity ? String(item.quantity) : '',
+            unit: item.unit,
+            rate: item.rate ? String(item.rate) : '',
+            amount: item.amount ? String(item.amount) : '',
+          }))
+        : [{ ...EMPTY_ROW }]
+    );
+    setDiscountRows(source.discounts.map((d) => ({ name: d.name, amount: String(d.amount) })));
+    setGstAmount(source.gstAmount ? String(source.gstAmount) : '');
+    setSavedPhotoUrl(source.photoUrl);
+    setPhotoFile(null);
+    setError('');
+    setIsSaving(false);
+    setIsExtracting(false);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    if (bill) fillFormFrom(bill);
+    else reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, bill?.id]);
 
   const handleClose = () => {
     reset();
@@ -1116,12 +1182,11 @@ function AddBillModal({ open, onClose, firmNames, onSaved, showToast }: AddBillM
     );
   };
 
-  const handleAutoFill = async () => {
-    if (!photoFile) return;
+  const fillFromPhoto = async (file: File) => {
     setIsExtracting(true);
     setError('');
     try {
-      const extracted = await extractBillFromImage(photoFile);
+      const extracted = await extractBillFromImage(file);
       if (extracted.firmName) setFirmName(extracted.firmName);
       if (extracted.billNo) setBillNo(extracted.billNo);
       if (extracted.billDate) setBillDate(extracted.billDate);
@@ -1145,7 +1210,10 @@ function AddBillModal({ open, onClose, firmNames, onSaved, showToast }: AddBillM
           }))
         );
       }
-      showToast('Details filled from the photo. Please check them once before saving.', 'info');
+      showToast(
+        'Details filled from the photo. Please check every line and correct anything that is wrong before saving.',
+        'info'
+      );
     } catch (err) {
       showToast(
         err instanceof PhotoReadError
@@ -1156,6 +1224,31 @@ function AddBillModal({ open, onClose, firmNames, onSaved, showToast }: AddBillM
     } finally {
       setIsExtracting(false);
     }
+  };
+
+  const handleAutoFill = () => {
+    if (photoFile) fillFromPhoto(photoFile);
+  };
+
+  /** Reads the already-saved bill photo again, for when the first read was wrong. */
+  const handleReadSavedPhotoAgain = async () => {
+    if (!savedPhotoUrl) return;
+    setIsExtracting(true);
+    let file: File;
+    try {
+      const response = await fetch(savedPhotoUrl);
+      if (!response.ok) throw new Error('Could not download the saved photo');
+      const blob = await response.blob();
+      file = new File([blob], 'saved-bill.jpg', { type: blob.type || 'image/jpeg' });
+    } catch {
+      setIsExtracting(false);
+      showToast(
+        'Could not open the saved photo again. You can pick the photo once more to read it.',
+        'error'
+      );
+      return;
+    }
+    await fillFromPhoto(file);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -1196,16 +1289,15 @@ function AddBillModal({ open, onClose, firmNames, onSaved, showToast }: AddBillM
       .map((row) => ({ name: row.name.trim() || 'Discount', amount: parseNum(row.amount) }));
 
     setIsSaving(true);
-    let photoUrl: string | null = null;
+    let photoUrl: string | null = savedPhotoUrl;
     if (photoFile) {
-      photoUrl = await uploadBillPhoto(photoFile, 'bills');
-      if (!photoUrl) {
-        showToast('The photo could not be uploaded, but the bill will still be saved.', 'info');
-      }
+      const uploaded = await uploadBillPhoto(photoFile, 'bills');
+      if (uploaded) photoUrl = uploaded;
+      else showToast('The photo could not be uploaded, but the bill will still be saved.', 'info');
     }
 
-    const bill: PurchaseBill = {
-      id: `pb-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+    const saved: PurchaseBill = {
+      id: bill?.id ?? `pb-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       firmName: firmName.trim(),
       billNo: billNo.trim(),
       billDate,
@@ -1219,16 +1311,21 @@ function AddBillModal({ open, onClose, firmNames, onSaved, showToast }: AddBillM
       gstAmount: Math.round(gst * 100) / 100,
       netAmount: Math.round(net * 100) / 100,
       photoUrl,
-      createdAt: new Date().toISOString(),
+      createdAt: bill?.createdAt ?? new Date().toISOString(),
     };
 
     try {
-      await insertPurchaseBill(bill);
+      if (bill) await updatePurchaseBillInDb(saved);
+      else await insertPurchaseBill(saved);
       reset();
-      onSaved(bill);
+      onSaved(saved, Boolean(bill));
     } catch {
       setIsSaving(false);
-      setError('Could not save the bill. Please check your internet and try again.');
+      setError(
+        bill
+          ? 'Could not save your changes. Please check your internet and try again.'
+          : 'Could not save the bill. Please check your internet and try again.'
+      );
     }
   };
 
@@ -1236,16 +1333,68 @@ function AddBillModal({ open, onClose, firmNames, onSaved, showToast }: AddBillM
     <AppModal
       open={open}
       onClose={handleClose}
-      title="Add party bill"
-      description="Save a bill of goods you bought from a party"
+      title={isEditing ? 'Edit this bill' : 'Add party bill'}
+      description={
+        isEditing
+          ? 'Correct anything that is wrong and save again'
+          : 'Save a bill of goods you bought from a party'
+      }
       icon={<FileText className="h-5 w-5" />}
       accent="amber"
     >
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && <FormError message={error} />}
 
+        {savedPhotoUrl && !photoFile && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl p-2.5">
+              <img
+                src={savedPhotoUrl}
+                alt=""
+                loading="lazy"
+                className="h-14 w-14 shrink-0 rounded-lg object-cover border border-slate-200 bg-white"
+              />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-slate-700">Saved bill photo</p>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Pick a new photo below to replace it
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSavedPhotoUrl(null)}
+                disabled={isSaving}
+                className="flex h-10 w-10 shrink-0 items-center justify-center text-slate-400 hover:text-red-600 rounded-lg cursor-pointer"
+                aria-label="Remove the saved photo"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            {isPhotoFillAvailable && (
+              <button
+                type="button"
+                onClick={handleReadSavedPhotoAgain}
+                disabled={isExtracting || isSaving}
+                className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-xl text-sm font-bold cursor-pointer transition-colors disabled:opacity-60"
+              >
+                {isExtracting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Reading the photo...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4" />
+                    Read this photo again
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        )}
+
         <PhotoPicker
-          label="Add bill photo (camera or gallery)"
+          label={savedPhotoUrl ? 'Replace bill photo (camera or gallery)' : 'Add bill photo (camera or gallery)'}
           file={photoFile}
           onSelect={setPhotoFile}
           onAutoFill={handleAutoFill}
@@ -1522,7 +1671,7 @@ function AddBillModal({ open, onClose, firmNames, onSaved, showToast }: AddBillM
 
         <ModalActions
           onCancel={handleClose}
-          submitLabel="Save bill"
+          submitLabel={isEditing ? 'Save changes' : 'Save bill'}
           submitAccent="amber"
           isSubmitting={isSaving}
         />

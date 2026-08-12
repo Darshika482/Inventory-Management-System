@@ -363,6 +363,14 @@ export async function insertPurchaseBill(bill: PurchaseBill): Promise<void> {
   if (error) throw error;
 }
 
+export async function updatePurchaseBillInDb(bill: PurchaseBill): Promise<void> {
+  const { error } = await assertSupabase()
+    .from('purchase_bills')
+    .update(toPurchaseBillRow(bill))
+    .eq('id', bill.id);
+  if (error) throw error;
+}
+
 export async function deletePurchaseBillFromDb(billId: string): Promise<void> {
   const { error } = await assertSupabase().from('purchase_bills').delete().eq('id', billId);
   if (error) throw error;

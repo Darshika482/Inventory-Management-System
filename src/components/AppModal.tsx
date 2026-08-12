@@ -45,6 +45,23 @@ const dialogIn: Transition = { type: 'spring', stiffness: 460, damping: 34, mass
 const sheetOut: Transition = { duration: 0.22, ease: [0.4, 0, 1, 1] };
 const dialogOut: Transition = { duration: 0.16, ease: [0.4, 0, 1, 1] };
 
+// Counted, because one modal can be opened from another (e.g. detail -> edit)
+// and the first one closing must not unlock the page behind the second.
+let openModalCount = 0;
+let overflowBeforeLock = '';
+
+function lockPageScroll() {
+  openModalCount += 1;
+  if (openModalCount === 1) {
+    overflowBeforeLock = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+  }
+  return () => {
+    openModalCount = Math.max(0, openModalCount - 1);
+    if (openModalCount === 0) document.body.style.overflow = overflowBeforeLock;
+  };
+}
+
 function useIsSheet() {
   const [isSheet, setIsSheet] = useState(
     () => typeof window !== 'undefined' && window.matchMedia(SHEET_QUERY).matches
@@ -82,12 +99,11 @@ export function AppModal({
     window.addEventListener('keydown', onKeyDown);
 
     // Locking the page keeps the sheet from fighting background scroll on touch.
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    const unlock = lockPageScroll();
 
     return () => {
       window.removeEventListener('keydown', onKeyDown);
-      document.body.style.overflow = previousOverflow;
+      unlock();
     };
   }, [open, onClose]);
 
@@ -134,7 +150,7 @@ export function AppModal({
             animate={panelMotion.animate}
             exit={panelMotion.exit}
             style={{ willChange: 'transform, opacity' }}
-            className="relative z-10 w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl shadow-slate-900/20 border border-slate-200/80 max-h-[92dvh] sm:max-h-[min(92vh,760px)] flex flex-col"
+            className="relative z-10 w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl overflow-hidden shadow-2xl shadow-slate-900/20 border border-slate-200/80 max-h-[92dvh] sm:max-h-[min(92vh,760px)] flex flex-col"
           >
             <div className={`h-1.5 shrink-0 rounded-t-3xl sm:rounded-t-2xl ${styles.bar}`} />
 
@@ -164,7 +180,7 @@ export function AppModal({
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-6">
+            <div className="min-w-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-6">
               {children}
             </div>
           </motion.div>
