@@ -1,5 +1,5 @@
 import React from 'react';
-import { LogOut, Shield, User as UserIcon, Package, FileClock, CalendarPlus, ReceiptText, Truck, Warehouse, X } from 'lucide-react';
+import { LogOut, Shield, User as UserIcon, Package, FileClock, CalendarPlus, ReceiptText, Truck, Users, Warehouse, BarChart3, X } from 'lucide-react';
 import { User } from '../types';
 
 interface SidebarProps {
@@ -137,6 +137,17 @@ export function Sidebar({
               Party bills
             </button>
             <button
+              onClick={() => handleNavClick('analysis')}
+              className={`w-full flex items-center gap-3 px-6 py-4 text-base transition-colors cursor-pointer text-left ${
+                activeSection === 'analysis'
+                  ? 'bg-white/5 text-white border-l-4 border-amber-500 font-semibold'
+                  : 'text-slate-300 hover:text-white hover:bg-white/5 border-l-4 border-transparent'
+              }`}
+            >
+              <BarChart3 className="h-5 w-5 shrink-0" />
+              Rate analysis
+            </button>
+            <button
               onClick={() => handleNavClick('transport')}
               className={`w-full flex items-center gap-3 px-6 py-4 text-base transition-colors cursor-pointer text-left ${
                 activeSection === 'transport'
@@ -146,6 +157,17 @@ export function Sidebar({
             >
               <Truck className="h-5 w-5 shrink-0" />
               Transport bills
+            </button>
+            <button
+              onClick={() => handleNavClick('workers')}
+              className={`w-full flex items-center gap-3 px-6 py-4 text-base transition-colors cursor-pointer text-left ${
+                activeSection === 'workers'
+                  ? 'bg-white/5 text-white border-l-4 border-amber-500 font-semibold'
+                  : 'text-slate-300 hover:text-white hover:bg-white/5 border-l-4 border-transparent'
+              }`}
+            >
+              <Users className="h-5 w-5 shrink-0" />
+              Workers
             </button>
           </>
         ) : (
@@ -163,20 +185,22 @@ export function Sidebar({
         )}
       </nav>
 
-      <div className="p-6">
-        <div className="bg-[#1E293B] rounded-xl p-4 mb-4">
-          <div className="text-sm text-slate-400 mb-1">Signed in as</div>
-          <div className="text-base text-white font-semibold truncate">{currentUser.username}</div>
-          <div className="text-sm text-emerald-400 mt-2 flex items-center gap-2 font-medium">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            Connected
+      <div className="p-4 border-t border-white/5">
+        <div className="flex items-center justify-between gap-3 mb-2 rounded-lg bg-[#1E293B] px-3 py-2">
+          <div className="min-w-0">
+            <p className="text-[0.7rem] text-slate-400 leading-tight">Signed in as</p>
+            <p className="text-sm text-white font-semibold truncate leading-tight">{currentUser.username}</p>
           </div>
+          <span className="flex items-center gap-1.5 shrink-0 text-xs font-medium text-emerald-400">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            Connected
+          </span>
         </div>
         <button
           onClick={handleLogout}
-          className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-base font-semibold text-slate-300 hover:text-red-400 hover:bg-red-500/5 transition-all cursor-pointer text-left"
+          className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-semibold text-slate-300 hover:text-red-400 hover:bg-red-500/5 transition-all cursor-pointer text-left"
         >
-          <LogOut className="h-5 w-5" />
+          <LogOut className="h-4 w-4" />
           Sign out
         </button>
       </div>

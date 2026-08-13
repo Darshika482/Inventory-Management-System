@@ -2,20 +2,31 @@ import {
   BillPayment,
   Category,
   Floor,
+  GoodsIssue,
+  GoodsItem,
+  GoodsReturn,
+  ItemGroup,
   PurchaseBill,
   StockAddition,
   TransportBill,
   WithdrawalLog,
+  Worker,
+  WorkerPayment,
   User,
 } from '../types';
 import {
   DbAppUser,
   DbBillPayment,
   DbCategory,
+  DbGoodsIssue,
+  DbGoodsReturn,
+  DbItemGroup,
   DbPurchaseBill,
   DbStockAddition,
   DbTransportBill,
   DbWithdrawalLog,
+  DbWorker,
+  DbWorkerPayment,
   supabase,
 } from './supabase';
 import { isTransientError, RequestTimeoutError } from './dbErrors';
@@ -459,6 +470,52 @@ export async function deletePurchaseBillFromDb(billId: string): Promise<void> {
   );
 }
 
+// Item groups (combined item names for the rate analysis)
+
+function mapItemGroup(row: DbItemGroup): ItemGroup {
+  return {
+    id: row.id,
+    name: row.name,
+    members: Array.isArray(row.members) ? row.members : [],
+    createdAt: row.created_at,
+  };
+}
+
+export async function fetchItemGroups(): Promise<ItemGroup[]> {
+  try {
+    const { data, error } = await assertSupabase()
+      .from('item_groups')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      // Table not created yet — the analysis simply runs without groups.
+      if (error.code === '42P01' || error.message?.includes('404')) return [];
+      throw error;
+    }
+    return (data as DbItemGroup[]).map(mapItemGroup);
+  } catch {
+    return [];
+  }
+}
+
+export async function insertItemGroup(group: ItemGroup): Promise<void> {
+  await runDb(
+    (signal) =>
+      assertSupabase()
+        .from('item_groups')
+        .insert({ id: group.id, name: group.name, members: group.members })
+        .abortSignal(signal),
+    { duplicateMeansSaved: true }
+  );
+}
+
+export async function deleteItemGroupFromDb(groupId: string): Promise<void> {
+  await runDb((signal) =>
+    assertSupabase().from('item_groups').delete().eq('id', groupId).abortSignal(signal)
+  );
+}
+
 export async function insertBillPayment(payment: BillPayment): Promise<void> {
   await runDb(
     (signal) =>
@@ -568,6 +625,236 @@ export async function deleteTransportPaymentFromDb(paymentId: string): Promise<v
   );
 }
 
+// Workers (salary & job work)
+
+function mapWorker(row: DbWorker): Worker {
+  return {
+    id: row.id,
+    name: row.name,
+    type: row.type === 'Job work' ? 'Job work' : 'Shop',
+    phone: row.phone ?? '',
+    monthlySalary: Number(row.monthly_salary) || 0,
+    note: row.note ?? '',
+    createdAt: row.created_at,
+  };
+}
+
+function toWorkerRow(worker: Worker): DbWorker {
+  return {
+    id: worker.id,
+    name: worker.name,
+    type: worker.type,
+    phone: worker.phone,
+    monthly_salary: worker.monthlySalary,
+    note: worker.note,
+    created_at: worker.createdAt,
+  };
+}
+
+/**
+ * Entries saved before multi-item transactions existed have their single item
+ * in flat columns instead of the `items` array — fold those into one line.
+ */
+function mapGoodsItems(row: {
+  items?: unknown;
+  item?: string | null;
+  quantity?: number | null;
+  unit?: string | null;
+}): GoodsItem[] {
+  if (Array.isArray(row.items) && row.items.length > 0) {
+    return (row.items as { item?: string; quantity?: number; unit?: string }[]).map((it) => ({
+      item: it.item ?? '',
+      quantity: Number(it.quantity) || 0,
+      unit: it.unit ?? '',
+    }));
+  }
+  if (row.item) {
+    return [{ item: row.item, quantity: Number(row.quantity) || 0, unit: row.unit ?? '' }];
+  }
+  return [];
+}
+
+function mapGoodsIssue(row: DbGoodsIssue): GoodsIssue {
+  return {
+    id: row.id,
+    workerId: row.worker_id,
+    issuedOn: row.issued_on ?? '',
+    items: mapGoodsItems(row),
+    note: row.note ?? '',
+    createdAt: row.created_at,
+  };
+}
+
+function toGoodsIssueRow(issue: GoodsIssue): DbGoodsIssue {
+  return {
+    id: issue.id,
+    worker_id: issue.workerId,
+    issued_on: issue.issuedOn || null,
+    items: issue.items,
+    note: issue.note,
+    created_at: issue.createdAt,
+  };
+}
+
+function mapGoodsReturn(row: DbGoodsReturn): GoodsReturn {
+  return {
+    id: row.id,
+    workerId: row.worker_id,
+    returnedOn: row.returned_on ?? '',
+    items: mapGoodsItems(row),
+    metersUsed: Number(row.meters_used) || 0,
+    rate: Number(row.rate) || 0,
+    amount: Number(row.amount) || 0,
+    note: row.note ?? '',
+    createdAt: row.created_at,
+  };
+}
+
+function toGoodsReturnRow(entry: GoodsReturn): DbGoodsReturn {
+  return {
+    id: entry.id,
+    worker_id: entry.workerId,
+    returned_on: entry.returnedOn || null,
+    items: entry.items,
+    meters_used: entry.metersUsed,
+    rate: entry.rate,
+    amount: entry.amount,
+    note: entry.note,
+    created_at: entry.createdAt,
+  };
+}
+
+function mapWorkerPayment(row: DbWorkerPayment): WorkerPayment {
+  return {
+    id: row.id,
+    workerId: row.worker_id,
+    paidOn: row.paid_on ?? '',
+    amount: Number(row.amount) || 0,
+    method: row.method,
+    reference: row.reference ?? '',
+    bankName: row.bank_name ?? '',
+    photoUrl: row.photo_url,
+    note: row.note ?? '',
+    createdAt: row.created_at,
+  };
+}
+
+function toWorkerPaymentRow(payment: WorkerPayment): DbWorkerPayment {
+  return {
+    id: payment.id,
+    worker_id: payment.workerId,
+    paid_on: payment.paidOn || null,
+    amount: payment.amount,
+    method: payment.method,
+    reference: payment.reference,
+    bank_name: payment.bankName,
+    photo_url: payment.photoUrl,
+    note: payment.note,
+    created_at: payment.createdAt,
+  };
+}
+
+export async function fetchWorkers(): Promise<Worker[]> {
+  const data = await runDb<DbWorker[]>((signal) =>
+    assertSupabase().from('workers').select('*').order('name').abortSignal(signal)
+  );
+  return (data ?? []).map(mapWorker);
+}
+
+export async function fetchGoodsIssues(): Promise<GoodsIssue[]> {
+  const data = await runDb<DbGoodsIssue[]>((signal) =>
+    assertSupabase()
+      .from('worker_goods_issues')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .abortSignal(signal)
+  );
+  return (data ?? []).map(mapGoodsIssue);
+}
+
+export async function fetchGoodsReturns(): Promise<GoodsReturn[]> {
+  const data = await runDb<DbGoodsReturn[]>((signal) =>
+    assertSupabase()
+      .from('worker_goods_returns')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .abortSignal(signal)
+  );
+  return (data ?? []).map(mapGoodsReturn);
+}
+
+export async function fetchWorkerPayments(): Promise<WorkerPayment[]> {
+  const data = await runDb<DbWorkerPayment[]>((signal) =>
+    assertSupabase()
+      .from('worker_payments')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .abortSignal(signal)
+  );
+  return (data ?? []).map(mapWorkerPayment);
+}
+
+export async function insertWorker(worker: Worker): Promise<void> {
+  await runDb(
+    (signal) => assertSupabase().from('workers').insert(toWorkerRow(worker)).abortSignal(signal),
+    { duplicateMeansSaved: true }
+  );
+}
+
+export async function updateWorkerInDb(worker: Worker): Promise<void> {
+  await runDb((signal) =>
+    assertSupabase().from('workers').update(toWorkerRow(worker)).eq('id', worker.id).abortSignal(signal)
+  );
+}
+
+export async function deleteWorkerFromDb(workerId: string): Promise<void> {
+  await runDb((signal) =>
+    assertSupabase().from('workers').delete().eq('id', workerId).abortSignal(signal)
+  );
+}
+
+export async function insertGoodsIssue(issue: GoodsIssue): Promise<void> {
+  await runDb(
+    (signal) =>
+      assertSupabase().from('worker_goods_issues').insert(toGoodsIssueRow(issue)).abortSignal(signal),
+    { duplicateMeansSaved: true }
+  );
+}
+
+export async function deleteGoodsIssueFromDb(issueId: string): Promise<void> {
+  await runDb((signal) =>
+    assertSupabase().from('worker_goods_issues').delete().eq('id', issueId).abortSignal(signal)
+  );
+}
+
+export async function insertGoodsReturn(entry: GoodsReturn): Promise<void> {
+  await runDb(
+    (signal) =>
+      assertSupabase().from('worker_goods_returns').insert(toGoodsReturnRow(entry)).abortSignal(signal),
+    { duplicateMeansSaved: true }
+  );
+}
+
+export async function deleteGoodsReturnFromDb(returnId: string): Promise<void> {
+  await runDb((signal) =>
+    assertSupabase().from('worker_goods_returns').delete().eq('id', returnId).abortSignal(signal)
+  );
+}
+
+export async function insertWorkerPayment(payment: WorkerPayment): Promise<void> {
+  await runDb(
+    (signal) =>
+      assertSupabase().from('worker_payments').insert(toWorkerPaymentRow(payment)).abortSignal(signal),
+    { duplicateMeansSaved: true }
+  );
+}
+
+export async function deleteWorkerPaymentFromDb(paymentId: string): Promise<void> {
+  await runDb((signal) =>
+    assertSupabase().from('worker_payments').delete().eq('id', paymentId).abortSignal(signal)
+  );
+}
+
 /**
  * Uploads a bill photo / payment screenshot to the `bill-photos` bucket.
  * Returns the public URL, or null if the upload failed (the record can still
@@ -575,7 +862,7 @@ export async function deleteTransportPaymentFromDb(paymentId: string): Promise<v
  */
 export async function uploadBillPhoto(
   file: File,
-  folder: 'bills' | 'payments' | 'transport' | 'transport-payments'
+  folder: 'bills' | 'payments' | 'transport' | 'transport-payments' | 'worker-payments'
 ): Promise<string | null> {
   try {
     const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';

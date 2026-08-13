@@ -87,6 +87,74 @@ export interface BillPayment {
   createdAt: string;
 }
 
+/**
+ * Combines different spellings of the same item on bills into one item for
+ * the rate analysis (e.g. "Dyed Cloth CT L Titan" + "Dyed Cloth Titan").
+ */
+export interface ItemGroup {
+  id: string;
+  name: string; // display name for the combined item
+  members: string[]; // normalized (lowercased, single-spaced) bill item names
+  createdAt: string;
+}
+
+// --- Workers (salary & job work) ---
+
+export type WorkerType = 'Shop' | 'Job work';
+
+export interface Worker {
+  id: string;
+  name: string;
+  type: WorkerType;
+  phone: string;
+  monthlySalary: number; // for shop workers; 0 for job workers
+  note: string;
+  createdAt: string;
+}
+
+/** One line of goods inside a give / receive transaction. */
+export interface GoodsItem {
+  item: string; // e.g. "Cotton cloth", "Falls"
+  quantity: number;
+  unit: string; // e.g. Meter, Dozen
+}
+
+/** Cloth / raw material handed to a job worker for stitching (one transaction, many items). */
+export interface GoodsIssue {
+  id: string;
+  workerId: string;
+  issuedOn: string; // YYYY-MM-DD
+  items: GoodsItem[];
+  note: string;
+  createdAt: string;
+}
+
+/** Finished pieces (falls) brought back by a job worker (one transaction, many items). */
+export interface GoodsReturn {
+  id: string;
+  workerId: string;
+  returnedOn: string; // YYYY-MM-DD
+  items: GoodsItem[];
+  metersUsed: number; // cloth worked on for this return, in meters
+  rate: number; // wage per meter worked; 0 if the amount was entered directly
+  amount: number; // wage earned for this return
+  note: string;
+  createdAt: string;
+}
+
+export interface WorkerPayment {
+  id: string;
+  workerId: string;
+  paidOn: string; // YYYY-MM-DD
+  amount: number;
+  method: PaymentMethod;
+  reference: string;
+  bankName: string;
+  photoUrl: string | null;
+  note: string;
+  createdAt: string;
+}
+
 // --- Transport bills (bilty / freight charges) ---
 
 export interface TransportBill {

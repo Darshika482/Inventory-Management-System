@@ -66,6 +66,60 @@ export type DbPurchaseBill = {
   created_at: string;
 };
 
+export type DbWorker = {
+  id: string;
+  name: string;
+  type: 'Shop' | 'Job work';
+  phone: string;
+  monthly_salary: number;
+  note: string;
+  created_at: string;
+};
+
+export type DbGoodsItem = { item: string; quantity: number; unit: string };
+
+export type DbGoodsIssue = {
+  id: string;
+  worker_id: string;
+  issued_on: string | null;
+  items: DbGoodsItem[];
+  note: string;
+  created_at: string;
+  // Legacy single-item columns, present on tables created before `items` existed
+  item?: string | null;
+  quantity?: number | null;
+  unit?: string | null;
+};
+
+export type DbGoodsReturn = {
+  id: string;
+  worker_id: string;
+  returned_on: string | null;
+  items: DbGoodsItem[];
+  meters_used: number;
+  rate: number;
+  amount: number;
+  note: string;
+  created_at: string;
+  // Legacy single-item columns, present on tables created before `items` existed
+  item?: string | null;
+  quantity?: number | null;
+  unit?: string | null;
+};
+
+export type DbWorkerPayment = {
+  id: string;
+  worker_id: string;
+  paid_on: string | null;
+  amount: number;
+  method: 'Cash' | 'Cheque' | 'Bank transfer' | 'UPI';
+  reference: string;
+  bank_name: string;
+  photo_url: string | null;
+  note: string;
+  created_at: string;
+};
+
 export type DbTransportBill = {
   id: string;
   received_date: string | null;
@@ -76,6 +130,13 @@ export type DbTransportBill = {
   party_name: string;
   amount: number;
   photo_url: string | null;
+  created_at: string;
+};
+
+export type DbItemGroup = {
+  id: string;
+  name: string;
+  members: string[];
   created_at: string;
 };
 

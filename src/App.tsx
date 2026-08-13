@@ -15,7 +15,9 @@ import { Login } from './components/Login';
 import { Sidebar } from './components/Sidebar';
 import { AdminDashboard } from './components/AdminDashboard';
 import { BillsSection } from './components/BillsSection';
+import { AnalysisSection } from './components/AnalysisSection';
 import { TransportSection } from './components/TransportSection';
+import { WorkersSection } from './components/WorkersSection';
 import { WorkerDashboard } from './components/WorkerDashboard';
 import {
   authenticateUser,
@@ -40,6 +42,21 @@ interface Toast {
   type: 'success' | 'error' | 'info';
 }
 
+const ACTIVE_SECTION_KEY = 'ims_active_section';
+
+function homeSectionFor(role?: User['role']): string {
+  return role === 'Admin' ? 'overview' : 'withdraw';
+}
+
+// Reopen on the page the user last had. Admins can land on any of their pages
+// (whatever was stored came from a real menu click), while workers only ever
+// have their single page. Falls back to the home page when nothing is stored.
+function readInitialSection(user: User | null): string {
+  const home = homeSectionFor(user?.role);
+  if (user?.role !== 'Admin') return home;
+  return localStorage.getItem(ACTIVE_SECTION_KEY) || home;
+}
+
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     const stored = localStorage.getItem('ims_current_user');
@@ -53,15 +70,14 @@ export default function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  const [activeSection, setActiveSection] = useState<string>(() => {
-    if (currentUser?.role === 'Admin') return 'overview';
-    return 'withdraw';
-  });
+  const [activeSection, setActiveSection] = useState<string>(() =>
+    readInitialSection(currentUser)
+  );
 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  const homeSection = currentUser?.role === 'Admin' ? 'overview' : 'withdraw';
+  const homeSection = homeSectionFor(currentUser?.role);
 
   // Device / browser Back closes the mobile menu instead of leaving the app.
   useBackDismiss(mobileNavOpen, () => setMobileNavOpen(false));
@@ -101,11 +117,18 @@ export default function App() {
   useEffect(() => {
     if (currentUser) {
       localStorage.setItem('ims_current_user', JSON.stringify(currentUser));
-      setActiveSection(currentUser.role === 'Admin' ? 'overview' : 'withdraw');
     } else {
       localStorage.removeItem('ims_current_user');
+      localStorage.removeItem(ACTIVE_SECTION_KEY);
     }
   }, [currentUser]);
+
+  // Remember the open page so a refresh reopens it instead of the home page.
+  useEffect(() => {
+    if (currentUser) {
+      localStorage.setItem(ACTIVE_SECTION_KEY, activeSection);
+    }
+  }, [currentUser, activeSection]);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
     const id = Date.now().toString() + Math.random().toString();
@@ -139,6 +162,7 @@ export default function App() {
       const user = await authenticateUser(username, password);
       if (!user) return false;
       setCurrentUser(user);
+      setActiveSection(homeSectionFor(user.role));
       showToast(`Welcome back, ${user.username}!`, 'success');
       return true;
     } catch {
@@ -499,8 +523,12 @@ export default function App() {
 
         {currentUser.role === 'Admin' && activeSection === 'bills' ? (
           <BillsSection showToast={showToast} />
+        ) : currentUser.role === 'Admin' && activeSection === 'analysis' ? (
+          <AnalysisSection showToast={showToast} />
         ) : currentUser.role === 'Admin' && activeSection === 'transport' ? (
           <TransportSection showToast={showToast} />
+        ) : currentUser.role === 'Admin' && activeSection === 'workers' ? (
+          <WorkersSection showToast={showToast} />
         ) : currentUser.role === 'Admin' ? (
           <AdminDashboard
             categories={categories}
