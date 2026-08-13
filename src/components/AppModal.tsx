@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { motion, AnimatePresence, useReducedMotion, type Transition } from 'motion/react';
+import { useBackDismiss } from '../lib/backGuard';
 
 type ModalAccent = 'amber' | 'emerald' | 'red' | 'slate';
 
@@ -89,6 +90,9 @@ export function AppModal({
   const styles = accentMap[accent];
   const isSheet = useIsSheet();
   const reduceMotion = useReducedMotion();
+
+  // Device / browser Back closes the modal instead of leaving the app.
+  useBackDismiss(open, onClose);
 
   useEffect(() => {
     if (!open) return;

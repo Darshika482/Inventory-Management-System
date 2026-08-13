@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { ChevronDown, Check, Search, Package, User as UserIcon, Building2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { PremiumSelectOption } from '../lib/selectOptions';
+import { useBackDismiss } from '../lib/backGuard';
 
 export type { PremiumSelectOption };
 
@@ -77,6 +78,12 @@ export function PremiumSelect({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const styles = accentStyles[accent];
+
+  // Device / browser Back closes the dropdown instead of leaving the app.
+  useBackDismiss(open, () => {
+    setOpen(false);
+    setQuery('');
+  });
 
   const selected = options.find((option) => option.value === value);
 

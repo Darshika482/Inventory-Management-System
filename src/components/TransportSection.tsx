@@ -7,9 +7,9 @@ import {
   Image as ImageIcon,
   Loader2,
   Maximize2,
+  Package,
   Pencil,
   Plus,
-  ReceiptText,
   Search,
   Sparkles,
   Trash2,
@@ -17,21 +17,21 @@ import {
   Wallet,
   X,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { BillLineItem, BillPayment, PaymentMethod, PurchaseBill } from '../types';
+import { motion } from 'motion/react';
+import { BillPayment, PaymentMethod, TransportBill } from '../types';
 import {
-  deleteBillPaymentFromDb,
-  deletePurchaseBillFromDb,
-  fetchBillPayments,
-  fetchPurchaseBills,
-  insertBillPayment,
-  insertPurchaseBill,
-  updatePurchaseBillInDb,
+  deleteTransportBillFromDb,
+  deleteTransportPaymentFromDb,
+  fetchTransportBills,
+  fetchTransportPayments,
+  insertTransportBill,
+  insertTransportPayment,
+  updateTransportBillInDb,
   uploadBillPhoto,
 } from '../lib/database';
 import {
-  extractBillFromImage,
   extractPaymentFromImage,
+  extractTransportBillFromImage,
   isPhotoFillAvailable,
   PhotoReadError,
 } from '../lib/extractBill';
@@ -43,21 +43,8 @@ import { DateField } from './DateField';
 import { ImageViewer } from './ImageViewer';
 import { PhotoPicker } from './PhotoPicker';
 
-interface BillsSectionProps {
+interface TransportSectionProps {
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
-}
-
-interface ItemRow {
-  name: string;
-  quantity: string;
-  unit: string;
-  rate: string;
-  amount: string;
-}
-
-interface DiscountRow {
-  name: string;
-  amount: string;
 }
 
 interface PhotoToView {
@@ -66,10 +53,6 @@ interface PhotoToView {
   subtitle: string;
   downloadName: string;
 }
-
-const EMPTY_ROW: ItemRow = { name: '', quantity: '', unit: '', rate: '', amount: '' };
-
-const UNIT_SUGGESTIONS = ['Piece', 'Meter', 'Kg', 'Box', 'Dozen', 'Roll', 'Set', 'Bundle'];
 
 const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
   { value: 'Cash', label: 'Cash' },
@@ -103,8 +86,7 @@ function todayISO(): string {
 
 /**
  * Where the message belongs. A validation message points at a field near the
- * top of the form; a failed save belongs beside the button that was pressed,
- * which in these long forms is a whole screen away from the top.
+ * top of the form; a failed save belongs beside the button that was pressed.
  */
 type FormProblem = FriendlyError & { near: 'fields' | 'save' };
 
@@ -134,17 +116,17 @@ function referenceLabel(method: PaymentMethod): string {
   return 'Note (optional)';
 }
 
-export function BillsSection({ showToast }: BillsSectionProps) {
-  const [bills, setBills] = useState<PurchaseBill[]>([]);
+export function TransportSection({ showToast }: TransportSectionProps) {
+  const [bills, setBills] = useState<TransportBill[]>([]);
   const [payments, setPayments] = useState<BillPayment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<FriendlyError | null>(null);
 
   // List controls
-  const [view, setView] = useState<'bills' | 'firms'>('bills');
+  const [view, setView] = useState<'bills' | 'transports'>('bills');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'due' | 'paid'>('all');
-  const [firmFilter, setFirmFilter] = useState<string | null>(null);
+  const [transportFilter, setTransportFilter] = useState<string | null>(null);
 
   // Modals
   const [isAddBillOpen, setIsAddBillOpen] = useState(false);
@@ -160,14 +142,14 @@ export function BillsSection({ showToast }: BillsSectionProps) {
     setLoadError(null);
     try {
       const [billsData, paymentsData] = await Promise.all([
-        fetchPurchaseBills(),
-        fetchBillPayments(),
+        fetchTransportBills(),
+        fetchTransportPayments(),
       ]);
       setBills(billsData);
       setPayments(paymentsData);
     } catch (err) {
-      console.error('Loading the bills failed:', err);
-      setLoadError(describeDbError(err, 'Your party bills could not be loaded'));
+      console.error('Loading the transport bills failed:', err);
+      setLoadError(describeDbError(err, 'Your transport bills could not be loaded'));
     } finally {
       setIsLoading(false);
     }
@@ -187,84 +169,91 @@ export function BillsSection({ showToast }: BillsSectionProps) {
   }, [payments]);
 
   const getPaid = (billId: string) => paidByBill.get(billId) ?? 0;
-  const getBalance = (bill: PurchaseBill) => Math.max(0, bill.netAmount - getPaid(bill.id));
+  const getBalance = (bill: TransportBill) => Math.max(0, bill.amount - getPaid(bill.id));
 
-  const firmNames = useMemo(
-    () => Array.from(new Set(bills.map((b) => b.firmName.trim()))).sort(),
+  const transportNames = useMemo(
+    () => Array.from(new Set(bills.map((b) => b.transportName.trim()))).sort(),
     [bills]
   );
 
-  const firmSummaries = useMemo(() => {
+  const partyNames = useMemo(
+    () =>
+      Array.from(new Set(bills.map((b) => b.partyName.trim()).filter(Boolean))).sort(),
+    [bills]
+  );
+
+  const transportSummaries = useMemo(() => {
     const map = new Map<
       string,
-      { name: string; billCount: number; purchased: number; paid: number }
+      { name: string; billCount: number; total: number; paid: number }
     >();
     for (const bill of bills) {
-      const key = bill.firmName.trim();
-      const entry = map.get(key) ?? { name: key, billCount: 0, purchased: 0, paid: 0 };
+      const key = bill.transportName.trim();
+      const entry = map.get(key) ?? { name: key, billCount: 0, total: 0, paid: 0 };
       entry.billCount += 1;
-      entry.purchased += bill.netAmount;
-      entry.paid += Math.min(getPaid(bill.id), bill.netAmount);
+      entry.total += bill.amount;
+      entry.paid += Math.min(getPaid(bill.id), bill.amount);
       map.set(key, entry);
     }
-    return Array.from(map.values()).sort(
-      (a, b) => b.purchased - b.paid - (a.purchased - a.paid)
-    );
+    return Array.from(map.values()).sort((a, b) => b.total - b.paid - (a.total - a.paid));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bills, paidByBill]);
 
   const filteredBills = useMemo(() => {
     const q = search.trim().toLowerCase();
     return bills.filter((bill) => {
-      if (firmFilter && bill.firmName.trim() !== firmFilter) return false;
+      if (transportFilter && bill.transportName.trim() !== transportFilter) return false;
       const balance = getBalance(bill);
       if (statusFilter === 'due' && balance <= 0) return false;
       if (statusFilter === 'paid' && balance > 0) return false;
       if (!q) return true;
       return (
-        bill.firmName.toLowerCase().includes(q) ||
-        bill.billNo.toLowerCase().includes(q) ||
         bill.transportName.toLowerCase().includes(q) ||
-        bill.lrNo.toLowerCase().includes(q)
+        bill.biltyNo.toLowerCase().includes(q) ||
+        bill.partyName.toLowerCase().includes(q) ||
+        bill.item.toLowerCase().includes(q)
       );
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bills, search, statusFilter, firmFilter, paidByBill]);
+  }, [bills, search, statusFilter, transportFilter, paidByBill]);
 
   const detailBill = detailBillId ? bills.find((b) => b.id === detailBillId) ?? null : null;
   const paymentBill = paymentBillId ? bills.find((b) => b.id === paymentBillId) ?? null : null;
   const deletingBill = deletingBillId ? bills.find((b) => b.id === deletingBillId) ?? null : null;
   const editingBill = editingBillId ? bills.find((b) => b.id === editingBillId) ?? null : null;
 
-  const handleBillSaved = (bill: PurchaseBill, wasEdited: boolean) => {
+  const handleBillSaved = (bill: TransportBill, wasEdited: boolean) => {
     if (wasEdited) {
       setBills((prev) => prev.map((b) => (b.id === bill.id ? bill : b)));
       setEditingBillId(null);
       // Back to the detail view so the corrected bill can be checked right away.
       setDetailBillId(bill.id);
-      showToast(`Bill from "${bill.firmName}" updated.`, 'success');
+      showToast(`Transport bill from "${bill.transportName}" updated.`, 'success');
       return;
     }
     setBills((prev) => [bill, ...prev]);
     setIsAddBillOpen(false);
-    showToast(`Bill from "${bill.firmName}" saved — ${formatMoney(bill.netAmount)} to pay.`, 'success');
+    showToast(
+      `Transport bill from "${bill.transportName}" saved — ${formatMoney(bill.amount)} to pay.`,
+      'success'
+    );
   };
 
-  const handlePaymentSaved = (payment: BillPayment, firmName: string) => {
+  const handlePaymentSaved = (payment: BillPayment, transportName: string) => {
     setPayments((prev) => [payment, ...prev]);
     setPaymentBillId(null);
-    showToast(`Payment of ${formatMoney(payment.amount)} to "${firmName}" saved.`, 'success');
+    showToast(`Payment of ${formatMoney(payment.amount)} to "${transportName}" saved.`, 'success');
   };
 
   const handleDeleteBill = async () => {
     if (!deletingBill) return;
     try {
-      await deletePurchaseBillFromDb(deletingBill.id);
+      await deleteTransportBillFromDb(deletingBill.id);
       setBills((prev) => prev.filter((b) => b.id !== deletingBill.id));
       setPayments((prev) => prev.filter((p) => p.billId !== deletingBill.id));
       setDeletingBillId(null);
       setDetailBillId(null);
-      showToast(`Bill from "${deletingBill.firmName}" removed.`, 'info');
+      showToast(`Transport bill from "${deletingBill.transportName}" removed.`, 'info');
     } catch {
       showToast('Could not remove this bill. Please try again.', 'error');
     }
@@ -273,7 +262,7 @@ export function BillsSection({ showToast }: BillsSectionProps) {
   const handleDeletePayment = async () => {
     if (!deletingPaymentId) return;
     try {
-      await deleteBillPaymentFromDb(deletingPaymentId);
+      await deleteTransportPaymentFromDb(deletingPaymentId);
       setPayments((prev) => prev.filter((p) => p.id !== deletingPaymentId));
       setDeletingPaymentId(null);
       showToast('Payment entry removed. The amount is added back to the balance.', 'info');
@@ -287,7 +276,7 @@ export function BillsSection({ showToast }: BillsSectionProps) {
       <div className="flex-1 flex items-center justify-center bg-[#F8FAFC] p-6">
         <div className="flex flex-col items-center gap-3 text-slate-500">
           <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
-          <p className="text-base font-medium">Loading party bills...</p>
+          <p className="text-base font-medium">Loading transport bills...</p>
         </div>
       </div>
     );
@@ -297,8 +286,8 @@ export function BillsSection({ showToast }: BillsSectionProps) {
     return (
       <div className="flex-1 flex items-center justify-center bg-[#F8FAFC] p-6">
         <div className="max-w-md w-full bg-white border border-red-200 rounded-xl p-6 shadow-lg text-center space-y-4">
-          <ReceiptText className="h-10 w-10 text-red-500 mx-auto" />
-          <h2 className="text-xl font-bold text-slate-900">Could not load party bills</h2>
+          <Truck className="h-10 w-10 text-red-500 mx-auto" />
+          <h2 className="text-xl font-bold text-slate-900">Could not load transport bills</h2>
           <p className="text-sm text-slate-600 leading-relaxed">{loadError.message}</p>
           {loadError.detail && (
             <p className="text-xs text-slate-400 leading-relaxed break-words">{loadError.detail}</p>
@@ -324,7 +313,7 @@ export function BillsSection({ showToast }: BillsSectionProps) {
             {(
               [
                 { key: 'bills' as const, label: 'Bills', shortLabel: 'Bills' },
-                { key: 'firms' as const, label: 'Party-wise total', shortLabel: 'By party' },
+                { key: 'transports' as const, label: 'Transport-wise total', shortLabel: 'By transport' },
               ]
             ).map(({ key, label, shortLabel }) => (
               <button
@@ -356,7 +345,7 @@ export function BillsSection({ showToast }: BillsSectionProps) {
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search party or bill number..."
+                placeholder="Search transport, bilty or party..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="bg-white border border-slate-200 rounded-lg pl-8 pr-3 py-2 text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500 w-full transition-all"
@@ -387,16 +376,16 @@ export function BillsSection({ showToast }: BillsSectionProps) {
           </div>
         )}
 
-        {view === 'bills' && firmFilter && (
+        {view === 'bills' && transportFilter && (
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-full text-xs font-semibold max-w-full">
-              <Building2 className="h-3 w-3 shrink-0" />
-              <span className="truncate">{firmFilter}</span>
+              <Truck className="h-3 w-3 shrink-0" />
+              <span className="truncate">{transportFilter}</span>
               <button
                 type="button"
-                onClick={() => setFirmFilter(null)}
+                onClick={() => setTransportFilter(null)}
                 className="p-1 hover:bg-amber-100 rounded-full cursor-pointer shrink-0"
-                aria-label="Show all parties"
+                aria-label="Show all transports"
               >
                 <X className="h-3 w-3" />
               </button>
@@ -405,29 +394,29 @@ export function BillsSection({ showToast }: BillsSectionProps) {
         )}
       </div>
 
-      {/* Firms view */}
-      {view === 'firms' && (
+      {/* Transport-wise view */}
+      {view === 'transports' && (
         <div className="space-y-3">
-          {firmSummaries.length === 0 ? (
+          {transportSummaries.length === 0 ? (
             <EmptyState onAdd={() => setIsAddBillOpen(true)} />
           ) : (
-            firmSummaries.map((firm) => {
-              const due = Math.max(0, firm.purchased - firm.paid);
+            transportSummaries.map((transport) => {
+              const due = Math.max(0, transport.total - transport.paid);
               return (
                 <button
-                  key={firm.name}
+                  key={transport.name}
                   type="button"
                   onClick={() => {
-                    setFirmFilter(firm.name);
+                    setTransportFilter(transport.name);
                     setView('bills');
                   }}
                   className="w-full text-left bg-white border border-slate-200 rounded-xl p-4 shadow-xs hover:border-amber-300 transition-colors cursor-pointer"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="text-base font-bold text-slate-900 truncate">{firm.name}</p>
+                      <p className="text-base font-bold text-slate-900 truncate">{transport.name}</p>
                       <p className="text-xs text-slate-500 mt-0.5">
-                        {firm.billCount} {firm.billCount === 1 ? 'bill' : 'bills'}
+                        {transport.billCount} {transport.billCount === 1 ? 'bill' : 'bills'}
                       </p>
                     </div>
                     {due > 0 ? (
@@ -443,12 +432,12 @@ export function BillsSection({ showToast }: BillsSectionProps) {
                   </div>
                   <div className="flex items-center gap-4 mt-3 pt-3 border-t border-slate-100 text-sm">
                     <div>
-                      <p className="text-xs text-slate-500">Bought</p>
-                      <p className="font-bold text-slate-900 tabular-nums">{formatMoney(firm.purchased)}</p>
+                      <p className="text-xs text-slate-500">Total freight</p>
+                      <p className="font-bold text-slate-900 tabular-nums">{formatMoney(transport.total)}</p>
                     </div>
                     <div>
                       <p className="text-xs text-slate-500">Paid</p>
-                      <p className="font-bold text-emerald-700 tabular-nums">{formatMoney(firm.paid)}</p>
+                      <p className="font-bold text-emerald-700 tabular-nums">{formatMoney(transport.paid)}</p>
                     </div>
                   </div>
                 </button>
@@ -489,9 +478,9 @@ export function BillsSection({ showToast }: BillsSectionProps) {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-base font-bold text-slate-900 truncate">{bill.firmName}</p>
+                        <p className="text-base font-bold text-slate-900 truncate">{bill.transportName}</p>
                         <p className="text-sm text-slate-500 mt-0.5 truncate">
-                          Bill {bill.billNo || '—'} · {formatDate(bill.billDate)}
+                          Bilty {bill.biltyNo || '—'} · {formatDate(bill.receivedDate)}
                         </p>
                       </div>
                       {balance > 0 ? (
@@ -510,7 +499,7 @@ export function BillsSection({ showToast }: BillsSectionProps) {
                         <div className="min-w-0">
                           <p className="text-xs text-slate-500">Bill amount</p>
                           <p className="font-bold text-slate-900 tabular-nums truncate">
-                            {formatMoney(bill.netAmount)}
+                            {formatMoney(bill.amount)}
                           </p>
                         </div>
                         <div className="min-w-0">
@@ -520,11 +509,18 @@ export function BillsSection({ showToast }: BillsSectionProps) {
                           </p>
                         </div>
                       </div>
-                      {bill.transportName && (
+                      {bill.partyName && (
                         <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500 min-w-0">
-                          <Truck className="h-3.5 w-3.5 shrink-0" />
-                          <span className="font-semibold text-slate-700 truncate">
-                            {bill.transportName}
+                          <Building2 className="h-3.5 w-3.5 shrink-0" />
+                          <span className="font-semibold text-slate-700 truncate">{bill.partyName}</span>
+                        </p>
+                      )}
+                      {(bill.item || bill.weight) && (
+                        <p className="mt-1.5 flex items-center gap-1.5 text-xs text-slate-500 min-w-0">
+                          <Package className="h-3.5 w-3.5 shrink-0" />
+                          <span className="truncate">
+                            {bill.item || '—'}
+                            {bill.weight && ` · ${bill.weight}`}
                           </span>
                         </p>
                       )}
@@ -550,14 +546,15 @@ export function BillsSection({ showToast }: BillsSectionProps) {
       )}
 
       {/* Add / edit bill modal */}
-      <BillFormModal
+      <TransportBillFormModal
         open={isAddBillOpen || Boolean(editingBill)}
         bill={editingBill}
         onClose={() => {
           setIsAddBillOpen(false);
           setEditingBillId(null);
         }}
-        firmNames={firmNames}
+        transportNames={transportNames}
+        partyNames={partyNames}
         onSaved={handleBillSaved}
         showToast={showToast}
       />
@@ -566,16 +563,20 @@ export function BillsSection({ showToast }: BillsSectionProps) {
       <AppModal
         open={Boolean(detailBill)}
         onClose={() => setDetailBillId(null)}
-        title={detailBill?.firmName ?? ''}
-        description={detailBill ? `Bill ${detailBill.billNo || '—'} · ${formatDate(detailBill.billDate)}` : undefined}
-        icon={<ReceiptText className="h-5 w-5" />}
+        title={detailBill?.transportName ?? ''}
+        description={
+          detailBill
+            ? `Bilty ${detailBill.biltyNo || '—'} · Received ${formatDate(detailBill.receivedDate)}`
+            : undefined
+        }
+        icon={<Truck className="h-5 w-5" />}
         accent="amber"
       >
         {detailBill && (
           <div className="space-y-5">
             {/* Amount summary — one row per amount on phones so nothing is cut off */}
             <div className="space-y-2 sm:space-y-0 sm:grid sm:grid-cols-3 sm:gap-2">
-              <AmountTile label="Bill amount" value={formatMoney(detailBill.netAmount)} />
+              <AmountTile label="Bill amount" value={formatMoney(detailBill.amount)} />
               <AmountTile
                 label="Paid"
                 value={formatMoney(getPaid(detailBill.id))}
@@ -590,27 +591,25 @@ export function BillsSection({ showToast }: BillsSectionProps) {
 
             {/* Bill info */}
             <div className="space-y-2 text-sm">
-              <InfoRow label="Bill number" value={detailBill.billNo || '—'} />
-              <InfoRow label="Bill date" value={formatDate(detailBill.billDate)} />
-              <InfoRow label="GST number" value={detailBill.gstNumber || '—'} />
-              <InfoRow label="LR number" value={detailBill.lrNo || '—'} />
+              <InfoRow label="Parcel received on" value={formatDate(detailBill.receivedDate)} />
               <InfoRow label="Transport" value={detailBill.transportName || '—'} />
+              <InfoRow label="Bilty number" value={detailBill.biltyNo || '—'} />
+              <InfoRow label="Party (sender)" value={detailBill.partyName || '—'} />
+              <InfoRow label="Item" value={detailBill.item || '—'} />
+              <InfoRow label="Weight" value={detailBill.weight || '—'} />
             </div>
-
-            {/* Items */}
-            <BillItems bill={detailBill} />
 
             {detailBill.photoUrl && (
               <PhotoThumbButton
                 url={detailBill.photoUrl}
-                label="Bill photo"
+                label="Bilty photo"
                 hint="Tap to zoom, rotate or save"
                 onOpen={() =>
                   setViewingPhoto({
                     url: detailBill.photoUrl as string,
-                    title: detailBill.firmName,
-                    subtitle: `Bill ${detailBill.billNo || '—'} · ${formatDate(detailBill.billDate)}`,
-                    downloadName: `${detailBill.firmName} bill ${detailBill.billNo || ''}`,
+                    title: detailBill.transportName,
+                    subtitle: `Bilty ${detailBill.biltyNo || '—'} · ${formatDate(detailBill.receivedDate)}`,
+                    downloadName: `${detailBill.transportName} bilty ${detailBill.biltyNo || ''}`,
                   })
                 }
               />
@@ -651,8 +650,8 @@ export function BillsSection({ showToast }: BillsSectionProps) {
                                 setViewingPhoto({
                                   url: payment.photoUrl as string,
                                   title: `${formatMoney(payment.amount)} · ${payment.method}`,
-                                  subtitle: `${detailBill.firmName} · ${formatDate(payment.paidOn)}`,
-                                  downloadName: `${detailBill.firmName} payment ${formatDate(payment.paidOn)}`,
+                                  subtitle: `${detailBill.transportName} · ${formatDate(payment.paidOn)}`,
+                                  downloadName: `${detailBill.transportName} payment ${formatDate(payment.paidOn)}`,
                                 })
                               }
                               className="inline-flex items-center gap-1.5 mt-2 px-3 py-2 text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 rounded-lg cursor-pointer transition-colors"
@@ -716,7 +715,7 @@ export function BillsSection({ showToast }: BillsSectionProps) {
 
       {/* Add payment modal */}
       {paymentBill && (
-        <AddPaymentModal
+        <AddTransportPaymentModal
           bill={paymentBill}
           balance={getBalance(paymentBill)}
           onClose={() => setPaymentBillId(null)}
@@ -732,7 +731,7 @@ export function BillsSection({ showToast }: BillsSectionProps) {
         title="Remove this bill?"
         description={
           deletingBill
-            ? `The bill from "${deletingBill.firmName}" and all its payment entries will be removed. This cannot be undone.`
+            ? `The transport bill from "${deletingBill.transportName}" and all its payment entries will be removed. This cannot be undone.`
             : undefined
         }
         icon={<Trash2 className="h-5 w-5" />}
@@ -819,97 +818,6 @@ function AmountTile({ label, value, tone = 'default' }: AmountTileProps) {
   );
 }
 
-/**
- * Items are shown as stacked cards on phones — a four column table gets
- * squeezed to the point where the amount is unreadable on a small screen.
- */
-function BillItems({ bill }: { bill: PurchaseBill }) {
-  return (
-    <div>
-      <h4 className="text-sm font-bold text-slate-800 mb-2">Items on this bill</h4>
-
-      <div className="space-y-2 sm:hidden">
-        {bill.items.map((item, index) => (
-          <div key={index} className="border border-slate-200 rounded-xl p-3 bg-white">
-            <p className="text-sm font-semibold text-slate-800 break-words">{item.name}</p>
-            <div className="flex items-end justify-between gap-3 mt-2 pt-2 border-t border-slate-100">
-              <p className="text-xs text-slate-500 tabular-nums">
-                {item.quantity ? `${item.quantity}${item.unit ? ` ${item.unit}` : ''}` : '—'}
-                {item.rate ? ` × ${formatMoney(item.rate)}` : ''}
-              </p>
-              <p className="text-sm font-bold text-slate-900 tabular-nums whitespace-nowrap">
-                {formatMoney(item.amount)}
-              </p>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="hidden sm:block border border-slate-200 rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="bg-slate-50 text-xs font-bold text-slate-500 border-b border-slate-200">
-              <th className="text-left px-3 py-2">Item</th>
-              <th className="text-right px-3 py-2">Qty</th>
-              <th className="text-right px-3 py-2">Rate</th>
-              <th className="text-right px-3 py-2">Amount</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {bill.items.map((item, index) => (
-              <tr key={index}>
-                <td className="px-3 py-2 font-semibold text-slate-800 break-words">{item.name}</td>
-                <td className="px-3 py-2 text-right tabular-nums text-slate-600 whitespace-nowrap">
-                  {item.quantity ? `${item.quantity}${item.unit ? ` ${item.unit}` : ''}` : '—'}
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums text-slate-600">
-                  {item.rate ? formatMoney(item.rate) : '—'}
-                </td>
-                <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-900">
-                  {formatMoney(item.amount)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Totals */}
-      <div className="mt-2 border border-slate-200 rounded-xl overflow-hidden text-sm">
-        <div className="flex items-center justify-between gap-3 px-3 py-2">
-          <span className="text-slate-500">Total</span>
-          <span className="font-semibold tabular-nums">{formatMoney(bill.grossAmount)}</span>
-        </div>
-        {bill.discounts.map((d, index) => (
-          <div
-            key={index}
-            className="flex items-center justify-between gap-3 px-3 py-2 border-t border-slate-100"
-          >
-            <span className="text-slate-500">{d.name}</span>
-            <span className="font-semibold tabular-nums text-emerald-700">
-              − {formatMoney(d.amount)}
-            </span>
-          </div>
-        ))}
-        {bill.gstAmount > 0 && (
-          <div className="flex items-center justify-between gap-3 px-3 py-2 border-t border-slate-100">
-            <span className="text-slate-500">GST / tax</span>
-            <span className="font-semibold tabular-nums text-slate-700">
-              + {formatMoney(bill.gstAmount)}
-            </span>
-          </div>
-        )}
-        <div className="flex items-center justify-between gap-3 px-3 py-2.5 bg-slate-50 border-t border-slate-200">
-          <span className="font-bold text-slate-800">Final amount to pay</span>
-          <span className="font-bold tabular-nums text-slate-900 whitespace-nowrap">
-            {formatMoney(bill.netAmount)}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 interface PhotoThumbButtonProps {
   url: string;
   label: string;
@@ -944,11 +852,11 @@ function PhotoThumbButton({ url, label, hint, onOpen }: PhotoThumbButtonProps) {
 function EmptyState({ onAdd }: { onAdd: () => void }) {
   return (
     <div className="p-8 sm:p-12 text-center bg-white border border-slate-200 rounded-xl">
-      <ReceiptText className="h-10 w-10 mx-auto text-slate-300 mb-3" />
-      <p className="text-base font-bold text-slate-700">No bills saved yet</p>
+      <Truck className="h-10 w-10 mx-auto text-slate-300 mb-3" />
+      <p className="text-base font-bold text-slate-700">No transport bills saved yet</p>
       <p className="text-sm text-slate-500 mt-1 leading-relaxed">
-        When goods arrive from a party, save the bill here. You can then record every payment and
-        always know how much is left to pay.
+        When a parcel arrives by transport, save the bilty here. You can then record every payment
+        and always know how much freight is left to pay.
       </p>
       <button
         type="button"
@@ -973,27 +881,34 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 
 // --- Add / edit bill modal ---
 
-interface BillFormModalProps {
+interface TransportBillFormModalProps {
   open: boolean;
   /** The saved bill being corrected, or null when adding a new one. */
-  bill: PurchaseBill | null;
+  bill: TransportBill | null;
   onClose: () => void;
-  firmNames: string[];
-  onSaved: (bill: PurchaseBill, wasEdited: boolean) => void;
-  showToast: BillsSectionProps['showToast'];
+  transportNames: string[];
+  partyNames: string[];
+  onSaved: (bill: TransportBill, wasEdited: boolean) => void;
+  showToast: TransportSectionProps['showToast'];
 }
 
-function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: BillFormModalProps) {
+function TransportBillFormModal({
+  open,
+  bill,
+  onClose,
+  transportNames,
+  partyNames,
+  onSaved,
+  showToast,
+}: TransportBillFormModalProps) {
   const isEditing = Boolean(bill);
-  const [firmName, setFirmName] = useState('');
-  const [billNo, setBillNo] = useState('');
-  const [billDate, setBillDate] = useState(todayISO());
-  const [gstNumber, setGstNumber] = useState('');
-  const [lrNo, setLrNo] = useState('');
+  const [receivedDate, setReceivedDate] = useState(todayISO());
   const [transportName, setTransportName] = useState('');
-  const [rows, setRows] = useState<ItemRow[]>([{ ...EMPTY_ROW }]);
-  const [discountRows, setDiscountRows] = useState<DiscountRow[]>([]);
-  const [gstAmount, setGstAmount] = useState('');
+  const [item, setItem] = useState('');
+  const [weight, setWeight] = useState('');
+  const [biltyNo, setBiltyNo] = useState('');
+  const [partyName, setPartyName] = useState('');
+  const [amount, setAmount] = useState('');
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [savedPhotoUrl, setSavedPhotoUrl] = useState<string | null>(null);
   const [problem, setProblem] = useState<FormProblem | null>(null);
@@ -1001,21 +916,14 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
   const [isExtracting, setIsExtracting] = useState(false);
   const problemRef = useProblemScroll(problem);
 
-  const gross = rows.reduce((sum, row) => sum + parseNum(row.amount), 0);
-  const totalDiscount = discountRows.reduce((sum, row) => sum + parseNum(row.amount), 0);
-  const gst = parseNum(gstAmount);
-  const net = Math.max(0, gross - totalDiscount + gst);
-
   const reset = () => {
-    setFirmName('');
-    setBillNo('');
-    setBillDate(todayISO());
-    setGstNumber('');
-    setLrNo('');
+    setReceivedDate(todayISO());
     setTransportName('');
-    setRows([{ ...EMPTY_ROW }]);
-    setDiscountRows([]);
-    setGstAmount('');
+    setItem('');
+    setWeight('');
+    setBiltyNo('');
+    setPartyName('');
+    setAmount('');
     setPhotoFile(null);
     setSavedPhotoUrl(null);
     setProblem(null);
@@ -1023,26 +931,14 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
     setIsExtracting(false);
   };
 
-  const fillFormFrom = (source: PurchaseBill) => {
-    setFirmName(source.firmName);
-    setBillNo(source.billNo);
-    setBillDate(source.billDate || todayISO());
-    setGstNumber(source.gstNumber);
-    setLrNo(source.lrNo);
+  const fillFormFrom = (source: TransportBill) => {
+    setReceivedDate(source.receivedDate || todayISO());
     setTransportName(source.transportName);
-    setRows(
-      source.items.length > 0
-        ? source.items.map((item) => ({
-            name: item.name,
-            quantity: item.quantity ? String(item.quantity) : '',
-            unit: item.unit,
-            rate: item.rate ? String(item.rate) : '',
-            amount: item.amount ? String(item.amount) : '',
-          }))
-        : [{ ...EMPTY_ROW }]
-    );
-    setDiscountRows(source.discounts.map((d) => ({ name: d.name, amount: String(d.amount) })));
-    setGstAmount(source.gstAmount ? String(source.gstAmount) : '');
+    setItem(source.item);
+    setWeight(source.weight);
+    setBiltyNo(source.biltyNo);
+    setPartyName(source.partyName);
+    setAmount(source.amount ? String(source.amount) : '');
     setSavedPhotoUrl(source.photoUrl);
     setPhotoFile(null);
     setProblem(null);
@@ -1062,52 +958,18 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
     onClose();
   };
 
-  const updateRow = (index: number, patch: Partial<ItemRow>) => {
-    setRows((prev) =>
-      prev.map((row, i) => {
-        if (i !== index) return row;
-        const next = { ...row, ...patch };
-        // Auto-calculate amount when qty or rate changes
-        if ('quantity' in patch || 'rate' in patch) {
-          const qty = parseNum(next.quantity);
-          const rate = parseNum(next.rate);
-          if (qty > 0 && rate > 0) {
-            next.amount = String(Math.round(qty * rate * 100) / 100);
-          }
-        }
-        return next;
-      })
-    );
-  };
-
   const fillFromPhoto = async (file: File) => {
     setIsExtracting(true);
     setProblem(null);
     try {
-      const extracted = await extractBillFromImage(file);
-      if (extracted.firmName) setFirmName(extracted.firmName);
-      if (extracted.billNo) setBillNo(extracted.billNo);
-      if (extracted.billDate) setBillDate(extracted.billDate);
-      if (extracted.gstNumber) setGstNumber(extracted.gstNumber);
-      if (extracted.lrNo) setLrNo(extracted.lrNo);
+      const extracted = await extractTransportBillFromImage(file);
+      if (extracted.receivedDate) setReceivedDate(extracted.receivedDate);
       if (extracted.transportName) setTransportName(extracted.transportName);
-      if (extracted.discounts.length > 0) {
-        setDiscountRows(
-          extracted.discounts.map((d) => ({ name: d.name, amount: String(d.amount) }))
-        );
-      }
-      if (extracted.gstAmount > 0) setGstAmount(String(extracted.gstAmount));
-      if (extracted.items.length > 0) {
-        setRows(
-          extracted.items.map((item) => ({
-            name: item.name,
-            quantity: item.quantity ? String(item.quantity) : '',
-            unit: item.unit,
-            rate: item.rate ? String(item.rate) : '',
-            amount: item.amount ? String(item.amount) : '',
-          }))
-        );
-      }
+      if (extracted.item) setItem(extracted.item);
+      if (extracted.weight) setWeight(extracted.weight);
+      if (extracted.biltyNo) setBiltyNo(extracted.biltyNo);
+      if (extracted.partyName) setPartyName(extracted.partyName);
+      if (extracted.amount > 0) setAmount(String(extracted.amount));
       playSuccessChime();
       showToast(
         'Details filled from the photo. Please check every line and correct anything that is wrong before saving.',
@@ -1130,7 +992,7 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
     if (photoFile) fillFromPhoto(photoFile);
   };
 
-  /** Reads the already-saved bill photo again, for when the first read was wrong. */
+  /** Reads the already-saved bilty photo again, for when the first read was wrong. */
   const handleReadSavedPhotoAgain = async () => {
     if (!savedPhotoUrl) return;
     unlockSound();
@@ -1140,7 +1002,7 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
       const response = await fetch(savedPhotoUrl);
       if (!response.ok) throw new Error('Could not download the saved photo');
       const blob = await response.blob();
-      file = new File([blob], 'saved-bill.jpg', { type: blob.type || 'image/jpeg' });
+      file = new File([blob], 'saved-bilty.jpg', { type: blob.type || 'image/jpeg' });
     } catch {
       setIsExtracting(false);
       showToast(
@@ -1156,76 +1018,44 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
     e.preventDefault();
     setProblem(null);
 
-    if (!firmName.trim()) {
-      setProblem(fieldProblem('Please enter the party name (who you bought from).'));
+    if (!transportName.trim()) {
+      setProblem(fieldProblem('Please enter the transport name (who delivered the parcel).'));
       return;
     }
-    if (!billNo.trim()) {
-      setProblem(fieldProblem('Please enter the bill number.'));
+    const amountNum = parseNum(amount);
+    if (amountNum <= 0) {
+      setProblem(fieldProblem('Please enter the bill amount (freight to pay).'));
       return;
     }
-    const items: BillLineItem[] = rows
-      .filter((row) => row.name.trim() || parseNum(row.amount) > 0)
-      .map((row) => ({
-        name: row.name.trim(),
-        quantity: parseNum(row.quantity),
-        unit: row.unit.trim(),
-        rate: parseNum(row.rate),
-        amount: parseNum(row.amount),
-      }));
-    if (items.length === 0) {
-      setProblem(fieldProblem('Please add at least one item with its amount.'));
-      return;
-    }
-    if (items.some((item) => !item.name)) {
-      setProblem(fieldProblem('Every item needs a name.'));
-      return;
-    }
-    if (net <= 0) {
-      setProblem(
-        fieldProblem(
-          'The final amount to pay must be more than zero. Check the amounts and discounts.'
-        )
-      );
-      return;
-    }
-    const discounts = discountRows
-      .filter((row) => parseNum(row.amount) > 0)
-      .map((row) => ({ name: row.name.trim() || 'Discount', amount: parseNum(row.amount) }));
 
     setIsSaving(true);
     let photoUrl: string | null = savedPhotoUrl;
     if (photoFile) {
-      const uploaded = await uploadBillPhoto(photoFile, 'bills');
+      const uploaded = await uploadBillPhoto(photoFile, 'transport');
       if (uploaded) photoUrl = uploaded;
       else showToast('The photo could not be uploaded, but the bill will still be saved.', 'info');
     }
 
-    const saved: PurchaseBill = {
-      id: bill?.id ?? `pb-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      firmName: firmName.trim(),
-      billNo: billNo.trim(),
-      billDate,
-      gstNumber: gstNumber.trim().toUpperCase(),
-      lrNo: lrNo.trim(),
+    const saved: TransportBill = {
+      id: bill?.id ?? `tb-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      receivedDate,
       transportName: transportName.trim(),
-      items,
-      grossAmount: Math.round(gross * 100) / 100,
-      discounts,
-      discount: Math.round(totalDiscount * 100) / 100,
-      gstAmount: Math.round(gst * 100) / 100,
-      netAmount: Math.round(net * 100) / 100,
+      item: item.trim(),
+      weight: weight.trim(),
+      biltyNo: biltyNo.trim(),
+      partyName: partyName.trim(),
+      amount: Math.round(amountNum * 100) / 100,
       photoUrl,
       createdAt: bill?.createdAt ?? new Date().toISOString(),
     };
 
     try {
-      if (bill) await updatePurchaseBillInDb(saved);
-      else await insertPurchaseBill(saved);
+      if (bill) await updateTransportBillInDb(saved);
+      else await insertTransportBill(saved);
       reset();
       onSaved(saved, Boolean(bill));
     } catch (err) {
-      console.error('Saving the bill failed:', err);
+      console.error('Saving the transport bill failed:', err);
       setIsSaving(false);
       setProblem(
         saveProblem(err, bill ? 'Your changes could not be saved' : 'The bill could not be saved')
@@ -1237,11 +1067,11 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
     <AppModal
       open={open}
       onClose={handleClose}
-      title={isEditing ? 'Edit this bill' : 'Add party bill'}
+      title={isEditing ? 'Edit this bill' : 'Add transport bill'}
       description={
         isEditing
           ? 'Correct anything that is wrong and save again'
-          : 'Save a bill of goods you bought from a party'
+          : 'Save the bilty of a parcel that arrived by transport'
       }
       icon={<FileText className="h-5 w-5" />}
       accent="amber"
@@ -1263,7 +1093,7 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
                 className="h-14 w-14 shrink-0 rounded-lg object-cover border border-slate-200 bg-white"
               />
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-slate-700">Saved bill photo</p>
+                <p className="text-sm font-semibold text-slate-700">Saved bilty photo</p>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Pick a new photo below to replace it
                 </p>
@@ -1302,278 +1132,113 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
         )}
 
         <PhotoPicker
-          label={savedPhotoUrl ? 'Replace bill photo' : 'Add bill photo'}
+          label={savedPhotoUrl ? 'Replace bilty photo' : 'Add bilty photo'}
           file={photoFile}
           onSelect={setPhotoFile}
           onAutoFill={handleAutoFill}
           isExtracting={isExtracting}
           autoFillLabel="Fill details from photo"
-          inputId="bill-photo-input"
+          inputId="transport-bill-photo-input"
         />
 
         <div className="space-y-1.5">
-          <label className="block text-sm font-semibold text-slate-700">Party name</label>
+          <label className="block text-sm font-semibold text-slate-700">Transport name</label>
           <input
             type="text"
             required
-            list="firm-name-suggestions"
-            placeholder="e.g. Sharma Textiles"
-            value={firmName}
-            onChange={(e) => setFirmName(e.target.value)}
+            list="transport-name-suggestions"
+            placeholder="e.g. VRL Logistics"
+            value={transportName}
+            onChange={(e) => setTransportName(e.target.value)}
             disabled={isSaving}
             className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:bg-white focus:ring-4 focus:border-amber-500 focus:ring-amber-500/15 transition-all"
           />
-          <datalist id="firm-name-suggestions">
-            {firmNames.map((name) => (
+          <datalist id="transport-name-suggestions">
+            {transportNames.map((name) => (
               <option key={name} value={name} />
             ))}
           </datalist>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormInput
-            label="Bill number"
-            type="text"
-            required
-            placeholder="e.g. 1042"
-            value={billNo}
-            onChange={(e) => setBillNo(e.target.value)}
-            disabled={isSaving}
-            accent="amber"
-          />
           <DateField
-            label="Bill date"
-            value={billDate}
-            onChange={setBillDate}
+            label="Parcel received on"
+            value={receivedDate}
+            onChange={setReceivedDate}
+            disabled={isSaving}
+            accent="amber"
+          />
+          <FormInput
+            label="Bilty number"
+            type="text"
+            placeholder="e.g. 78412"
+            value={biltyNo}
+            onChange={(e) => setBiltyNo(e.target.value)}
             disabled={isSaving}
             accent="amber"
           />
         </div>
 
-        <FormInput
-          label="GST number of the party (optional)"
-          type="text"
-          placeholder="e.g. 24ABCDE1234F1Z5"
-          value={gstNumber}
-          onChange={(e) => setGstNumber(e.target.value.toUpperCase())}
-          disabled={isSaving}
-          maxLength={15}
-          accent="amber"
-          className="uppercase"
-        />
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <FormInput
-            label="LR number (optional)"
+        <div className="space-y-1.5">
+          <label className="block text-sm font-semibold text-slate-700">
+            Party name (who sent the goods)
+          </label>
+          <input
             type="text"
-            placeholder="Lorry receipt no."
-            value={lrNo}
-            onChange={(e) => setLrNo(e.target.value)}
+            list="transport-party-suggestions"
+            placeholder="e.g. Sharma Textiles"
+            value={partyName}
+            onChange={(e) => setPartyName(e.target.value)}
             disabled={isSaving}
-            accent="amber"
+            className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:bg-white focus:ring-4 focus:border-amber-500 focus:ring-amber-500/15 transition-all"
           />
-          <FormInput
-            label="Transport name (optional)"
-            type="text"
-            placeholder="e.g. VRL Logistics"
-            value={transportName}
-            onChange={(e) => setTransportName(e.target.value)}
-            disabled={isSaving}
-            accent="amber"
-          />
-        </div>
-
-        {/* Items */}
-        <div className="space-y-3">
-          <label className="block text-sm font-semibold text-slate-700">Items on the bill</label>
-          {rows.map((row, index) => (
-            <div key={index} className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2.5">
-              <div className="flex items-center gap-2">
-                <input
-                  type="text"
-                  placeholder={`Item ${index + 1} name`}
-                  value={row.name}
-                  onChange={(e) => updateRow(index, { name: e.target.value })}
-                  disabled={isSaving}
-                  className="flex-1 min-w-0 bg-white border border-slate-200 rounded-lg px-3 py-2.5 text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500 transition-all"
-                />
-                {rows.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => setRows((prev) => prev.filter((_, i) => i !== index))}
-                    className="p-2.5 text-slate-400 hover:text-red-600 bg-white border border-slate-200 rounded-lg cursor-pointer shrink-0"
-                    aria-label="Remove this item"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">Qty</label>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min={0}
-                    step="any"
-                    placeholder="0"
-                    value={row.quantity}
-                    onChange={(e) => updateRow(index, { quantity: e.target.value })}
-                    disabled={isSaving}
-                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2.5 text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500 transition-all tabular-nums"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">Unit</label>
-                  <input
-                    type="text"
-                    list="unit-suggestions"
-                    placeholder="e.g. Meter"
-                    value={row.unit}
-                    onChange={(e) => updateRow(index, { unit: e.target.value })}
-                    disabled={isSaving}
-                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2.5 text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500 transition-all"
-                  />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">Rate ₹ per unit</label>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min={0}
-                    step="any"
-                    placeholder="0"
-                    value={row.rate}
-                    onChange={(e) => updateRow(index, { rate: e.target.value })}
-                    disabled={isSaving}
-                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2.5 text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500 transition-all tabular-nums"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1">Amount ₹</label>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min={0}
-                    step="any"
-                    placeholder="0"
-                    value={row.amount}
-                    onChange={(e) => updateRow(index, { amount: e.target.value })}
-                    disabled={isSaving}
-                    className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2.5 text-base font-semibold text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500 transition-all tabular-nums"
-                  />
-                </div>
-              </div>
-            </div>
-          ))}
-          <button
-            type="button"
-            onClick={() => setRows((prev) => [...prev, { ...EMPTY_ROW }])}
-            disabled={isSaving}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-slate-600 bg-white hover:bg-slate-50 border border-dashed border-slate-300 rounded-xl cursor-pointer transition-colors"
-          >
-            <Plus className="h-4 w-4" />
-            Add another item
-          </button>
-          <datalist id="unit-suggestions">
-            {UNIT_SUGGESTIONS.map((unit) => (
-              <option key={unit} value={unit} />
+          <datalist id="transport-party-suggestions">
+            {partyNames.map((name) => (
+              <option key={name} value={name} />
             ))}
           </datalist>
         </div>
 
-        {/* Discounts */}
-        <div className="space-y-2.5">
-          <label className="block text-sm font-semibold text-slate-700">Discounts (if any)</label>
-          {discountRows.map((row, index) => (
-            <div key={index} className="flex items-center gap-2">
-              <input
-                type="text"
-                placeholder="e.g. Cash discount"
-                value={row.name}
-                onChange={(e) =>
-                  setDiscountRows((prev) =>
-                    prev.map((r, i) => (i === index ? { ...r, name: e.target.value } : r))
-                  )
-                }
-                disabled={isSaving}
-                className="flex-1 min-w-0 bg-white border border-slate-200 rounded-lg px-3 py-2.5 text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500 transition-all"
-              />
-              <input
-                type="number"
-                inputMode="decimal"
-                min={0}
-                step="any"
-                placeholder="₹"
-                value={row.amount}
-                onChange={(e) =>
-                  setDiscountRows((prev) =>
-                    prev.map((r, i) => (i === index ? { ...r, amount: e.target.value } : r))
-                  )
-                }
-                disabled={isSaving}
-                className="w-28 bg-white border border-slate-200 rounded-lg px-3 py-2.5 text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500 transition-all tabular-nums shrink-0"
-              />
-              <button
-                type="button"
-                onClick={() => setDiscountRows((prev) => prev.filter((_, i) => i !== index))}
-                disabled={isSaving}
-                className="p-2.5 text-slate-400 hover:text-red-600 bg-white border border-slate-200 rounded-lg cursor-pointer shrink-0"
-                aria-label="Remove this discount"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </div>
-          ))}
-          <button
-            type="button"
-            onClick={() => setDiscountRows((prev) => [...prev, { name: '', amount: '' }])}
-            disabled={isSaving}
-            className="w-full flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-semibold text-slate-600 bg-white hover:bg-slate-50 border border-dashed border-slate-300 rounded-xl cursor-pointer transition-colors"
-          >
-            <Plus className="h-4 w-4" />
-            Add a discount
-          </button>
-        </div>
-
         <FormInput
-          label="GST / tax amount ₹ (if any)"
-          type="number"
-          inputMode="decimal"
-          min={0}
-          step="any"
-          placeholder="CGST + SGST total"
-          value={gstAmount}
-          onChange={(e) => setGstAmount(e.target.value)}
+          label="Item (what was in the parcel)"
+          type="text"
+          placeholder="e.g. Cotton bales"
+          value={item}
+          onChange={(e) => setItem(e.target.value)}
           disabled={isSaving}
           accent="amber"
         />
 
-        {/* Totals */}
-        <div className="bg-[#0F172A] text-white rounded-xl p-4 space-y-1.5">
-          <div className="flex items-center justify-between text-sm text-slate-300">
-            <span>Total of items</span>
-            <span className="tabular-nums">{formatMoney(gross)}</span>
-          </div>
-          {discountRows
-            .filter((row) => parseNum(row.amount) > 0)
-            .map((row, index) => (
-              <div key={index} className="flex items-center justify-between text-sm text-emerald-400">
-                <span>{row.name.trim() || 'Discount'}</span>
-                <span className="tabular-nums">− {formatMoney(parseNum(row.amount))}</span>
-              </div>
-            ))}
-          {gst > 0 && (
-            <div className="flex items-center justify-between text-sm text-slate-300">
-              <span>GST / tax</span>
-              <span className="tabular-nums">+ {formatMoney(gst)}</span>
-            </div>
-          )}
-          <div className="flex items-center justify-between pt-1.5 border-t border-white/10 text-base font-bold">
-            <span>Final amount to pay</span>
-            <span className="tabular-nums text-amber-400">{formatMoney(net)}</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <FormInput
+            label="Weight"
+            type="text"
+            placeholder="e.g. 250 kg"
+            value={weight}
+            onChange={(e) => setWeight(e.target.value)}
+            disabled={isSaving}
+            accent="amber"
+          />
+          <FormInput
+            label="Bill amount ₹"
+            type="number"
+            inputMode="decimal"
+            required
+            min={0}
+            step="any"
+            placeholder="Freight to pay"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            disabled={isSaving}
+            accent="amber"
+          />
+        </div>
+
+        {/* Total */}
+        <div className="bg-[#0F172A] text-white rounded-xl p-4">
+          <div className="flex items-center justify-between text-base font-bold">
+            <span>Amount to pay</span>
+            <span className="tabular-nums text-amber-400">{formatMoney(parseNum(amount))}</span>
           </div>
         </div>
 
@@ -1599,15 +1264,21 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
 
 // --- Add payment modal ---
 
-interface AddPaymentModalProps {
-  bill: PurchaseBill;
+interface AddTransportPaymentModalProps {
+  bill: TransportBill;
   balance: number;
   onClose: () => void;
-  onSaved: (payment: BillPayment, firmName: string) => void;
-  showToast: BillsSectionProps['showToast'];
+  onSaved: (payment: BillPayment, transportName: string) => void;
+  showToast: TransportSectionProps['showToast'];
 }
 
-function AddPaymentModal({ bill, balance, onClose, onSaved, showToast }: AddPaymentModalProps) {
+function AddTransportPaymentModal({
+  bill,
+  balance,
+  onClose,
+  onSaved,
+  showToast,
+}: AddTransportPaymentModalProps) {
   const [amount, setAmount] = useState('');
   const [paidOn, setPaidOn] = useState(todayISO());
   const [method, setMethod] = useState<PaymentMethod>('Cash');
@@ -1666,14 +1337,14 @@ function AddPaymentModal({ bill, balance, onClose, onSaved, showToast }: AddPaym
     setIsSaving(true);
     let photoUrl: string | null = null;
     if (photoFile) {
-      photoUrl = await uploadBillPhoto(photoFile, 'payments');
+      photoUrl = await uploadBillPhoto(photoFile, 'transport-payments');
       if (!photoUrl) {
         showToast('The screenshot could not be uploaded, but the payment will still be saved.', 'info');
       }
     }
 
     const payment: BillPayment = {
-      id: `pay-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      id: `tpay-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       billId: bill.id,
       paidOn,
       amount: amountNum,
@@ -1685,8 +1356,8 @@ function AddPaymentModal({ bill, balance, onClose, onSaved, showToast }: AddPaym
     };
 
     try {
-      await insertBillPayment(payment);
-      onSaved(payment, bill.firmName);
+      await insertTransportPayment(payment);
+      onSaved(payment, bill.transportName);
     } catch (err) {
       console.error('Saving the payment failed:', err);
       setIsSaving(false);
@@ -1699,7 +1370,7 @@ function AddPaymentModal({ bill, balance, onClose, onSaved, showToast }: AddPaym
       open
       onClose={onClose}
       title="Add payment"
-      description={`To ${bill.firmName} · Bill ${bill.billNo || '—'} · Left to pay: ${formatMoney(balance)}`}
+      description={`To ${bill.transportName} · Bilty ${bill.biltyNo || '—'} · Left to pay: ${formatMoney(balance)}`}
       icon={<Banknote className="h-5 w-5" />}
       accent="emerald"
     >
@@ -1717,7 +1388,7 @@ function AddPaymentModal({ bill, balance, onClose, onSaved, showToast }: AddPaym
           onAutoFill={handleAutoFill}
           isExtracting={isExtracting}
           autoFillLabel="Fill details from screenshot"
-          inputId="payment-photo-input"
+          inputId="transport-payment-photo-input"
         />
 
         <div>

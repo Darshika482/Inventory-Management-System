@@ -4,6 +4,7 @@ import {
   Floor,
   PurchaseBill,
   StockAddition,
+  TransportBill,
   WithdrawalLog,
   User,
 } from '../types';
@@ -13,6 +14,7 @@ import {
   DbCategory,
   DbPurchaseBill,
   DbStockAddition,
+  DbTransportBill,
   DbWithdrawalLog,
   supabase,
 } from './supabase';
@@ -471,12 +473,110 @@ export async function deleteBillPaymentFromDb(paymentId: string): Promise<void> 
   );
 }
 
+// Transport bills (bilty / freight) & payments
+
+function mapTransportBill(row: DbTransportBill): TransportBill {
+  return {
+    id: row.id,
+    receivedDate: row.received_date ?? '',
+    transportName: row.transport_name,
+    item: row.item ?? '',
+    weight: row.weight ?? '',
+    biltyNo: row.bilty_no ?? '',
+    partyName: row.party_name ?? '',
+    amount: Number(row.amount) || 0,
+    photoUrl: row.photo_url,
+    createdAt: row.created_at,
+  };
+}
+
+function toTransportBillRow(bill: TransportBill): DbTransportBill {
+  return {
+    id: bill.id,
+    received_date: bill.receivedDate || null,
+    transport_name: bill.transportName,
+    item: bill.item,
+    weight: bill.weight,
+    bilty_no: bill.biltyNo,
+    party_name: bill.partyName,
+    amount: bill.amount,
+    photo_url: bill.photoUrl,
+    created_at: bill.createdAt,
+  };
+}
+
+export async function fetchTransportBills(): Promise<TransportBill[]> {
+  const data = await runDb<DbTransportBill[]>((signal) =>
+    assertSupabase()
+      .from('transport_bills')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .abortSignal(signal)
+  );
+  return (data ?? []).map(mapTransportBill);
+}
+
+export async function fetchTransportPayments(): Promise<BillPayment[]> {
+  const data = await runDb<DbBillPayment[]>((signal) =>
+    assertSupabase()
+      .from('transport_payments')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .abortSignal(signal)
+  );
+  return (data ?? []).map(mapBillPayment);
+}
+
+export async function insertTransportBill(bill: TransportBill): Promise<void> {
+  await runDb(
+    (signal) =>
+      assertSupabase().from('transport_bills').insert(toTransportBillRow(bill)).abortSignal(signal),
+    { duplicateMeansSaved: true }
+  );
+}
+
+export async function updateTransportBillInDb(bill: TransportBill): Promise<void> {
+  await runDb((signal) =>
+    assertSupabase()
+      .from('transport_bills')
+      .update(toTransportBillRow(bill))
+      .eq('id', bill.id)
+      .abortSignal(signal)
+  );
+}
+
+export async function deleteTransportBillFromDb(billId: string): Promise<void> {
+  await runDb((signal) =>
+    assertSupabase().from('transport_bills').delete().eq('id', billId).abortSignal(signal)
+  );
+}
+
+export async function insertTransportPayment(payment: BillPayment): Promise<void> {
+  await runDb(
+    (signal) =>
+      assertSupabase()
+        .from('transport_payments')
+        .insert(toBillPaymentRow(payment))
+        .abortSignal(signal),
+    { duplicateMeansSaved: true }
+  );
+}
+
+export async function deleteTransportPaymentFromDb(paymentId: string): Promise<void> {
+  await runDb((signal) =>
+    assertSupabase().from('transport_payments').delete().eq('id', paymentId).abortSignal(signal)
+  );
+}
+
 /**
  * Uploads a bill photo / payment screenshot to the `bill-photos` bucket.
  * Returns the public URL, or null if the upload failed (the record can still
  * be saved without a photo).
  */
-export async function uploadBillPhoto(file: File, folder: 'bills' | 'payments'): Promise<string | null> {
+export async function uploadBillPhoto(
+  file: File,
+  folder: 'bills' | 'payments' | 'transport' | 'transport-payments'
+): Promise<string | null> {
   try {
     const ext = file.name.split('.').pop()?.toLowerCase() || 'jpg';
     const path = `${folder}/${Date.now()}-${Math.floor(Math.random() * 100000)}.${ext}`;

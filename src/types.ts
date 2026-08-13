@@ -86,3 +86,18 @@ export interface BillPayment {
   photoUrl: string | null;
   createdAt: string;
 }
+
+// --- Transport bills (bilty / freight charges) ---
+
+export interface TransportBill {
+  id: string;
+  receivedDate: string; // YYYY-MM-DD — the day the parcel arrived; may be empty
+  transportName: string;
+  item: string; // what was in the parcel, e.g. "Cotton bales"
+  weight: string; // as printed on the bilty, e.g. "250 kg"
+  biltyNo: string;
+  partyName: string; // who sent the goods
+  amount: number; // freight amount to pay
+  photoUrl: string | null;
+  createdAt: string;
+}

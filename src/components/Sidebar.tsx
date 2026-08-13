@@ -1,5 +1,5 @@
 import React from 'react';
-import { LogOut, Shield, User as UserIcon, Package, FileClock, CalendarPlus, ReceiptText, Warehouse, X } from 'lucide-react';
+import { LogOut, Shield, User as UserIcon, Package, FileClock, CalendarPlus, ReceiptText, Truck, Warehouse, X } from 'lucide-react';
 import { User } from '../types';
 
 interface SidebarProps {
@@ -135,6 +135,17 @@ export function Sidebar({
             >
               <ReceiptText className="h-5 w-5 shrink-0" />
               Party bills
+            </button>
+            <button
+              onClick={() => handleNavClick('transport')}
+              className={`w-full flex items-center gap-3 px-6 py-4 text-base transition-colors cursor-pointer text-left ${
+                activeSection === 'transport'
+                  ? 'bg-white/5 text-white border-l-4 border-amber-500 font-semibold'
+                  : 'text-slate-300 hover:text-white hover:bg-white/5 border-l-4 border-transparent'
+              }`}
+            >
+              <Truck className="h-5 w-5 shrink-0" />
+              Transport bills
             </button>
           </>
         ) : (

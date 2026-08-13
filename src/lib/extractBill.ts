@@ -220,6 +220,76 @@ export async function extractBillFromImage(file: File): Promise<ExtractedBill> {
   };
 }
 
+export interface ExtractedTransportBill {
+  receivedDate: string;
+  transportName: string;
+  item: string;
+  weight: string;
+  biltyNo: string;
+  partyName: string;
+  amount: number;
+}
+
+export async function extractTransportBillFromImage(file: File): Promise<ExtractedTransportBill> {
+  const schema = {
+    type: Type.OBJECT,
+    properties: {
+      receivedDate: {
+        type: Type.STRING,
+        description: 'Date printed on the bilty / receipt in YYYY-MM-DD format, empty if not visible',
+      },
+      transportName: {
+        type: Type.STRING,
+        description: 'Name of the transport company that carried the goods (usually the big name in the header)',
+      },
+      item: {
+        type: Type.STRING,
+        description: 'Description of the goods / contents of the parcel, e.g. "Cotton bales", "Cloth bundles". Empty if not visible.',
+      },
+      weight: {
+        type: Type.STRING,
+        description: 'Weight of the parcel as printed, including the unit, e.g. "250 kg". Empty if not visible.',
+      },
+      biltyNo: {
+        type: Type.STRING,
+        description: 'Bilty number / LR number / GR number / consignment note number, empty if not visible',
+      },
+      partyName: {
+        type: Type.STRING,
+        description: 'Consignor / sender / party name — the firm that sent the goods. Empty if not visible.',
+      },
+      amount: {
+        type: Type.NUMBER,
+        description: 'Total freight / charges to pay in rupees. 0 if not visible.',
+      },
+    },
+    required: ['receivedDate', 'transportName', 'item', 'weight', 'biltyNo', 'partyName', 'amount'],
+  };
+
+  const raw = (await askGemini(
+    file,
+    'This is a photo of a transport bilty / lorry receipt (LR) / goods consignment note from an Indian transport company. ' +
+      'Read it carefully and extract the details. Dates are usually DD-MM-YYYY or DD/MM/YYYY — convert to YYYY-MM-DD. ' +
+      'The transport name is the carrier company (usually the large name in the header). ' +
+      'The party name is the consignor / sender — the firm that booked or sent the goods. ' +
+      'The bilty number may be printed as Bilty No, LR No, GR No or C/N No. ' +
+      'The weight should include its unit as printed (e.g. "250 kg"). ' +
+      'The amount is the total freight / charges to pay in rupees (grand total including hamali, statistical or other charges if shown). ' +
+      'If a field is not visible or unclear, return an empty string (or 0 for the amount). Do not guess.',
+    schema
+  )) as Partial<ExtractedTransportBill>;
+
+  return {
+    receivedDate: raw.receivedDate ?? '',
+    transportName: raw.transportName ?? '',
+    item: raw.item ?? '',
+    weight: raw.weight ?? '',
+    biltyNo: raw.biltyNo ?? '',
+    partyName: raw.partyName ?? '',
+    amount: Number(raw.amount) || 0,
+  };
+}
+
 const PAYMENT_METHODS: PaymentMethod[] = ['Cash', 'Cheque', 'Bank transfer', 'UPI'];
 
 export async function extractPaymentFromImage(file: File): Promise<ExtractedPayment> {

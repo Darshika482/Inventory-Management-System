@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { X } from 'lucide-react';
+import { useBackDismiss } from '../../lib/backGuard';
 
 /** Phones get a bottom sheet, everything else gets an anchored popover. */
 export function useIsCompact() {
@@ -44,6 +45,9 @@ export function CalendarSurface({
   const isCompact = useIsCompact();
   const [layout, setLayout] = useState<PopoverLayout | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+
+  // Device / browser Back closes the calendar instead of leaving the app.
+  useBackDismiss(open, onClose);
 
   const updateLayout = useCallback(() => {
     const trigger = triggerRef.current;

@@ -15,6 +15,7 @@ import { Login } from './components/Login';
 import { Sidebar } from './components/Sidebar';
 import { AdminDashboard } from './components/AdminDashboard';
 import { BillsSection } from './components/BillsSection';
+import { TransportSection } from './components/TransportSection';
 import { WorkerDashboard } from './components/WorkerDashboard';
 import {
   authenticateUser,
@@ -31,6 +32,7 @@ import {
   updateWithdrawalLogStatus,
 } from './lib/database';
 import { createCategoryId } from './lib/floors';
+import { useBackDismiss } from './lib/backGuard';
 
 interface Toast {
   id: string;
@@ -58,6 +60,16 @@ export default function App() {
 
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  const homeSection = currentUser?.role === 'Admin' ? 'overview' : 'withdraw';
+
+  // Device / browser Back closes the mobile menu instead of leaving the app.
+  useBackDismiss(mobileNavOpen, () => setMobileNavOpen(false));
+
+  // Back from a sub-page returns to the home page rather than closing the app.
+  useBackDismiss(!!currentUser && activeSection !== homeSection, () =>
+    setActiveSection(homeSection)
+  );
 
   const loadData = useCallback(async () => {
     setIsLoading(true);
@@ -487,6 +499,8 @@ export default function App() {
 
         {currentUser.role === 'Admin' && activeSection === 'bills' ? (
           <BillsSection showToast={showToast} />
+        ) : currentUser.role === 'Admin' && activeSection === 'transport' ? (
+          <TransportSection showToast={showToast} />
         ) : currentUser.role === 'Admin' ? (
           <AdminDashboard
             categories={categories}

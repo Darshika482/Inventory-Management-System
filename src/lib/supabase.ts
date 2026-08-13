@@ -66,6 +66,19 @@ export type DbPurchaseBill = {
   created_at: string;
 };
 
+export type DbTransportBill = {
+  id: string;
+  received_date: string | null;
+  transport_name: string;
+  item: string;
+  weight: string;
+  bilty_no: string;
+  party_name: string;
+  amount: number;
+  photo_url: string | null;
+  created_at: string;
+};
+
 export type DbBillPayment = {
   id: string;
   bill_id: string;

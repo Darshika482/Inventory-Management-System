@@ -11,6 +11,7 @@ import {
   ZoomOut,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useBackDismiss } from '../lib/backGuard';
 
 interface ImageViewerProps {
   open: boolean;
@@ -104,6 +105,9 @@ export function ImageViewer({
   const panRef = useRef<{ x: number; y: number; offsetX: number; offsetY: number } | null>(null);
   const gestureRef = useRef<{ x: number; y: number; moved: boolean }>({ x: 0, y: 0, moved: false });
   const lastTapRef = useRef(0);
+
+  // Device / browser Back closes the photo instead of leaving the app.
+  useBackDismiss(open, onClose);
 
   const resetTransform = useCallback(() => {
     setScale(1);
