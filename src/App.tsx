@@ -15,6 +15,7 @@ import { Login } from './components/Login';
 import { Sidebar } from './components/Sidebar';
 import { AdminDashboard } from './components/AdminDashboard';
 import { BillsSection } from './components/BillsSection';
+import { PaymentsSection } from './components/PaymentsSection';
 import { AnalysisSection } from './components/AnalysisSection';
 import { TransportSection } from './components/TransportSection';
 import { WorkersSection } from './components/WorkersSection';
@@ -523,6 +524,8 @@ export default function App() {
 
         {currentUser.role === 'Admin' && activeSection === 'bills' ? (
           <BillsSection showToast={showToast} />
+        ) : currentUser.role === 'Admin' && activeSection === 'payments' ? (
+          <PaymentsSection showToast={showToast} />
         ) : currentUser.role === 'Admin' && activeSection === 'analysis' ? (
           <AnalysisSection showToast={showToast} />
         ) : currentUser.role === 'Admin' && activeSection === 'transport' ? (
