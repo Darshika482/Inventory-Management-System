@@ -352,6 +352,7 @@ function mapPurchaseBill(row: DbPurchaseBill): PurchaseBill {
     items: Array.isArray(row.items)
       ? row.items.map((item) => ({
           name: item.name ?? '',
+          hsn: item.hsn ?? '',
           quantity: Number(item.quantity) || 0,
           unit: item.unit ?? '',
           rate: Number(item.rate) || 0,
@@ -406,12 +407,13 @@ function mapBillPayment(row: DbBillPayment): BillPayment {
     reference: row.reference ?? '',
     bankName: row.bank_name ?? '',
     photoUrl: row.photo_url,
+    groupId: row.group_id ?? null,
     createdAt: row.created_at,
   };
 }
 
 function toBillPaymentRow(payment: BillPayment): DbBillPayment {
-  return {
+  const row: DbBillPayment = {
     id: payment.id,
     bill_id: payment.billId,
     paid_on: payment.paidOn || null,
@@ -422,6 +424,10 @@ function toBillPaymentRow(payment: BillPayment): DbBillPayment {
     photo_url: payment.photoUrl,
     created_at: payment.createdAt,
   };
+  // Left out for ordinary payments so they keep saving on databases (and the
+  // transport_payments table) that do not have the column.
+  if (payment.groupId) row.group_id = payment.groupId;
+  return row;
 }
 
 export async function fetchPurchaseBills(): Promise<PurchaseBill[]> {
@@ -524,9 +530,31 @@ export async function insertBillPayment(payment: BillPayment): Promise<void> {
   );
 }
 
+/**
+ * Saves every share of a combined payment in one request, so either all the
+ * bills get marked or none do — never half a payment.
+ */
+export async function insertBillPayments(payments: BillPayment[]): Promise<void> {
+  await runDb(
+    (signal) =>
+      assertSupabase()
+        .from('bill_payments')
+        .insert(payments.map(toBillPaymentRow))
+        .abortSignal(signal),
+    { duplicateMeansSaved: true }
+  );
+}
+
 export async function deleteBillPaymentFromDb(paymentId: string): Promise<void> {
   await runDb((signal) =>
     assertSupabase().from('bill_payments').delete().eq('id', paymentId).abortSignal(signal)
+  );
+}
+
+/** Removes every share of a combined payment at once. */
+export async function deleteBillPaymentGroupFromDb(groupId: string): Promise<void> {
+  await runDb((signal) =>
+    assertSupabase().from('bill_payments').delete().eq('group_id', groupId).abortSignal(signal)
   );
 }
 

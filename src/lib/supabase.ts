@@ -56,7 +56,7 @@ export type DbPurchaseBill = {
   gst_number: string;
   lr_no: string;
   transport_name: string;
-  items: { name: string; quantity: number; unit?: string; rate: number; amount: number }[];
+  items: { name: string; hsn?: string; quantity: number; unit?: string; rate: number; amount: number }[];
   gross_amount: number;
   discounts: { name: string; amount: number }[];
   discount: number;
@@ -149,5 +149,7 @@ export type DbBillPayment = {
   reference: string;
   bank_name: string;
   photo_url: string | null;
+  // Only on bill_payments, and only once add-combined-payments.sql has been run
+  group_id?: string | null;
   created_at: string;
 };

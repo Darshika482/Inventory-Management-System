@@ -46,6 +46,7 @@ export type PaymentMethod = 'Cash' | 'Cheque' | 'Bank transfer' | 'UPI';
 
 export interface BillLineItem {
   name: string;
+  hsn: string; // HSN (goods) / SAC (services) code printed on the bill; may be empty
   quantity: number;
   unit: string; // e.g. Piece, Meter, Kg
   rate: number;
@@ -84,6 +85,12 @@ export interface BillPayment {
   reference: string; // cheque no. / UTR / UPI transaction id
   bankName: string;
   photoUrl: string | null;
+  /**
+   * Set when one payment covered several bills of the same party. Every bill
+   * gets its own share, and all shares carry the same id, amount details and
+   * proof photo so the whole payment can be shown (and removed) together.
+   */
+  groupId: string | null;
   createdAt: string;
 }
 

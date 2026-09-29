@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   FileText,
   Image as ImageIcon,
+  Layers,
   Loader2,
   Maximize2,
   Pencil,
@@ -21,10 +22,12 @@ import { motion, AnimatePresence } from 'motion/react';
 import { BillLineItem, BillPayment, PaymentMethod, PurchaseBill } from '../types';
 import {
   deleteBillPaymentFromDb,
+  deleteBillPaymentGroupFromDb,
   deletePurchaseBillFromDb,
   fetchBillPayments,
   fetchPurchaseBills,
   insertBillPayment,
+  insertBillPayments,
   insertPurchaseBill,
   updatePurchaseBillInDb,
   uploadBillPhoto,
@@ -42,6 +45,7 @@ import { FormError, FormInput, ModalActions } from './FormInput';
 import { DateField } from './DateField';
 import { ImageViewer } from './ImageViewer';
 import { PhotoPicker } from './PhotoPicker';
+import { PremiumSelect } from './PremiumSelect';
 
 interface BillsSectionProps {
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
@@ -49,6 +53,7 @@ interface BillsSectionProps {
 
 interface ItemRow {
   name: string;
+  hsn: string;
   quantity: string;
   unit: string;
   rate: string;
@@ -67,7 +72,7 @@ interface PhotoToView {
   downloadName: string;
 }
 
-const EMPTY_ROW: ItemRow = { name: '', quantity: '', unit: '', rate: '', amount: '' };
+const EMPTY_ROW: ItemRow = { name: '', hsn: '', quantity: '', unit: '', rate: '', amount: '' };
 
 const UNIT_SUGGESTIONS = ['Piece', 'Meter', 'Kg', 'Box', 'Dozen', 'Roll', 'Set', 'Bundle'];
 
@@ -92,6 +97,21 @@ function formatDate(isoDate: string): string {
   const date = new Date(isoDate + 'T00:00:00');
   if (isNaN(date.getTime())) return isoDate;
   return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+/** Money in whole paise, so totals of many bills never drift by a fraction. */
+function toPaise(amount: number): number {
+  return Math.round(amount * 100);
+}
+
+/** Same party typed with different capitals or spacing is still the same party. */
+function normalizeParty(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/** "INV 1042" and "inv1042" are the same bill number. */
+function normalizeBillNo(billNo: string): string {
+  return billNo.toLowerCase().replace(/\s+/g, '');
 }
 
 function todayISO(): string {
@@ -151,6 +171,8 @@ export function BillsSection({ showToast }: BillsSectionProps) {
   const [editingBillId, setEditingBillId] = useState<string | null>(null);
   const [detailBillId, setDetailBillId] = useState<string | null>(null);
   const [paymentBillId, setPaymentBillId] = useState<string | null>(null);
+  // null = closed, '' = open with no party picked yet
+  const [combinedPayFirm, setCombinedPayFirm] = useState<string | null>(null);
   const [deletingBillId, setDeletingBillId] = useState<string | null>(null);
   const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
   const [viewingPhoto, setViewingPhoto] = useState<PhotoToView | null>(null);
@@ -197,12 +219,13 @@ export function BillsSection({ showToast }: BillsSectionProps) {
   const firmSummaries = useMemo(() => {
     const map = new Map<
       string,
-      { name: string; billCount: number; purchased: number; paid: number }
+      { name: string; billCount: number; dueCount: number; purchased: number; paid: number }
     >();
     for (const bill of bills) {
       const key = bill.firmName.trim();
-      const entry = map.get(key) ?? { name: key, billCount: 0, purchased: 0, paid: 0 };
+      const entry = map.get(key) ?? { name: key, billCount: 0, dueCount: 0, purchased: 0, paid: 0 };
       entry.billCount += 1;
+      if (getBalance(bill) > 0) entry.dueCount += 1;
       entry.purchased += bill.netAmount;
       entry.paid += Math.min(getPaid(bill.id), bill.netAmount);
       map.set(key, entry);
@@ -235,6 +258,18 @@ export function BillsSection({ showToast }: BillsSectionProps) {
   const paymentBill = paymentBillId ? bills.find((b) => b.id === paymentBillId) ?? null : null;
   const deletingBill = deletingBillId ? bills.find((b) => b.id === deletingBillId) ?? null : null;
   const editingBill = editingBillId ? bills.find((b) => b.id === editingBillId) ?? null : null;
+  const deletingPayment = deletingPaymentId
+    ? payments.find((p) => p.id === deletingPaymentId) ?? null
+    : null;
+  const deletingGroup = deletingPayment?.groupId
+    ? payments.filter((p) => p.groupId === deletingPayment.groupId)
+    : [];
+  const partiesWithDues = firmSummaries.filter((f) => f.dueCount > 0);
+  const firmFilterHasDues = Boolean(
+    firmFilter && partiesWithDues.some((f) => f.name === firmFilter)
+  );
+
+  const billNoOf = (billId: string) => bills.find((b) => b.id === billId)?.billNo || '—';
 
   const handleBillSaved = (bill: PurchaseBill, wasEdited: boolean) => {
     if (wasEdited) {
@@ -270,13 +305,38 @@ export function BillsSection({ showToast }: BillsSectionProps) {
     }
   };
 
+  const handleCombinedSaved = (saved: BillPayment[], firmName: string) => {
+    const total = saved.reduce((sum, p) => sum + toPaise(p.amount), 0) / 100;
+    setPayments((prev) => [...saved, ...prev]);
+    setCombinedPayFirm(null);
+    showToast(
+      `Payment of ${formatMoney(total)} to "${firmName}" saved against ${saved.length} ${
+        saved.length === 1 ? 'bill' : 'bills'
+      }.`,
+      'success'
+    );
+  };
+
   const handleDeletePayment = async () => {
-    if (!deletingPaymentId) return;
+    if (!deletingPayment) return;
     try {
-      await deleteBillPaymentFromDb(deletingPaymentId);
-      setPayments((prev) => prev.filter((p) => p.id !== deletingPaymentId));
+      const groupId = deletingPayment.groupId;
+      if (groupId) {
+        // A combined payment is one real payment — removing only one bill's
+        // share would leave the others claiming money that was never matched.
+        await deleteBillPaymentGroupFromDb(groupId);
+        setPayments((prev) => prev.filter((p) => p.groupId !== groupId));
+      } else {
+        await deleteBillPaymentFromDb(deletingPayment.id);
+        setPayments((prev) => prev.filter((p) => p.id !== deletingPayment.id));
+      }
       setDeletingPaymentId(null);
-      showToast('Payment entry removed. The amount is added back to the balance.', 'info');
+      showToast(
+        groupId
+          ? "Combined payment removed. Each bill's share is added back to its balance."
+          : 'Payment entry removed. The amount is added back to the balance.',
+        'info'
+      );
     } catch {
       showToast('Could not remove this payment. Please try again.', 'error');
     }
@@ -340,10 +400,22 @@ export function BillsSection({ showToast }: BillsSectionProps) {
               </button>
             ))}
           </div>
+          {partiesWithDues.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setCombinedPayFirm(firmFilterHasDues ? firmFilter : '')}
+              title="Pay several bills of one party with a single payment"
+              className="ml-auto shrink-0 flex items-center gap-1.5 px-3 py-2 sm:px-4 sm:py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold whitespace-nowrap shadow-xs cursor-pointer transition-all"
+            >
+              <Layers className="h-4 w-4" />
+              <span className="sm:hidden">Pay many</span>
+              <span className="hidden sm:inline">Pay bills together</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setIsAddBillOpen(true)}
-            className="ml-auto shrink-0 flex items-center gap-1.5 px-3 py-2 sm:px-4 sm:py-2.5 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg text-sm font-bold whitespace-nowrap shadow-xs cursor-pointer transition-all"
+            className={`${partiesWithDues.length > 0 ? '' : 'ml-auto '}shrink-0 flex items-center gap-1.5 px-3 py-2 sm:px-4 sm:py-2.5 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg text-sm font-bold whitespace-nowrap shadow-xs cursor-pointer transition-all`}
           >
             <Plus className="h-4 w-4" />
             Add bill
@@ -401,6 +473,16 @@ export function BillsSection({ showToast }: BillsSectionProps) {
                 <X className="h-3 w-3" />
               </button>
             </span>
+            {firmFilterHasDues && (
+              <button
+                type="button"
+                onClick={() => setCombinedPayFirm(firmFilter)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-full cursor-pointer whitespace-nowrap transition-colors"
+              >
+                <Layers className="h-3.5 w-3.5" />
+                Pay these bills together
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -414,14 +496,17 @@ export function BillsSection({ showToast }: BillsSectionProps) {
             firmSummaries.map((firm) => {
               const due = Math.max(0, firm.purchased - firm.paid);
               return (
-                <button
+                <div
                   key={firm.name}
+                  className="bg-white border border-slate-200 rounded-xl shadow-xs hover:border-amber-300 transition-colors overflow-hidden"
+                >
+                <button
                   type="button"
                   onClick={() => {
                     setFirmFilter(firm.name);
                     setView('bills');
                   }}
-                  className="w-full text-left bg-white border border-slate-200 rounded-xl p-4 shadow-xs hover:border-amber-300 transition-colors cursor-pointer"
+                  className="w-full text-left p-4 cursor-pointer"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -452,6 +537,19 @@ export function BillsSection({ showToast }: BillsSectionProps) {
                     </div>
                   </div>
                 </button>
+                {firm.dueCount > 1 && (
+                  <div className="px-4 pb-4">
+                    <button
+                      type="button"
+                      onClick={() => setCombinedPayFirm(firm.name)}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold cursor-pointer transition-colors"
+                    >
+                      <Layers className="h-4 w-4" />
+                      Pay {firm.dueCount} bills together
+                    </button>
+                  </div>
+                )}
+                </div>
               );
             })
           )}
@@ -558,6 +656,7 @@ export function BillsSection({ showToast }: BillsSectionProps) {
           setEditingBillId(null);
         }}
         firmNames={firmNames}
+        existingBills={bills}
         onSaved={handleBillSaved}
         showToast={showToast}
       />
@@ -627,7 +726,14 @@ export function BillsSection({ showToast }: BillsSectionProps) {
                 <div className="space-y-2">
                   {payments
                     .filter((p) => p.billId === detailBill.id)
-                    .map((payment) => (
+                    .map((payment) => {
+                      const group = payment.groupId
+                        ? payments.filter((p) => p.groupId === payment.groupId)
+                        : [];
+                      const groupTotal =
+                        group.reduce((sum, p) => sum + toPaise(p.amount), 0) / 100;
+                      const groupBillNos = group.map((p) => billNoOf(p.billId)).join(', ');
+                      return (
                       <div
                         key={payment.id}
                         className="flex items-start justify-between gap-3 bg-slate-50 border border-slate-100 rounded-xl p-3"
@@ -644,14 +750,29 @@ export function BillsSection({ showToast }: BillsSectionProps) {
                             {payment.reference && ` · Ref: ${payment.reference}`}
                             {payment.bankName && ` · ${payment.bankName}`}
                           </p>
+                          {group.length > 1 && (
+                            <p className="mt-1.5 inline-flex items-start gap-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1">
+                              <Layers className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                              <span className="break-words">
+                                Share of one payment of {formatMoney(groupTotal)} for{' '}
+                                {group.length} bills ({groupBillNos})
+                              </span>
+                            </p>
+                          )}
                           {payment.photoUrl && (
                             <button
                               type="button"
                               onClick={() =>
                                 setViewingPhoto({
                                   url: payment.photoUrl as string,
-                                  title: `${formatMoney(payment.amount)} · ${payment.method}`,
-                                  subtitle: `${detailBill.firmName} · ${formatDate(payment.paidOn)}`,
+                                  title:
+                                    group.length > 1
+                                      ? `${formatMoney(groupTotal)} · ${payment.method} · ${group.length} bills`
+                                      : `${formatMoney(payment.amount)} · ${payment.method}`,
+                                  subtitle:
+                                    group.length > 1
+                                      ? `${detailBill.firmName} · Bills ${groupBillNos} · ${formatDate(payment.paidOn)}`
+                                      : `${detailBill.firmName} · ${formatDate(payment.paidOn)}`,
                                   downloadName: `${detailBill.firmName} payment ${formatDate(payment.paidOn)}`,
                                 })
                               }
@@ -672,7 +793,8 @@ export function BillsSection({ showToast }: BillsSectionProps) {
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </div>
-                    ))}
+                      );
+                    })}
                 </div>
               )}
             </div>
@@ -725,6 +847,19 @@ export function BillsSection({ showToast }: BillsSectionProps) {
         />
       )}
 
+      {/* One payment covering several bills of a party */}
+      {combinedPayFirm !== null && (
+        <CombinedPaymentModal
+          initialFirm={combinedPayFirm}
+          parties={partiesWithDues.map((f) => f.name)}
+          bills={bills}
+          getBalance={getBalance}
+          onClose={() => setCombinedPayFirm(null)}
+          onSaved={handleCombinedSaved}
+          showToast={showToast}
+        />
+      )}
+
       {/* Delete bill confirmation */}
       <AppModal
         open={Boolean(deletingBill)}
@@ -750,16 +885,24 @@ export function BillsSection({ showToast }: BillsSectionProps) {
 
       {/* Delete payment confirmation */}
       <AppModal
-        open={Boolean(deletingPaymentId)}
+        open={Boolean(deletingPayment)}
         onClose={() => setDeletingPaymentId(null)}
-        title="Remove this payment entry?"
-        description="The amount will be added back to the bill's balance."
+        title={deletingGroup.length > 1 ? 'Remove this whole payment?' : 'Remove this payment entry?'}
+        description={
+          deletingGroup.length > 1
+            ? `This was one payment of ${formatMoney(
+                deletingGroup.reduce((sum, p) => sum + toPaise(p.amount), 0) / 100
+              )} covering ${deletingGroup.length} bills (${deletingGroup
+                .map((p) => billNoOf(p.billId))
+                .join(', ')}). It will be removed from all of them, and each bill's share added back to its balance.`
+            : "The amount will be added back to the bill's balance."
+        }
         icon={<Trash2 className="h-5 w-5" />}
         accent="red"
       >
         <ModalActions
           onCancel={() => setDeletingPaymentId(null)}
-          submitLabel="Remove payment"
+          submitLabel={deletingGroup.length > 1 ? 'Remove whole payment' : 'Remove payment'}
           cancelLabel="Keep it"
           submitType="button"
           onSubmit={handleDeletePayment}
@@ -832,6 +975,9 @@ function BillItems({ bill }: { bill: PurchaseBill }) {
         {bill.items.map((item, index) => (
           <div key={index} className="border border-slate-200 rounded-xl p-3 bg-white">
             <p className="text-sm font-semibold text-slate-800 break-words">{item.name}</p>
+            {item.hsn && (
+              <p className="text-xs text-slate-500 mt-0.5">HSN/SAC: {item.hsn}</p>
+            )}
             <div className="flex items-end justify-between gap-3 mt-2 pt-2 border-t border-slate-100">
               <p className="text-xs text-slate-500 tabular-nums">
                 {item.quantity ? `${item.quantity}${item.unit ? ` ${item.unit}` : ''}` : '—'}
@@ -850,6 +996,7 @@ function BillItems({ bill }: { bill: PurchaseBill }) {
           <thead>
             <tr className="bg-slate-50 text-xs font-bold text-slate-500 border-b border-slate-200">
               <th className="text-left px-3 py-2">Item</th>
+              <th className="text-left px-3 py-2 whitespace-nowrap">HSN/SAC</th>
               <th className="text-right px-3 py-2">Qty</th>
               <th className="text-right px-3 py-2">Rate</th>
               <th className="text-right px-3 py-2">Amount</th>
@@ -859,6 +1006,9 @@ function BillItems({ bill }: { bill: PurchaseBill }) {
             {bill.items.map((item, index) => (
               <tr key={index}>
                 <td className="px-3 py-2 font-semibold text-slate-800 break-words">{item.name}</td>
+                <td className="px-3 py-2 tabular-nums text-slate-600 whitespace-nowrap">
+                  {item.hsn || '—'}
+                </td>
                 <td className="px-3 py-2 text-right tabular-nums text-slate-600 whitespace-nowrap">
                   {item.quantity ? `${item.quantity}${item.unit ? ` ${item.unit}` : ''}` : '—'}
                 </td>
@@ -979,11 +1129,21 @@ interface BillFormModalProps {
   bill: PurchaseBill | null;
   onClose: () => void;
   firmNames: string[];
+  /** Every saved bill, to stop the same bill being entered twice. */
+  existingBills: PurchaseBill[];
   onSaved: (bill: PurchaseBill, wasEdited: boolean) => void;
   showToast: BillsSectionProps['showToast'];
 }
 
-function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: BillFormModalProps) {
+function BillFormModal({
+  open,
+  bill,
+  onClose,
+  firmNames,
+  existingBills,
+  onSaved,
+  showToast,
+}: BillFormModalProps) {
   const isEditing = Boolean(bill);
   const [firmName, setFirmName] = useState('');
   const [billNo, setBillNo] = useState('');
@@ -1005,6 +1165,28 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
   const totalDiscount = discountRows.reduce((sum, row) => sum + parseNum(row.amount), 0);
   const gst = parseNum(gstAmount);
   const net = Math.max(0, gross - totalDiscount + gst);
+
+  // Bill numbers only have to be unique per party — two suppliers can both
+  // print "Bill 1042".
+  const duplicateOf = useMemo(() => {
+    const party = normalizeParty(firmName);
+    const number = normalizeBillNo(billNo);
+    if (!party || !number) return null;
+    return (
+      existingBills.find(
+        (b) =>
+          b.id !== bill?.id &&
+          normalizeParty(b.firmName) === party &&
+          normalizeBillNo(b.billNo) === number
+      ) ?? null
+    );
+  }, [existingBills, firmName, billNo, bill?.id]);
+
+  const duplicateMessage = duplicateOf
+    ? `Bill ${duplicateOf.billNo} from "${duplicateOf.firmName}" is already saved (${formatDate(
+        duplicateOf.billDate
+      )}, ${formatMoney(duplicateOf.netAmount)}). The same bill cannot be entered twice.`
+    : '';
 
   const reset = () => {
     setFirmName('');
@@ -1034,6 +1216,7 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
       source.items.length > 0
         ? source.items.map((item) => ({
             name: item.name,
+            hsn: item.hsn,
             quantity: item.quantity ? String(item.quantity) : '',
             unit: item.unit,
             rate: item.rate ? String(item.rate) : '',
@@ -1101,6 +1284,7 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
         setRows(
           extracted.items.map((item) => ({
             name: item.name,
+            hsn: item.hsn,
             quantity: item.quantity ? String(item.quantity) : '',
             unit: item.unit,
             rate: item.rate ? String(item.rate) : '',
@@ -1164,10 +1348,15 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
       setProblem(fieldProblem('Please enter the bill number.'));
       return;
     }
+    if (duplicateOf) {
+      setProblem(fieldProblem(duplicateMessage));
+      return;
+    }
     const items: BillLineItem[] = rows
       .filter((row) => row.name.trim() || parseNum(row.amount) > 0)
       .map((row) => ({
         name: row.name.trim(),
+        hsn: row.hsn.trim(),
         quantity: parseNum(row.quantity),
         unit: row.unit.trim(),
         rate: parseNum(row.rate),
@@ -1227,6 +1416,16 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
     } catch (err) {
       console.error('Saving the bill failed:', err);
       setIsSaving(false);
+      // The database's own duplicate guard caught one this device did not know
+      // about yet (e.g. saved from another phone a moment ago).
+      if ((err as { code?: string })?.code === '23505') {
+        setProblem(
+          fieldProblem(
+            `Bill ${saved.billNo} from "${saved.firmName}" is already saved. The same bill cannot be entered twice — reload the page to see it.`
+          )
+        );
+        return;
+      }
       setProblem(
         saveProblem(err, bill ? 'Your changes could not be saved' : 'The bill could not be saved')
       );
@@ -1319,7 +1518,10 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
             list="firm-name-suggestions"
             placeholder="e.g. Sharma Textiles"
             value={firmName}
-            onChange={(e) => setFirmName(e.target.value)}
+            onChange={(e) => {
+              setFirmName(e.target.value);
+              if (problem?.near === 'fields') setProblem(null);
+            }}
             disabled={isSaving}
             className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3.5 text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:bg-white focus:ring-4 focus:border-amber-500 focus:ring-amber-500/15 transition-all"
           />
@@ -1337,9 +1539,13 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
             required
             placeholder="e.g. 1042"
             value={billNo}
-            onChange={(e) => setBillNo(e.target.value)}
+            onChange={(e) => {
+              setBillNo(e.target.value);
+              if (problem?.near === 'fields') setProblem(null);
+            }}
             disabled={isSaving}
             accent="amber"
+            aria-invalid={Boolean(duplicateOf)}
           />
           <DateField
             label="Bill date"
@@ -1349,6 +1555,15 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
             accent="amber"
           />
         </div>
+
+        {duplicateOf && (
+          <p
+            role="alert"
+            className="-mt-2 text-sm font-semibold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3.5 py-2.5 leading-relaxed"
+          >
+            {duplicateMessage}
+          </p>
+        )}
 
         <FormInput
           label="GST number of the party (optional)"
@@ -1407,6 +1622,21 @@ function BillFormModal({ open, bill, onClose, firmNames, onSaved, showToast }: B
                     <Trash2 className="h-4 w-4" />
                   </button>
                 )}
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 mb-1">
+                  HSN / SAC code
+                </label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="e.g. 5208"
+                  maxLength={10}
+                  value={row.hsn}
+                  onChange={(e) => updateRow(index, { hsn: e.target.value })}
+                  disabled={isSaving}
+                  className="w-full bg-white border border-slate-200 rounded-lg px-3 py-2.5 text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500 transition-all tabular-nums"
+                />
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -1681,6 +1911,7 @@ function AddPaymentModal({ bill, balance, onClose, onSaved, showToast }: AddPaym
       reference: reference.trim(),
       bankName: bankName.trim(),
       photoUrl,
+      groupId: null,
       createdAt: new Date().toISOString(),
     };
 
@@ -1809,6 +2040,499 @@ function AddPaymentModal({ bill, balance, onClose, onSaved, showToast }: AddPaym
         <ModalActions
           onCancel={onClose}
           submitLabel="Save payment"
+          submitAccent="emerald"
+          isSubmitting={isSaving}
+        />
+      </form>
+    </AppModal>
+  );
+}
+
+// --- One payment covering several bills ---
+
+interface CombinedPaymentModalProps {
+  /** Party to start with; '' lets the person pick one. */
+  initialFirm: string;
+  /** Parties that still have something left to pay. */
+  parties: string[];
+  bills: PurchaseBill[];
+  getBalance: (bill: PurchaseBill) => number;
+  onClose: () => void;
+  onSaved: (payments: BillPayment[], firmName: string) => void;
+  showToast: BillsSectionProps['showToast'];
+}
+
+interface Share {
+  bill: PurchaseBill;
+  balance: number; // paise
+  share: number; // paise
+}
+
+/**
+ * Paying five bills with one transfer used to mean adding five payments by
+ * hand, adding the balances up on a calculator, and attaching the same
+ * screenshot five times. One wrong sum there sent ₹50,000 too much. Here the
+ * app adds the ticked bills up itself, refuses an amount larger than that
+ * total, and saves every bill's share with the one proof photo in a single go.
+ */
+function CombinedPaymentModal({
+  initialFirm,
+  parties,
+  bills,
+  getBalance,
+  onClose,
+  onSaved,
+  showToast,
+}: CombinedPaymentModalProps) {
+  const [firm, setFirm] = useState(initialFirm);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [amount, setAmount] = useState('');
+  const [amountTouched, setAmountTouched] = useState(false);
+  const [paidOn, setPaidOn] = useState(todayISO());
+  const [method, setMethod] = useState<PaymentMethod>('Bank transfer');
+  const [reference, setReference] = useState('');
+  const [bankName, setBankName] = useState('');
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [problem, setProblem] = useState<FormProblem | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const problemRef = useProblemScroll(problem);
+
+  // Oldest bill first: when the money does not cover everything, the oldest
+  // bills are the ones that get cleared.
+  const dueBills = useMemo(
+    () =>
+      bills
+        .filter((b) => b.firmName.trim() === firm && getBalance(b) > 0)
+        .sort((a, b) => {
+          const byDate = (a.billDate || '9999').localeCompare(b.billDate || '9999');
+          return byDate !== 0 ? byDate : a.createdAt.localeCompare(b.createdAt);
+        }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bills, firm]
+  );
+
+  const selectedBills = dueBills.filter((b) => selected.has(b.id));
+  const selectedTotal = selectedBills.reduce((sum, b) => sum + toPaise(getBalance(b)), 0);
+  const amountPaise = toPaise(parseNum(amount));
+
+  const shares: Share[] = [];
+  let remaining = amountPaise;
+  for (const bill of selectedBills) {
+    const balance = toPaise(getBalance(bill));
+    const share = Math.min(balance, Math.max(0, remaining));
+    remaining -= share;
+    shares.push({ bill, balance, share });
+  }
+  const overBy = amountPaise - selectedTotal;
+  const uncovered = shares.filter((s) => s.share === 0);
+
+  // Keep the amount in step with the ticked bills until it is typed by hand.
+  useEffect(() => {
+    if (!amountTouched) setAmount(selectedTotal > 0 ? String(selectedTotal / 100) : '');
+  }, [selectedTotal, amountTouched]);
+
+  const changeFirm = (next: string) => {
+    setFirm(next);
+    setSelected(new Set());
+    setAmountTouched(false);
+    setProblem(null);
+  };
+
+  const toggle = (billId: string) => {
+    setProblem(null);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(billId)) next.delete(billId);
+      else next.add(billId);
+      return next;
+    });
+  };
+
+  const allTicked = dueBills.length > 0 && selectedBills.length === dueBills.length;
+
+  const handleAutoFill = async () => {
+    if (!photoFile) return;
+    unlockSound();
+    setIsExtracting(true);
+    setProblem(null);
+    try {
+      const extracted = await extractPaymentFromImage(photoFile);
+      if (extracted.amount > 0) {
+        setAmount(String(extracted.amount));
+        setAmountTouched(true);
+      }
+      if (extracted.paidOn) setPaidOn(extracted.paidOn);
+      if (extracted.method) setMethod(extracted.method);
+      if (extracted.reference) setReference(extracted.reference);
+      if (extracted.bankName) setBankName(extracted.bankName);
+      playSuccessChime();
+      showToast(
+        'Details filled from the screenshot. Check that the amount matches the ticked bills before saving.',
+        'info'
+      );
+    } catch (err) {
+      showToast(
+        err instanceof PhotoReadError
+          ? err.message
+          : 'Could not read the screenshot. Please fill the details by hand.',
+        'error'
+      );
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setProblem(null);
+
+    if (!firm) {
+      setProblem(fieldProblem('Please pick the party you paid.'));
+      return;
+    }
+    if (selectedBills.length === 0) {
+      setProblem(fieldProblem('Tick the bills this payment is for.'));
+      return;
+    }
+    if (amountPaise <= 0) {
+      setProblem(fieldProblem('Please enter the amount you paid.'));
+      return;
+    }
+    if (overBy > 0) {
+      setProblem(
+        fieldProblem(
+          `The amount is ${formatMoney(overBy / 100)} more than the ticked bills add up to (${formatMoney(
+            selectedTotal / 100
+          )}). Check the amount, or tick the bill that is missing.`
+        )
+      );
+      return;
+    }
+    if (uncovered.length > 0) {
+      setProblem(
+        fieldProblem(
+          `The amount does not reach ${uncovered.length === 1 ? 'bill' : 'bills'} ${uncovered
+            .map((s) => s.bill.billNo || '—')
+            .join(', ')}. Untick ${uncovered.length === 1 ? 'it' : 'them'}, or check the amount.`
+        )
+      );
+      return;
+    }
+
+    setIsSaving(true);
+    let photoUrl: string | null = null;
+    if (photoFile) {
+      photoUrl = await uploadBillPhoto(photoFile, 'payments');
+      if (!photoUrl) {
+        showToast('The screenshot could not be uploaded, but the payment will still be saved.', 'info');
+      }
+    }
+
+    const stamp = Date.now();
+    const groupId = `grp-${stamp}-${Math.floor(Math.random() * 100000)}`;
+    const createdAt = new Date().toISOString();
+    const payments: BillPayment[] = shares.map((s, i) => ({
+      id: `pay-${stamp}-${i}-${Math.floor(Math.random() * 1000)}`,
+      billId: s.bill.id,
+      paidOn,
+      amount: s.share / 100,
+      method,
+      reference: reference.trim(),
+      bankName: bankName.trim(),
+      photoUrl,
+      groupId,
+      createdAt,
+    }));
+
+    try {
+      await insertBillPayments(payments);
+      onSaved(payments, firm);
+    } catch (err) {
+      console.error('Saving the combined payment failed:', err);
+      setIsSaving(false);
+      const code = (err as { code?: string })?.code;
+      if (code === 'PGRST204' || code === '42703') {
+        setProblem({
+          message:
+            'The database is not set up for combined payments yet. Run supabase/add-combined-payments.sql in the Supabase SQL Editor once, then save again.',
+          detail: '',
+          near: 'save',
+        });
+        return;
+      }
+      setProblem(saveProblem(err, 'The payment could not be saved'));
+    }
+  };
+
+  const partyOptions = parties.map((name) => ({ value: name, label: name }));
+  const isShort = selectedTotal > 0 && amountPaise > 0 && amountPaise < selectedTotal;
+
+  return (
+    <AppModal
+      open
+      onClose={onClose}
+      title="Pay bills together"
+      description="One payment for several bills of the same party"
+      icon={<Layers className="h-5 w-5" />}
+      accent="emerald"
+    >
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {problem?.near === 'fields' && (
+          <div ref={problemRef}>
+            <FormError message={problem.message} />
+          </div>
+        )}
+
+        <PremiumSelect
+          label="Party you paid"
+          value={firm}
+          onChange={changeFirm}
+          options={partyOptions}
+          placeholder="Pick a party"
+          searchable={partyOptions.length > 6}
+          searchPlaceholder="Search party..."
+          disabled={isSaving}
+          accent="emerald"
+        />
+
+        {firm && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <label className="block text-sm font-semibold text-slate-700">
+                Tick the bills this payment is for
+              </label>
+              {dueBills.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelected(allTicked ? new Set() : new Set(dueBills.map((b) => b.id)))
+                  }
+                  disabled={isSaving}
+                  className="shrink-0 px-2 py-1 text-xs font-bold text-emerald-700 hover:text-emerald-800 cursor-pointer"
+                >
+                  {allTicked ? 'Untick all' : 'Tick all'}
+                </button>
+              )}
+            </div>
+
+            {dueBills.length === 0 ? (
+              <p className="text-sm text-slate-500 bg-slate-50 border border-slate-100 rounded-xl p-3">
+                Nothing is left to pay to this party.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {dueBills.map((bill) => {
+                  const isOn = selected.has(bill.id);
+                  const share = shares.find((s) => s.bill.id === bill.id);
+                  const partial = share && share.share > 0 && share.share < share.balance;
+                  return (
+                    <button
+                      key={bill.id}
+                      type="button"
+                      role="checkbox"
+                      aria-checked={isOn}
+                      onClick={() => toggle(bill.id)}
+                      disabled={isSaving}
+                      className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left cursor-pointer transition-colors ${
+                        isOn
+                          ? 'bg-emerald-50 border-emerald-300'
+                          : 'bg-white border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      <span
+                        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md border-2 ${
+                          isOn ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-slate-300 bg-white'
+                        }`}
+                      >
+                        {isOn && <CheckCircle2 className="h-4 w-4" />}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-bold text-slate-900 truncate">
+                          Bill {bill.billNo || '—'}
+                        </span>
+                        <span className="block text-xs text-slate-500">
+                          {formatDate(bill.billDate)} · Bill amount {formatMoney(bill.netAmount)}
+                        </span>
+                        {partial && (
+                          <span className="block text-xs font-semibold text-amber-700 mt-0.5">
+                            Only {formatMoney(share.share / 100)} of this bill gets paid
+                          </span>
+                        )}
+                        {isOn && share && share.share === 0 && amountPaise > 0 && (
+                          <span className="block text-xs font-semibold text-red-700 mt-0.5">
+                            The amount does not reach this bill
+                          </span>
+                        )}
+                      </span>
+                      <span className="shrink-0 text-right">
+                        <span className="block text-xs text-slate-500">Left to pay</span>
+                        <span className="block text-sm font-bold text-red-700 tabular-nums">
+                          {formatMoney(getBalance(bill))}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Running total of the ticked bills — the number to actually pay */}
+        {selectedBills.length > 0 && (
+          <div className="bg-[#0F172A] text-white rounded-xl p-4">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm text-slate-300">
+                Total of {selectedBills.length} ticked {selectedBills.length === 1 ? 'bill' : 'bills'}
+              </span>
+              <span className="text-xl font-bold tabular-nums text-amber-400">
+                {formatMoney(selectedTotal / 100)}
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-1 break-words">
+              Bills {selectedBills.map((b) => b.billNo || '—').join(', ')}
+            </p>
+          </div>
+        )}
+
+        <PhotoPicker
+          label="Add payment screenshot or cheque photo (one for all bills)"
+          file={photoFile}
+          onSelect={setPhotoFile}
+          onAutoFill={handleAutoFill}
+          isExtracting={isExtracting}
+          autoFillLabel="Fill details from screenshot"
+          inputId="combined-payment-photo-input"
+        />
+
+        <div>
+          <FormInput
+            label="Amount paid ₹"
+            type="number"
+            inputMode="decimal"
+            required
+            min={0}
+            step="any"
+            placeholder="0"
+            value={amount}
+            onChange={(e) => {
+              setAmount(e.target.value);
+              setAmountTouched(true);
+            }}
+            disabled={isSaving}
+            accent="emerald"
+          />
+          {selectedTotal > 0 && amountPaise !== selectedTotal && (
+            <button
+              type="button"
+              onClick={() => {
+                setAmount(String(selectedTotal / 100));
+                setAmountTouched(false);
+              }}
+              disabled={isSaving}
+              className="mt-2 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-full cursor-pointer transition-colors"
+            >
+              Use total of ticked bills — {formatMoney(selectedTotal / 100)}
+            </button>
+          )}
+        </div>
+
+        {/* Mismatch checks — the exact mistake this screen exists to stop */}
+        {selectedTotal > 0 && overBy > 0 && (
+          <div
+            role="alert"
+            className="bg-red-50 border-2 border-red-300 text-red-800 p-3.5 text-sm rounded-xl leading-relaxed font-semibold"
+          >
+            This is {formatMoney(overBy / 100)} MORE than the ticked bills add up to (
+            {formatMoney(selectedTotal / 100)}). It cannot be saved like this — check the amount, or
+            tick the bill that is missing.
+          </div>
+        )}
+        {isShort && uncovered.length === 0 && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3.5 text-sm rounded-xl leading-relaxed">
+            This is {formatMoney((selectedTotal - amountPaise) / 100)} less than the ticked bills. The
+            oldest bills are cleared first; the rest stays as balance on the last bill.
+          </div>
+        )}
+        {amountPaise > 0 && amountPaise === selectedTotal && (
+          <p className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+            Amount matches the ticked bills exactly. All of them will be marked fully paid.
+          </p>
+        )}
+
+        <DateField
+          label="Payment date"
+          value={paidOn}
+          onChange={setPaidOn}
+          disabled={isSaving}
+          accent="emerald"
+        />
+
+        <div className="space-y-1.5">
+          <label className="block text-sm font-semibold text-slate-700">How did you pay?</label>
+          <div className="grid grid-cols-2 gap-2">
+            {PAYMENT_METHODS.map(({ value, label }) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setMethod(value)}
+                disabled={isSaving}
+                className={`px-3 py-3 text-sm font-semibold rounded-xl border transition-all cursor-pointer ${
+                  method === value
+                    ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
+                    : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {method !== 'Cash' && (
+          <FormInput
+            label={referenceLabel(method)}
+            type="text"
+            placeholder={method === 'Cheque' ? 'e.g. 004512' : 'e.g. 415223987654'}
+            value={reference}
+            onChange={(e) => setReference(e.target.value)}
+            disabled={isSaving}
+            accent="emerald"
+          />
+        )}
+
+        {(method === 'Cheque' || method === 'Bank transfer') && (
+          <FormInput
+            label="Bank name"
+            type="text"
+            placeholder="e.g. SBI, HDFC"
+            value={bankName}
+            onChange={(e) => setBankName(e.target.value)}
+            disabled={isSaving}
+            accent="emerald"
+          />
+        )}
+
+        {problem?.near === 'save' && (
+          <div ref={problemRef}>
+            <FormError
+              message={`${problem.message} Nothing you typed here is lost — it stays on screen until it saves.`}
+              detail={problem.detail}
+            />
+          </div>
+        )}
+
+        <ModalActions
+          onCancel={onClose}
+          submitLabel={
+            selectedBills.length > 0 && amountPaise > 0
+              ? `Save ${formatMoney(amountPaise / 100)} for ${selectedBills.length} ${
+                  selectedBills.length === 1 ? 'bill' : 'bills'
+                }`
+              : 'Save payment'
+          }
           submitAccent="emerald"
           isSubmitting={isSaving}
         />

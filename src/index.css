@@ -33,3 +33,24 @@ select,
 textarea {
   font: inherit;
 }
+
+/* Draws the eye to items that are about to run out. */
+@keyframes low-stock-flicker {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.animate-low-stock {
+  animation: low-stock-flicker 1.1s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-low-stock {
+    animation: none;
+  }
+}

@@ -1352,6 +1352,7 @@ function AddTransportPaymentModal({
       reference: reference.trim(),
       bankName: bankName.trim(),
       photoUrl,
+      groupId: null,
       createdAt: new Date().toISOString(),
     };
 

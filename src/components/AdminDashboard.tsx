@@ -380,7 +380,8 @@ export function AdminDashboard({
         bg: 'bg-[#FEE2E2] text-[#991B1B] border-[#FECACA]',
         text: 'text-red-600',
         indicator: 'bg-[#991B1B]',
-        tooltip: 'Less than 20% left'
+        tooltip: 'Less than 20% left',
+        flicker: true
       };
     }
     if (ratio < 0.5) {
@@ -389,7 +390,8 @@ export function AdminDashboard({
         bg: 'bg-[#FEF3C7] text-[#92400E] border-[#FDE68A]',
         text: 'text-amber-600',
         indicator: 'bg-[#92400E]',
-        tooltip: 'Less than half left'
+        tooltip: 'Less than half left',
+        flicker: false
       };
     }
     return {
@@ -397,7 +399,8 @@ export function AdminDashboard({
       bg: 'bg-[#DCFCE7] text-[#166534] border-[#BBF7D0]',
       text: 'text-emerald-700',
       indicator: 'bg-[#166534]',
-      tooltip: 'Plenty in stock'
+      tooltip: 'Plenty in stock',
+      flicker: false
     };
   };
 
@@ -877,8 +880,8 @@ export function AdminDashboard({
                     <Filter className="h-3 w-3 shrink-0" />
                     Low stock
                     {stats.lowStockItems > 0 && (
-                      <span className={`px-1 py-0.5 text-xs rounded-full ${
-                        lowStockFilterOnly ? 'bg-amber-200 text-amber-900' : 'bg-slate-200 text-slate-700'
+                      <span className={`px-1 py-0.5 text-xs rounded-full animate-low-stock ${
+                        lowStockFilterOnly ? 'bg-amber-200 text-amber-900' : 'bg-red-100 text-red-700'
                       }`}>
                         {stats.lowStockItems}
                       </span>
@@ -919,7 +922,7 @@ export function AdminDashboard({
                           </div>
                           <span
                             title={status.tooltip}
-                            className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-xs font-semibold rounded-full border shrink-0 ${status.bg}`}
+                            className={`inline-flex items-center gap-1.5 px-2 py-0.5 text-xs font-semibold rounded-full border shrink-0 ${status.bg} ${status.flicker ? 'animate-low-stock' : ''}`}
                           >
                             <span className={`w-1.5 h-1.5 rounded-full ${status.indicator}`} />
                             {status.label}
@@ -1085,7 +1088,7 @@ export function AdminDashboard({
                                 <td className="p-4">
                                   <span
                                     title={status.tooltip}
-                                    className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-full border ${status.bg}`}
+                                    className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-full border ${status.bg} ${status.flicker ? 'animate-low-stock' : ''}`}
                                   >
                                     <span className={`w-1.5 h-1.5 rounded-full ${status.indicator}`} />
                                     {status.label}
@@ -1600,7 +1603,7 @@ export function AdminDashboard({
         <div className={`px-3 py-2.5 rounded-lg border shadow-xs flex items-center gap-2.5 ${
           stats.lowStockItems > 0 ? 'bg-amber-50/50 border-amber-200' : 'bg-white border-slate-200'
         }`}>
-          <AlertTriangle className={`h-4 w-4 shrink-0 ${stats.lowStockItems > 0 ? 'text-amber-400' : 'text-slate-300'}`} />
+          <AlertTriangle className={`h-4 w-4 shrink-0 ${stats.lowStockItems > 0 ? 'text-amber-400 animate-low-stock' : 'text-slate-300'}`} />
           <div className="min-w-0">
             <p className={`text-xs truncate ${stats.lowStockItems > 0 ? 'text-amber-800' : 'text-slate-500'}`}>Running low</p>
             <p className={`text-lg font-bold leading-tight ${stats.lowStockItems > 0 ? 'text-amber-600' : 'text-slate-900'}`}>

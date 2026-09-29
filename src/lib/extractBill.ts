@@ -131,6 +131,10 @@ export async function extractBillFromImage(file: File): Promise<ExtractedBill> {
           type: Type.OBJECT,
           properties: {
             name: { type: Type.STRING },
+            hsn: {
+              type: Type.STRING,
+              description: 'HSN or SAC code printed for this item (usually 4 to 8 digits). Empty if not shown.',
+            },
             quantity: { type: Type.NUMBER },
             unit: {
               type: Type.STRING,
@@ -139,7 +143,7 @@ export async function extractBillFromImage(file: File): Promise<ExtractedBill> {
             rate: { type: Type.NUMBER },
             amount: { type: Type.NUMBER },
           },
-          required: ['name', 'quantity', 'unit', 'rate', 'amount'],
+          required: ['name', 'hsn', 'quantity', 'unit', 'rate', 'amount'],
         },
       },
       discounts: {
@@ -181,7 +185,7 @@ export async function extractBillFromImage(file: File): Promise<ExtractedBill> {
     file,
     'This is a photo of a purchase bill / invoice from an Indian wholesale firm. ' +
       'Read it carefully and extract the details. Dates on Indian bills are usually DD-MM-YYYY or DD/MM/YYYY — convert to YYYY-MM-DD. ' +
-      'For each line item extract the item name, quantity, unit, rate per unit and line amount. ' +
+      'For each line item extract the item name, HSN/SAC code, quantity, unit, rate per unit and line amount. ' +
       'Bills often have MORE THAN ONE discount line (e.g. Cash Discount, Special Discount, Scheme) — ' +
       'extract every discount separately with its printed name and rupee amount. ' +
       'If a discount is printed as a percentage, calculate the rupee amount from the bill total. ' +
@@ -202,6 +206,7 @@ export async function extractBillFromImage(file: File): Promise<ExtractedBill> {
           .filter((item) => item && (item.name || item.amount))
           .map((item) => ({
             name: item.name ?? '',
+            hsn: (item.hsn ?? '').trim(),
             quantity: Number(item.quantity) || 0,
             unit: item.unit ?? '',
             rate: Number(item.rate) || 0,
