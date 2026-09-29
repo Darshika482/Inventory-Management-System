@@ -225,19 +225,19 @@ export function WorkerDashboard({ currentUser, categories, logs, onWithdraw }: W
   };
 
   return (
-    <div className="flex-1 overflow-y-auto bg-[#F8FAFC]/90 p-4 sm:p-6 md:p-8 space-y-6 sm:space-y-8 font-sans text-slate-900 selection:bg-amber-500 selection:text-white">
+    <div className="@container flex-1 overflow-y-auto bg-[#F8FAFC]/90 p-4 sm:p-6 md:p-8 space-y-6 sm:space-y-8 font-sans text-slate-900 selection:bg-amber-500 selection:text-white">
       
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
+      <div className="flex flex-col @xl:flex-row @xl:items-center justify-between gap-4 border-b border-slate-200 pb-5">
         <div className="min-w-0">
-          <h2 className="font-sans text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">
+          <h2 className="font-sans text-2xl @xl:text-3xl font-bold tracking-tight text-slate-900">
             Take stock
           </h2>
           <p className="text-sm text-slate-500 mt-1">
             Signed in as <span className="text-amber-700 font-bold">{currentUser.username}</span>
           </p>
         </div>
-        <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
+        <div className="flex flex-col @xl:flex-row @xl:flex-wrap items-stretch @xl:items-center gap-2.5 w-full @xl:w-auto">
           <button
             onClick={() => {
               setErrorMsg('');
@@ -248,7 +248,7 @@ export function WorkerDashboard({ currentUser, categories, logs, onWithdraw }: W
             <Send className="h-4 w-4" />
             Take items
           </button>
-          <div className="text-sm text-slate-500 bg-white border border-slate-200 rounded-lg px-4 py-3 flex items-center justify-center sm:justify-start gap-2 shadow-2xs">
+          <div className="text-sm text-slate-500 bg-white border border-slate-200 rounded-lg px-4 py-3 flex items-center justify-center @xl:justify-start gap-2 shadow-2xs">
             <HardHat className="h-5 w-5 text-amber-600 shrink-0" />
             <span className="truncate">Ready to go</span>
           </div>
@@ -256,10 +256,10 @@ export function WorkerDashboard({ currentUser, categories, logs, onWithdraw }: W
       </div>
 
       {/* Main Grid: Split into History (8-cols) and Directory / Status (4-cols) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="grid grid-cols-1 @4xl:grid-cols-12 gap-8">
         
         {/* Left column: Success state banner & Requisition History logs (width prioritized for tables) */}
-        <div className="lg:col-span-8 space-y-6">
+        <div className="@4xl:col-span-8 space-y-6">
           
           <AnimatePresence mode="wait">
             {successMsg && (
@@ -279,7 +279,7 @@ export function WorkerDashboard({ currentUser, categories, logs, onWithdraw }: W
           </AnimatePresence>
 
           {/* Personal Requisition Ledger Container */}
-          <div className="bg-white border border-slate-200 rounded-lg p-4 sm:p-6 shadow-xs">
+          <div className="bg-white border border-slate-200 rounded-lg p-4 @xl:p-6 shadow-xs">
             <h3 className="text-base font-semibold text-slate-700 mb-4 flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-2 min-w-0">
                 <span className="p-1.5 rounded bg-slate-50 text-amber-600 border border-slate-100 shrink-0">
@@ -290,7 +290,7 @@ export function WorkerDashboard({ currentUser, categories, logs, onWithdraw }: W
               {personalLogs.length > 0 && (
                 <button
                   onClick={downloadPersonalPDF}
-                  className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-semibold rounded-lg border bg-[#0F172A] hover:bg-slate-800 text-white border-slate-855 cursor-pointer transition-all shadow-2xs w-full sm:w-auto"
+                  className="flex items-center justify-center gap-1.5 px-3 py-2 text-sm font-semibold rounded-lg border bg-[#0F172A] hover:bg-slate-800 text-white border-slate-855 cursor-pointer transition-all shadow-2xs w-full @xl:w-auto"
                   title="Download a PDF of your taken items"
                 >
                   <FileDown className="h-4 w-4 text-amber-500" />
@@ -314,7 +314,7 @@ export function WorkerDashboard({ currentUser, categories, logs, onWithdraw }: W
             </div>
 
             {/* Mobile card list */}
-            <div className="md:hidden divide-y divide-slate-100 border border-slate-100 rounded-lg overflow-hidden">
+            <div className="@3xl:hidden divide-y divide-slate-100 border border-slate-100 rounded-lg overflow-hidden">
               {filteredPersonalLogs.length === 0 ? (
                 <div className="p-6 text-center text-slate-400 italic text-sm">
                   {personalLogs.length === 0
@@ -347,7 +347,7 @@ export function WorkerDashboard({ currentUser, categories, logs, onWithdraw }: W
               )}
             </div>
 
-            <div className="hidden md:block overflow-x-auto">
+            <div className="hidden @3xl:block overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-sm font-bold text-slate-500 select-none">
@@ -408,10 +408,10 @@ export function WorkerDashboard({ currentUser, categories, logs, onWithdraw }: W
         </div>
 
         {/* Right column: Reference Directory & Compliance instructions */}
-        <div className="lg:col-span-4 space-y-6">
+        <div className="@4xl:col-span-4 space-y-6">
           
           {/* Active Inventory list */}
-          <div className="bg-white border border-slate-200 rounded-lg p-4 sm:p-6 shadow-xs">
+          <div className="bg-white border border-slate-200 rounded-lg p-4 @xl:p-6 shadow-xs">
             <h3 className="text-base font-semibold text-slate-700 mb-2 flex items-center gap-2">
               <span className="p-1.5 rounded bg-slate-50 text-amber-600 border border-slate-100">
                 <Package className="h-4 w-4" />

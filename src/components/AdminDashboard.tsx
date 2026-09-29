@@ -784,16 +784,16 @@ export function AdminDashboard({
   };
 
   return (
-    <div className="flex-1 overflow-y-auto bg-[#F8FAFC] p-4 sm:p-6 md:p-8 space-y-6 sm:space-y-8 font-sans text-slate-900 selection:bg-amber-500 selection:text-white">
+    <div className="@container flex-1 overflow-y-auto bg-[#F8FAFC] p-4 sm:p-6 md:p-8 space-y-6 sm:space-y-8 font-sans text-slate-900 selection:bg-amber-500 selection:text-white">
       
       {/* Dynamic Header */}
-      <div className="flex flex-col gap-3 sm:gap-4 border-b border-slate-200 pb-4 sm:pb-5">
-        <div className="flex items-start justify-between gap-2 sm:gap-3">
+      <div className="flex flex-col gap-3 @xl:gap-4 border-b border-slate-200 pb-4 @xl:pb-5">
+        <div className="flex items-start justify-between gap-2 @xl:gap-3">
           <div className="min-w-0">
-            <h2 className="font-sans text-lg sm:text-3xl font-bold tracking-tight text-slate-900">
+            <h2 className="font-sans text-lg @xl:text-3xl font-bold tracking-tight text-slate-900">
               Stock overview
             </h2>
-            <p className="text-xs sm:text-sm text-slate-500 mt-0.5 sm:mt-1">
+            <p className="text-xs @xl:text-sm text-slate-500 mt-0.5 @xl:mt-1">
               See what you have and what has been taken
             </p>
           </div>
@@ -801,25 +801,25 @@ export function AdminDashboard({
             type="button"
             onClick={() => setIsAddCategoryOpen(true)}
             title="Add new item"
-            className="shrink-0 flex items-center gap-1.5 px-2.5 py-2 sm:px-3.5 sm:py-2.5 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap shadow-xs cursor-pointer transition-all border border-slate-850"
+            className="shrink-0 flex items-center gap-1.5 px-2.5 py-2 @xl:px-3.5 @xl:py-2.5 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg text-xs @xl:text-sm font-bold whitespace-nowrap shadow-xs cursor-pointer transition-all border border-slate-850"
           >
-            <Plus className="h-4 w-4 sm:h-5 sm:w-5" />
+            <Plus className="h-4 w-4 @xl:h-5 @xl:w-5" />
             Add new item
           </button>
         </div>
-        <div className="flex flex-row sm:flex-wrap items-stretch sm:items-center gap-2 sm:gap-2.5 w-full sm:w-auto">
+        <div className="flex flex-row @xl:flex-wrap items-stretch @xl:items-center gap-2 @xl:gap-2.5 w-full @xl:w-auto">
           <button
             onClick={() => setIsRestockOpen(true)}
-            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap shadow-xs cursor-pointer transition-all border border-emerald-700/20"
+            className="flex-1 @xl:flex-none flex items-center justify-center gap-1.5 @xl:gap-2 px-3 py-2 @xl:px-4 @xl:py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs @xl:text-sm font-bold whitespace-nowrap shadow-xs cursor-pointer transition-all border border-emerald-700/20"
           >
-            <ArrowUpRight className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            <ArrowUpRight className="h-3.5 w-3.5 @xl:h-4 @xl:w-4" />
             Add stock
           </button>
           <button
             onClick={openWithdrawModal}
-            className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3 py-2 sm:px-4 sm:py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs sm:text-sm font-bold whitespace-nowrap shadow-xs cursor-pointer transition-all border border-red-700/20"
+            className="flex-1 @xl:flex-none flex items-center justify-center gap-1.5 @xl:gap-2 px-3 py-2 @xl:px-4 @xl:py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs @xl:text-sm font-bold whitespace-nowrap shadow-xs cursor-pointer transition-all border border-red-700/20"
           >
-            <Send className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+            <Send className="h-3.5 w-3.5 @xl:h-4 @xl:w-4" />
             Take out stock
           </button>
         </div>
@@ -836,7 +836,7 @@ export function AdminDashboard({
             className="space-y-8"
           >
             {/* Inventory Overview Panel (Table) */}
-            <div className="bg-white border border-slate-200 rounded-xl md:rounded-lg overflow-hidden shadow-xs">
+            <div className="bg-white border border-slate-200 rounded-xl @3xl:rounded-lg overflow-hidden shadow-xs">
               <div className="px-3 py-2.5 border-b border-slate-100 flex flex-col gap-2">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
@@ -891,7 +891,7 @@ export function AdminDashboard({
               </div>
 
               {/* Mobile card list */}
-              <div className="md:hidden p-3 space-y-3 bg-slate-50/80">
+              <div className="@3xl:hidden p-3 space-y-3 bg-slate-50/80">
                 {groupedCategories.length === 0 ? (
                   <div className="p-8 text-center text-slate-500 text-sm leading-relaxed">
                     {categories.length === 0
@@ -969,7 +969,7 @@ export function AdminDashboard({
               </div>
 
               {/* Desktop table */}
-              <div className="hidden md:block overflow-x-auto">
+              <div className="hidden @3xl:block overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200 text-sm font-bold text-slate-500 tracking-wider select-none">
@@ -1121,7 +1121,7 @@ export function AdminDashboard({
           >
             {/* Withdrawal Logs Table */}
             <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-xs">
-              <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col gap-4">
+              <div className="p-4 @xl:p-5 border-b border-slate-100 flex flex-col gap-4">
                 <div className="flex items-start gap-2.5 min-w-0">
                   <ClipboardList className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
                   <div className="min-w-0">
@@ -1135,8 +1135,8 @@ export function AdminDashboard({
                 </div>
 
                 {/* Table search & tab-filters */}
-                <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2.5 sm:gap-3">
-                  <div className="relative w-full sm:w-auto sm:min-w-[12rem] sm:flex-1 sm:max-w-xs">
+                <div className="flex flex-col @xl:flex-row @xl:flex-wrap items-stretch @xl:items-center gap-2.5 @xl:gap-3">
+                  <div className="relative w-full @xl:w-auto @xl:min-w-[12rem] @xl:flex-1 @xl:max-w-xs">
                     <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-slate-450" />
                     <input
                       type="text"
@@ -1147,12 +1147,12 @@ export function AdminDashboard({
                     />
                   </div>
 
-                  <div className="inline-flex rounded-md bg-slate-50 p-0.5 border border-slate-200 w-full sm:w-auto">
+                  <div className="inline-flex rounded-md bg-slate-50 p-0.5 border border-slate-200 w-full @xl:w-auto">
                     {(['All', 'Approved', 'Rejected'] as const).map((status) => (
                       <button
                         key={status}
                         onClick={() => setLogStatusFilter(status)}
-                        className={`flex-1 sm:flex-none px-3 py-2.5 sm:py-2 text-sm rounded-lg font-semibold cursor-pointer transition-colors ${
+                        className={`flex-1 @xl:flex-none px-3 py-2.5 @xl:py-2 text-sm rounded-lg font-semibold cursor-pointer transition-colors ${
                           logStatusFilter === status
                             ? 'bg-[#0F172A] text-white font-bold shadow-xs'
                             : 'text-slate-500 hover:text-slate-800'
@@ -1165,7 +1165,7 @@ export function AdminDashboard({
 
                   <button
                     onClick={downloadLogsPDF}
-                    className="flex items-center justify-center gap-1.5 px-3 py-2.5 sm:py-2 text-sm font-semibold rounded-lg border bg-[#0F172A] hover:bg-slate-800 text-white border-slate-850 transition-all cursor-pointer shadow-xs"
+                    className="flex items-center justify-center gap-1.5 px-3 py-2.5 @xl:py-2 text-sm font-semibold rounded-lg border bg-[#0F172A] hover:bg-slate-800 text-white border-slate-850 transition-all cursor-pointer shadow-xs"
                     title="Export withdrawal ledger log report to PDF"
                   >
                     <FileDown className="h-3.5 w-3.5 text-amber-500 shrink-0" />
@@ -1175,7 +1175,7 @@ export function AdminDashboard({
               </div>
 
               {/* Mobile card list */}
-              <div className="md:hidden p-3 space-y-3 bg-slate-50/50">
+              <div className="@3xl:hidden p-3 space-y-3 bg-slate-50/50">
                 {filteredAndSortedLogs.length === 0 ? (
                   <div className="p-6 text-center text-slate-400 italic text-sm">
                     Nothing found.
@@ -1240,7 +1240,7 @@ export function AdminDashboard({
               </div>
 
               {/* Desktop table */}
-              <div className="hidden md:block overflow-x-auto">
+              <div className="hidden @3xl:block overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200 text-sm font-bold text-slate-500 tracking-wider select-none">
@@ -1358,7 +1358,7 @@ export function AdminDashboard({
             className="space-y-6"
           >
             <div className="bg-white border border-slate-200 rounded-lg overflow-hidden shadow-xs">
-              <div className="p-4 sm:p-5 border-b border-slate-100 flex flex-col gap-4">
+              <div className="p-4 @xl:p-5 border-b border-slate-100 flex flex-col gap-4">
                 <div className="flex items-start gap-2.5 min-w-0">
                   <CalendarDays className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
                   <div className="min-w-0">
@@ -1373,7 +1373,7 @@ export function AdminDashboard({
 
                 {/* Date filter presets */}
                 <div className="flex flex-col gap-3">
-                  <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+                  <div className="grid grid-cols-2 gap-2 @xl:flex @xl:flex-wrap @xl:items-center">
                     {([
                       { key: 'all' as const, label: 'All time' },
                       { key: 'today' as const, label: 'Today' },
@@ -1385,8 +1385,8 @@ export function AdminDashboard({
                         key={key}
                         type="button"
                         onClick={() => setStockAddedPreset(key)}
-                        className={`inline-flex items-center justify-center px-3.5 py-2.5 sm:py-2 text-sm rounded-lg font-semibold cursor-pointer transition-all border ${
-                          key === 'custom' ? 'col-span-2 sm:col-span-1' : ''
+                        className={`inline-flex items-center justify-center px-3.5 py-2.5 @xl:py-2 text-sm rounded-lg font-semibold cursor-pointer transition-all border ${
+                          key === 'custom' ? 'col-span-2 @xl:col-span-1' : ''
                         } ${
                           stockAddedPreset === key
                             ? 'bg-[#0F172A] text-white border-slate-800 shadow-xs'
@@ -1420,8 +1420,8 @@ export function AdminDashboard({
                   )}
 
                   {/* Search + summary */}
-                  <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2.5">
-                    <div className="relative w-full sm:w-auto sm:min-w-[12rem] sm:flex-1 sm:max-w-xs">
+                  <div className="flex flex-col @xl:flex-row @xl:flex-wrap items-stretch @xl:items-center gap-2.5">
+                    <div className="relative w-full @xl:w-auto @xl:min-w-[12rem] @xl:flex-1 @xl:max-w-xs">
                       <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-slate-450" />
                       <input
                         type="text"
@@ -1460,7 +1460,7 @@ export function AdminDashboard({
               </div>
 
               {/* Mobile card list */}
-              <div className="md:hidden p-3 space-y-3 bg-slate-50/50">
+              <div className="@3xl:hidden p-3 space-y-3 bg-slate-50/50">
                 {stockAddedFiltered.length === 0 ? (
                   <div className="p-8 text-center text-slate-400 text-sm leading-relaxed">
                     <CalendarDays className="h-8 w-8 mx-auto text-slate-300 mb-3" />
@@ -1507,7 +1507,7 @@ export function AdminDashboard({
               </div>
 
               {/* Desktop table */}
-              <div className="hidden md:block overflow-x-auto">
+              <div className="hidden @3xl:block overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-200 text-sm font-bold text-slate-500 tracking-wider select-none">
@@ -1578,7 +1578,7 @@ export function AdminDashboard({
       </AnimatePresence>
 
       {/* Compact summary stats at page bottom */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 pt-2">
+      <div className="grid grid-cols-2 @4xl:grid-cols-4 gap-2 @xl:gap-3 pt-2">
         <div className="bg-white px-3 py-2.5 rounded-lg border border-slate-200 shadow-xs flex items-center gap-2.5">
           <Layers className="h-4 w-4 text-slate-300 shrink-0" />
           <div className="min-w-0">

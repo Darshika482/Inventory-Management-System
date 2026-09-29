@@ -437,10 +437,10 @@ export function AnalysisSection({ showToast }: AnalysisSectionProps) {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto bg-[#F8FAFC] p-3 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:p-6 md:p-8 space-y-4 sm:space-y-5 font-sans text-slate-900 selection:bg-amber-500 selection:text-white">
+    <div className="@container flex-1 overflow-y-auto bg-[#F8FAFC] p-3 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:p-6 md:p-8 space-y-4 sm:space-y-5 font-sans text-slate-900 selection:bg-amber-500 selection:text-white">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-xl sm:text-2xl font-bold text-slate-900">Rate analysis</h2>
+          <h2 className="text-xl @xl:text-2xl font-bold text-slate-900">Rate analysis</h2>
           <p className="text-sm text-slate-500 mt-0.5">
             Track how each item's rate is moving from bill to bill, and who charges what.
           </p>
@@ -448,16 +448,16 @@ export function AnalysisSection({ showToast }: AnalysisSectionProps) {
         <button
           type="button"
           onClick={() => setIsCombineOpen(true)}
-          className="shrink-0 flex items-center gap-1.5 px-3 py-2 sm:px-4 sm:py-2.5 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg text-sm font-bold whitespace-nowrap shadow-xs cursor-pointer transition-all"
+          className="shrink-0 flex items-center gap-1.5 px-3 py-2 @xl:px-4 @xl:py-2.5 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg text-sm font-bold whitespace-nowrap shadow-xs cursor-pointer transition-all"
         >
           <Combine className="h-4 w-4" />
-          <span className="hidden sm:inline">Combine names</span>
-          <span className="sm:hidden">Combine</span>
+          <span className="hidden @xl:inline">Combine names</span>
+          <span className="@xl:hidden">Combine</span>
         </button>
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+      <div className="grid grid-cols-2 @4xl:grid-cols-4 gap-2 @xl:gap-3">
         <SummaryCard
           icon={<ShoppingBasket className="h-4 w-4" />}
           label="Items bought"
@@ -486,8 +486,8 @@ export function AnalysisSection({ showToast }: AnalysisSectionProps) {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:flex-wrap">
-        <div className="relative w-full sm:max-w-56">
+      <div className="flex flex-col gap-2 @xl:flex-row @xl:items-center @xl:flex-wrap">
+        <div className="relative w-full @xl:max-w-56">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <input
             type="text"
@@ -498,11 +498,11 @@ export function AnalysisSection({ showToast }: AnalysisSectionProps) {
           />
         </div>
 
-        <div className="w-full sm:w-72">
+        <div className="w-full @xl:w-72">
           <DateRangePicker value={range} onChange={setRange} disableFuture placeholder="All time" />
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex rounded-lg bg-slate-50 p-0.5 border border-slate-200">
             {(
               [
@@ -514,7 +514,7 @@ export function AnalysisSection({ showToast }: AnalysisSectionProps) {
                 key={key}
                 type="button"
                 onClick={() => setScope(key)}
-                className={`px-2.5 py-2 sm:px-3 text-xs sm:text-sm rounded-md font-semibold whitespace-nowrap cursor-pointer transition-colors ${
+                className={`px-2.5 py-2 @xl:px-3 text-xs @xl:text-sm rounded-md font-semibold whitespace-nowrap cursor-pointer transition-colors ${
                   scope === key
                     ? 'bg-[#0F172A] text-white font-bold shadow-xs'
                     : 'text-slate-500 hover:text-slate-800'
@@ -525,7 +525,7 @@ export function AnalysisSection({ showToast }: AnalysisSectionProps) {
             ))}
           </div>
 
-          <div className="flex items-center gap-1.5 ml-auto sm:ml-0">
+          <div className="flex items-center gap-1.5 ml-auto @xl:ml-0 min-w-0">
             <ArrowDownWideNarrow className="h-4 w-4 text-slate-400 shrink-0" />
             <select
               value={sortMode}
@@ -648,7 +648,7 @@ function ItemRow({ item, onOpen }: { item: ItemStat; onOpen: () => void }) {
     <button
       type="button"
       onClick={onOpen}
-      className="w-full flex items-center gap-3 px-3 py-3 sm:px-4 text-left cursor-pointer hover:bg-amber-50/40 transition-colors"
+      className="w-full flex items-center gap-3 px-3 py-3 @xl:px-4 text-left cursor-pointer hover:bg-amber-50/40 transition-colors"
     >
       <div className="min-w-0 flex-1">
         <p className="font-bold text-slate-900 leading-tight truncate">{item.name}</p>
@@ -718,7 +718,7 @@ function SummaryCard({ icon, label, value, hint, tone = 'amber' }: SummaryCardPr
   const valueTone =
     tone === 'red' ? 'text-red-700' : tone === 'emerald' ? 'text-emerald-700' : 'text-slate-900';
   return (
-    <div className="bg-white border border-slate-200 rounded-xl shadow-xs p-3 sm:p-4 min-w-0">
+    <div className="bg-white border border-slate-200 rounded-xl shadow-xs p-3 @xl:p-4 min-w-0">
       <div className="flex items-center gap-2 text-slate-500">
         <span
           className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border ${iconTone}`}
@@ -727,7 +727,7 @@ function SummaryCard({ icon, label, value, hint, tone = 'amber' }: SummaryCardPr
         </span>
         <p className="text-xs font-semibold uppercase tracking-wider truncate">{label}</p>
       </div>
-      <p className={`mt-2 text-lg sm:text-xl font-bold tabular-nums truncate ${valueTone}`}>
+      <p className={`mt-2 text-lg @xl:text-xl font-bold tabular-nums truncate ${valueTone}`}>
         {value}
       </p>
       <p className="text-[0.7rem] text-slate-400 font-medium truncate">{hint}</p>

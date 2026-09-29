@@ -305,10 +305,10 @@ export function TransportSection({ showToast }: TransportSectionProps) {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto bg-[#F8FAFC] p-3 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:p-6 md:p-8 space-y-4 sm:space-y-5 font-sans text-slate-900 selection:bg-amber-500 selection:text-white">
+    <div className="@container flex-1 overflow-y-auto bg-[#F8FAFC] p-3 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:p-6 md:p-8 space-y-4 sm:space-y-5 font-sans text-slate-900 selection:bg-amber-500 selection:text-white">
       {/* View tabs + filters */}
-      <div className="flex flex-col gap-2 sm:gap-3">
-        <div className="flex items-center gap-2 sm:gap-3">
+      <div className="flex flex-col gap-2 @xl:gap-3">
+        <div className="flex items-center gap-2 @xl:gap-3">
           <div className="flex rounded-lg bg-slate-100 p-0.5">
             {(
               [
@@ -320,19 +320,19 @@ export function TransportSection({ showToast }: TransportSectionProps) {
                 key={key}
                 type="button"
                 onClick={() => setView(key)}
-                className={`px-3 py-2 sm:px-4 text-sm rounded-md font-semibold cursor-pointer transition-colors whitespace-nowrap ${
+                className={`px-3 py-2 @xl:px-4 text-sm rounded-md font-semibold cursor-pointer transition-colors whitespace-nowrap ${
                   view === key ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'
                 }`}
               >
-                <span className="sm:hidden">{shortLabel}</span>
-                <span className="hidden sm:inline">{label}</span>
+                <span className="@xl:hidden">{shortLabel}</span>
+                <span className="hidden @xl:inline">{label}</span>
               </button>
             ))}
           </div>
           <button
             type="button"
             onClick={() => setIsAddBillOpen(true)}
-            className="ml-auto shrink-0 flex items-center gap-1.5 px-3 py-2 sm:px-4 sm:py-2.5 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg text-sm font-bold whitespace-nowrap shadow-xs cursor-pointer transition-all"
+            className="ml-auto shrink-0 flex items-center gap-1.5 px-3 py-2 @xl:px-4 @xl:py-2.5 bg-[#0F172A] hover:bg-slate-800 text-white rounded-lg text-sm font-bold whitespace-nowrap shadow-xs cursor-pointer transition-all"
           >
             <Plus className="h-4 w-4" />
             Add bill
@@ -340,8 +340,8 @@ export function TransportSection({ showToast }: TransportSectionProps) {
         </div>
 
         {view === 'bills' && (
-          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-            <div className="relative w-full sm:max-w-xs">
+          <div className="flex flex-col @xl:flex-row @xl:items-center gap-2">
+            <div className="relative w-full @xl:max-w-xs">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
               <input
                 type="text"
@@ -351,7 +351,7 @@ export function TransportSection({ showToast }: TransportSectionProps) {
                 className="bg-white border border-slate-200 rounded-lg pl-8 pr-3 py-2 text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500 w-full transition-all"
               />
             </div>
-            <div className="flex rounded-lg bg-slate-50 p-0.5 border border-slate-200 w-full sm:w-auto">
+            <div className="flex rounded-lg bg-slate-50 p-0.5 border border-slate-200 w-full @xl:w-auto">
               {(
                 [
                   { key: 'all' as const, label: 'All' },
@@ -363,7 +363,7 @@ export function TransportSection({ showToast }: TransportSectionProps) {
                   key={key}
                   type="button"
                   onClick={() => setStatusFilter(key)}
-                  className={`flex-1 sm:flex-none px-2 py-2 sm:px-3 text-xs sm:text-sm rounded-md font-semibold whitespace-nowrap cursor-pointer transition-colors ${
+                  className={`flex-1 @xl:flex-none px-2 py-2 @xl:px-3 text-xs @xl:text-sm rounded-md font-semibold whitespace-nowrap cursor-pointer transition-colors ${
                     statusFilter === key
                       ? 'bg-[#0F172A] text-white font-bold shadow-xs'
                       : 'text-slate-500 hover:text-slate-800'
@@ -449,9 +449,9 @@ export function TransportSection({ showToast }: TransportSectionProps) {
 
       {/* Bills view */}
       {view === 'bills' && (
-        <div className="space-y-3 md:grid md:grid-cols-2 xl:grid-cols-3 md:gap-4 md:space-y-0">
+        <div className="space-y-3 @3xl:grid @3xl:grid-cols-2 @6xl:grid-cols-3 @3xl:gap-4 @3xl:space-y-0">
           {filteredBills.length === 0 ? (
-            <div className="md:col-span-2 xl:col-span-3">
+            <div className="@3xl:col-span-2 @6xl:col-span-3">
               {bills.length === 0 ? (
                 <EmptyState onAdd={() => setIsAddBillOpen(true)} />
               ) : (
@@ -851,7 +851,7 @@ function PhotoThumbButton({ url, label, hint, onOpen }: PhotoThumbButtonProps) {
 
 function EmptyState({ onAdd }: { onAdd: () => void }) {
   return (
-    <div className="p-8 sm:p-12 text-center bg-white border border-slate-200 rounded-xl">
+    <div className="p-8 @xl:p-12 text-center bg-white border border-slate-200 rounded-xl">
       <Truck className="h-10 w-10 mx-auto text-slate-300 mb-3" />
       <p className="text-base font-bold text-slate-700">No transport bills saved yet</p>
       <p className="text-sm text-slate-500 mt-1 leading-relaxed">
