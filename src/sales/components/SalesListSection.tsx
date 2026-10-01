@@ -30,7 +30,7 @@ import { ShareBillButton } from './ShareBill';
 import { printBill, receiptLinesFor } from '../print/printBill';
 import { fetchShopSettings } from '../db';
 import type { ShopSettings } from '../types';
-import { Eye, Printer } from 'lucide-react';
+import { Eye, MoreVertical, Printer } from 'lucide-react';
 
 interface SalesListSectionProps {
   currentUser: User;
@@ -82,6 +82,7 @@ export function SalesListSection({ showToast }: SalesListSectionProps) {
     }
   });
   const [isRetrying, setIsRetrying] = useState(false);
+  const [settings, setSettings] = useState<ShopSettings | null>(null);
 
   const loadBills = async () => {
     setIsLoading(true);
@@ -100,6 +101,9 @@ export function SalesListSection({ showToast }: SalesListSectionProps) {
   };
 
   useEffect(() => {
+    loadWithCache('settings', fetchShopSettings)
+      .then((r) => setSettings(r.data))
+      .catch(() => {});
     loadWithCache('parties', fetchShopParties)
       .then((r) => setParties(r.data))
       .catch(() => {});
@@ -233,35 +237,14 @@ export function SalesListSection({ showToast }: SalesListSectionProps) {
       ) : (
         <ul className="space-y-2 @3xl:grid @3xl:grid-cols-2 @3xl:gap-3 @3xl:space-y-0">
           {bills.map((bill) => (
-            <li key={bill.clientId}>
-              <button
-                type="button"
-                onClick={() => setOpenClientId(bill.clientId)}
-                className={`w-full min-h-16 flex items-center gap-3 bg-white border rounded-xl px-4 py-3 text-left cursor-pointer transition-colors hover:border-amber-300 ${
-                  bill.syncState === 'failed' ? 'border-red-300' : 'border-slate-200'
-                } ${bill.status === 'cancelled' ? 'opacity-60' : ''}`}
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="text-base font-bold text-slate-900 truncate tabular-nums">
-                    {bill.billNumber ?? t('numberOnUpload')}
-                  </p>
-                  <p className="text-sm text-slate-600 truncate">
-                    {bill.partyName || t('cashSale')} · {t(`pay_${bill.paymentMode}`)}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    {formatBillDate(bill.billDate)} · {formatIstTime(bill.createdAt)}
-                  </p>
-                  <SyncBadge bill={bill} />
-                </div>
-                <span
-                  className={`shrink-0 text-xl font-extrabold tabular-nums ${
-                    bill.status === 'cancelled' ? 'line-through text-slate-400' : 'text-slate-900'
-                  }`}
-                >
-                  {formatRupees(bill.total)}
-                </span>
-              </button>
-            </li>
+            <BillCard
+              key={bill.clientId}
+              bill={bill}
+              settings={settings}
+              phone={bill.partyId ? parties.find((p) => p.id === bill.partyId)?.phone : undefined}
+              showToast={showToast}
+              onOpen={() => setOpenClientId(bill.clientId)}
+            />
           ))}
         </ul>
       )}
@@ -274,6 +257,153 @@ export function SalesListSection({ showToast }: SalesListSectionProps) {
         onClose={() => setOpenClientId(null)}
       />
     </PageShell>
+  );
+}
+
+// --- One bill in the list ---
+
+type PayStatus = 'paid' | 'unpaid' | 'partial' | 'cancelled';
+
+function payStatus(bill: ShopInvoice): PayStatus {
+  if (bill.status === 'cancelled') return 'cancelled';
+  if (bill.paidAmount >= bill.total) return 'paid';
+  return bill.paidAmount > 0 ? 'partial' : 'unpaid';
+}
+
+const STATUS_STYLE: Record<PayStatus, string> = {
+  paid: 'bg-emerald-100 text-emerald-700',
+  unpaid: 'bg-red-100 text-red-700',
+  partial: 'bg-amber-100 text-amber-800',
+  cancelled: 'bg-slate-200 text-slate-600',
+};
+
+/** '2026-10-01' -> '01 Oct, 26' */
+function shortDate(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`);
+  if (isNaN(d.getTime())) return iso;
+  const month = d.toLocaleDateString('en-GB', { month: 'short' });
+  return `${String(d.getDate()).padStart(2, '0')} ${month}, ${String(d.getFullYear()).slice(-2)}`;
+}
+
+/** Bills in the list have no lines; load them before printing or sharing. */
+async function withLines(bill: ShopInvoice): Promise<ShopInvoice> {
+  if (bill.lines.length > 0) return bill;
+  const full = await fetchSaleByClientId(bill.clientId);
+  if (!full) throw new Error('This bill could not be found.');
+  return full;
+}
+
+interface BillCardProps {
+  bill: ShopInvoice;
+  settings: ShopSettings | null;
+  phone?: string;
+  showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
+  onOpen: () => void;
+}
+
+function BillCard({ bill, settings, phone, showToast, onOpen }: BillCardProps) {
+  const { t } = useT();
+  const [printing, setPrinting] = useState(false);
+  const status = payStatus(bill);
+  const balance = bill.status === 'cancelled' ? 0 : Math.max(0, bill.total - bill.paidAmount);
+  const seq = bill.billNumber ? bill.billNumber.split('/').pop() : null;
+
+  const print = async () => {
+    if (!settings) return;
+    setPrinting(true);
+    try {
+      const result = await printBill(await withLines(bill), settings);
+      showToast(
+        [t(printMessageKey(result)), printDetail(result)].filter(Boolean).join(' '),
+        result.ok ? 'success' : 'error'
+      );
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : String(err), 'error');
+    } finally {
+      setPrinting(false);
+    }
+  };
+
+  return (
+    <li>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={onOpen}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onOpen();
+          }
+        }}
+        className={`bg-white border rounded-xl pl-3.5 pr-1.5 pt-2.5 pb-1 cursor-pointer transition-colors hover:border-amber-300 shadow-xs ${
+          bill.syncState === 'failed' ? 'border-red-300' : 'border-slate-200'
+        }`}
+      >
+        <div className="flex items-start justify-between gap-2 pr-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <p className="text-base font-semibold text-slate-900 truncate">{bill.partyName || t('cashSale')}</p>
+            <span className={`shrink-0 px-2 py-0.5 rounded-md text-[11px] font-bold uppercase tracking-wide ${STATUS_STYLE[status]}`}>
+              {t(`status_${status}`)}
+            </span>
+          </div>
+          <span className="shrink-0 text-xs text-slate-400 pt-0.5">
+            {t('saleLabel')}
+            {seq ? ` #${seq}` : ''}
+          </span>
+        </div>
+
+        <div className="flex items-baseline justify-between gap-2 pr-2">
+          <p
+            className={`text-lg font-bold tabular-nums ${
+              status === 'cancelled' ? 'line-through text-slate-400' : 'text-slate-900'
+            }`}
+          >
+            {formatRupees(bill.total)}
+          </p>
+          <span className="shrink-0 text-xs text-slate-400">{shortDate(bill.billDate)}</span>
+        </div>
+
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className={`text-sm ${balance > 0 ? 'text-red-600 font-semibold' : 'text-slate-400'}`}>
+              {t('balanceLabel', { amount: formatRupees(balance) })}
+            </p>
+            <SyncBadge bill={bill} />
+          </div>
+          {/* Clicks here (and inside the share sheet) must not open the bill. */}
+          <div className="flex items-center shrink-0" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={print}
+              disabled={!settings || printing}
+              aria-label={t('print')}
+              title={t('print')}
+              className="h-10 w-10 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 cursor-pointer disabled:opacity-40"
+            >
+              {printing ? <Loader2 className="h-5 w-5 animate-spin" /> : <Printer className="h-5 w-5" />}
+            </button>
+            <ShareBillButton
+              bill={bill}
+              settings={settings}
+              phone={phone}
+              showToast={showToast}
+              variant="icon"
+              resolveBill={() => withLines(bill)}
+            />
+            <button
+              type="button"
+              onClick={onOpen}
+              aria-label={t('openBill')}
+              title={t('openBill')}
+              className="h-10 w-10 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 cursor-pointer"
+            >
+              <MoreVertical className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </li>
   );
 }
 

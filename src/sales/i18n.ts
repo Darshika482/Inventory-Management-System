@@ -294,6 +294,13 @@ const en = {
   shareDone: 'Bill shared.',
   shareFailed: 'The bill file could not be made.',
   fileSaved: 'File saved to Downloads.',
+  status_paid: 'Paid',
+  status_unpaid: 'Unpaid',
+  status_partial: 'Partial',
+  status_cancelled: 'Cancelled',
+  balanceLabel: 'Balance: {amount}',
+  saleLabel: 'Sale',
+  openBill: 'Open bill',
 };
 
 export type TranslationKey = keyof typeof en;
@@ -575,6 +582,13 @@ const hi: Record<TranslationKey, string> = {
   shareDone: 'बिल भेज दिया।',
   shareFailed: 'बिल की फ़ाइल नहीं बन पाई।',
   fileSaved: 'फ़ाइल Downloads में सेव हो गई।',
+  status_paid: 'पूरा दिया',
+  status_unpaid: 'बाकी',
+  status_partial: 'कुछ बाकी',
+  status_cancelled: 'रद्द',
+  balanceLabel: 'बाकी: {amount}',
+  saleLabel: 'बिक्री',
+  openBill: 'बिल खोलें',
 };
 
 const STRINGS: Record<Language, Record<TranslationKey, string>> = { en, hi };

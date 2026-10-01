@@ -14,10 +14,23 @@ interface ShareBillButtonProps {
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   size?: 'md' | 'lg';
   className?: string;
+  /** 'icon': a small share icon (bill list cards). */
+  variant?: 'button' | 'icon';
+  /** Loads the full bill (with lines) when `bill` is only a list summary. */
+  resolveBill?: () => Promise<ShopInvoice>;
 }
 
 /** "Share" button that opens a sheet: image, PDF, WhatsApp text, or save. */
-export function ShareBillButton({ bill, settings, phone = '', showToast, size = 'md', className = '' }: ShareBillButtonProps) {
+export function ShareBillButton({
+  bill,
+  settings,
+  phone = '',
+  showToast,
+  size = 'md',
+  className = '',
+  variant = 'button',
+  resolveBill,
+}: ShareBillButtonProps) {
   const { t } = useT();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -36,7 +49,7 @@ export function ShareBillButton({ bill, settings, phone = '', showToast, size = 
   const share = (format: ShareFormat) =>
     run(format, async () => {
       if (!settings) return;
-      const outcome = await shareBillFile(bill, settings, format);
+      const outcome = await shareBillFile(resolveBill ? await resolveBill() : bill, settings, format);
       if (outcome === 'saved') showToast(t('shareSaved'), 'info');
       if (outcome !== 'cancelled') setOpen(false);
     });
@@ -44,7 +57,7 @@ export function ShareBillButton({ bill, settings, phone = '', showToast, size = 
   const save = (format: ShareFormat) =>
     run(`save-${format}`, async () => {
       if (!settings) return;
-      await saveBillFile(bill, settings, format);
+      await saveBillFile(resolveBill ? await resolveBill() : bill, settings, format);
       showToast(t('fileSaved'), 'success');
     });
 
@@ -80,15 +93,31 @@ export function ShareBillButton({ bill, settings, phone = '', showToast, size = 
 
   return (
     <>
-      <ActionButton
-        tone="secondary"
-        size={size}
-        icon={<Share2 className="h-5 w-5" />}
-        label={t('shareBill')}
-        onClick={() => setOpen(true)}
-        disabled={!settings}
-        className={className}
-      />
+      {variant === 'icon' ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen(true);
+          }}
+          disabled={!settings}
+          aria-label={t('shareBill')}
+          title={t('shareBill')}
+          className={`h-10 w-10 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 cursor-pointer disabled:opacity-40 ${className}`}
+        >
+          <Share2 className="h-5 w-5" />
+        </button>
+      ) : (
+        <ActionButton
+          tone="secondary"
+          size={size}
+          icon={<Share2 className="h-5 w-5" />}
+          label={t('shareBill')}
+          onClick={() => setOpen(true)}
+          disabled={!settings}
+          className={className}
+        />
+      )}
       <AppModal open={open} onClose={() => setOpen(false)} title={t('shareTitle')} description={t('shareHint')} icon={<Share2 className="h-5 w-5" />}>
         <div className="space-y-2.5">
           {option('image', <ImageIcon className="h-5 w-5" />, t('shareAsImage'), null, () => share('image'), 'green')}
