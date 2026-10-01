@@ -15,7 +15,7 @@ import type { User } from '../../types';
 import { AppModal } from '../../components/AppModal';
 import { DateRangePicker, type DateRangeValue } from '../../components/DateRangePicker';
 import { describeDbError, type FriendlyError } from '../../lib/dbErrors';
-import { fetchSaleByClientId, fetchSales, fetchShopParties, fetchUserNames } from '../db';
+import { fetchRecentSales, fetchSaleByClientId, fetchSales, fetchShopParties, fetchUserNames } from '../db';
 import { loadWithCache } from '../cache';
 import { formatBillDate, formatIstTime, istToday } from '../fy';
 import { useT } from '../i18n';
@@ -61,7 +61,11 @@ function presetRange(preset: Exclude<Preset, 'custom'>): DateRangeValue {
 
 const ALL_PARTIES = '';
 
-export function SalesListSection({ showToast }: SalesListSectionProps) {
+/** Staff see only this many of the newest bills. */
+const STAFF_BILL_LIMIT = 10;
+
+export function SalesListSection({ currentUser, showToast }: SalesListSectionProps) {
+  const isStaff = currentUser.role !== 'Admin';
   const { t } = useT();
   const [preset, setPreset] = useState<Preset>('today');
   const [range, setRange] = useState<DateRangeValue>(() => presetRange('today'));
@@ -90,7 +94,11 @@ export function SalesListSection({ showToast }: SalesListSectionProps) {
     const queued = await listQueuedSales();
     setQueuedBills(queued);
     try {
-      setServerBills(await fetchSales({ from: range.from, to: range.to, partyId: partyId || null }));
+      setServerBills(
+        isStaff
+          ? await fetchRecentSales(STAFF_BILL_LIMIT)
+          : await fetchSales({ from: range.from, to: range.to, partyId: partyId || null })
+      );
     } catch (err) {
       // Bills waiting on this phone can still be shown without the internet.
       if (queued.length === 0) setLoadError(describeDbError(err, 'Sale bills could not be loaded'));
@@ -125,12 +133,11 @@ export function SalesListSection({ showToast }: SalesListSectionProps) {
     const waiting = queuedBills.filter(
       (b) =>
         !onServer.has(b.clientId) &&
-        b.billDate >= range.from &&
-        b.billDate <= range.to &&
-        (!partyId || b.partyId === partyId)
+        (isStaff || (b.billDate >= range.from && b.billDate <= range.to && (!partyId || b.partyId === partyId)))
     );
-    return [...waiting, ...serverBills];
-  }, [serverBills, queuedBills, range, partyId]);
+    const all = [...waiting, ...serverBills];
+    return isStaff ? all.slice(0, STAFF_BILL_LIMIT) : all;
+  }, [serverBills, queuedBills, range, partyId, isStaff]);
 
   const activeBills = bills.filter((b) => b.status === 'active');
   const total = activeBills.reduce((sum, b) => sum + b.total, 0);
@@ -172,6 +179,7 @@ export function SalesListSection({ showToast }: SalesListSectionProps) {
         }
       />
 
+      {!isStaff && (
       <div className="space-y-2">
         <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
           {presets.map((p) => (
@@ -206,11 +214,18 @@ export function SalesListSection({ showToast }: SalesListSectionProps) {
           />
         </div>
       </div>
+      )}
 
       <div className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-xl px-4 py-3">
         <span className="text-base font-semibold text-slate-600">
-          {formatBillDate(range.from)}
-          {range.to !== range.from && ` – ${formatBillDate(range.to)}`}
+          {isStaff ? (
+            t('lastBills', { n: STAFF_BILL_LIMIT })
+          ) : (
+            <>
+              {formatBillDate(range.from)}
+              {range.to !== range.from && ` – ${formatBillDate(range.to)}`}
+            </>
+          )}
         </span>
         <span className="text-lg font-extrabold text-slate-900 tabular-nums">
           {t('billsSummary', { n: activeBills.length, amount: formatRupees(total) })}

@@ -567,3 +567,17 @@ export async function deleteShopParty(partyId: string): Promise<'deleted' | 'hid
     return 'hidden';
   }
 }
+
+/** The newest sale bills (staff see only these), newest first, without lines. */
+export async function fetchRecentSales(limit: number): Promise<ShopInvoice[]> {
+  const data = await runDb<DbShopInvoice[]>((signal) =>
+    assertSupabase()
+      .from('shop_invoices')
+      .select('*')
+      .eq('bill_type', 'sale')
+      .order('created_at', { ascending: false })
+      .limit(limit)
+      .abortSignal(signal)
+  );
+  return (data ?? []).map(mapInvoice);
+}

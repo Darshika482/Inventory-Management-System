@@ -303,6 +303,7 @@ const en = {
   openBill: 'Open bill',
   upiQrScan: 'Customer scans to pay',
   upiQrNoId: 'Add your UPI ID in Shop settings to show a payment QR here.',
+  lastBills: 'Last {n} bills',
 };
 
 export type TranslationKey = keyof typeof en;
@@ -593,6 +594,7 @@ const hi: Record<TranslationKey, string> = {
   openBill: 'बिल खोलें',
   upiQrScan: 'ग्राहक स्कैन करके पैसे भेजें',
   upiQrNoId: 'यहाँ QR दिखाने के लिए दुकान सेटिंग में अपनी UPI ID डालें।',
+  lastBills: 'पिछले {n} बिल',
 };
 
 const STRINGS: Record<Language, Record<TranslationKey, string>> = { en, hi };
