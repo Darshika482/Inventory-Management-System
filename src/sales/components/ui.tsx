@@ -28,8 +28,8 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, icon, actions }: PageHeaderProps) {
   return (
-    <div className="flex flex-wrap items-center gap-2 @xl:gap-3">
-      <div className="flex items-center gap-2.5 min-w-0 mr-auto">
+    <div className="flex flex-wrap items-center gap-1.5 @md:gap-2 @xl:gap-3">
+      <div className="flex items-center gap-2 min-w-0 mr-auto">
         <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border bg-amber-50 text-amber-600 border-amber-100">
           {icon}
         </span>
@@ -47,11 +47,12 @@ export function LanguageToggle() {
     <button
       type="button"
       onClick={() => setLanguage(language === 'hi' ? 'en' : 'hi')}
-      className="min-h-12 flex items-center gap-2 px-3.5 bg-white border border-slate-200 hover:border-amber-300 text-slate-700 rounded-xl text-sm font-bold cursor-pointer transition-colors shrink-0"
+      className="min-h-12 flex items-center gap-1.5 px-3 @md:px-3.5 bg-white border border-slate-200 hover:border-amber-300 text-slate-700 rounded-xl text-sm font-bold cursor-pointer transition-colors shrink-0"
       aria-label={t('switchLanguage')}
     >
       <Languages className="h-5 w-5 text-amber-600" />
-      {t('switchLanguage')}
+      <span className="@md:hidden">{language === 'hi' ? 'EN' : 'हिं'}</span>
+      <span className="hidden @md:inline">{t('switchLanguage')}</span>
     </button>
   );
 }

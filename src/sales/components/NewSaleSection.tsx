@@ -483,7 +483,10 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
                 tone="secondary"
                 icon={<Eraser className="h-5 w-5" />}
                 label={t('clearBill')}
+                aria-label={t('clearBill')}
+                title={t('clearBill')}
                 onClick={() => setConfirmClear(true)}
+                className="[&>span]:hidden @md:[&>span]:inline"
               />
             )}
           </>
@@ -492,13 +495,13 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
 
       <div className="max-w-3xl space-y-4">
         {/* Customer */}
-        <section className="bg-white border border-slate-200 rounded-xl p-3 sm:p-4 flex items-center gap-3">
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
-            <UserIcon className="h-6 w-6" />
+        <section className="bg-white border border-slate-200 rounded-xl px-3 py-2 flex items-center gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+            <UserIcon className="h-5 w-5" />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold text-slate-500">{t('customer')}</p>
-            <p className="text-lg font-bold text-slate-900 truncate">{party ? party.name : t('cashSale')}</p>
+            <p className="text-xs font-semibold text-slate-500 leading-tight">{t('customer')}</p>
+            <p className="text-base font-bold text-slate-900 truncate leading-snug">{party ? party.name : t('cashSale')}</p>
             <p className="text-sm text-slate-500 truncate">
               {party ? [party.phone, isInterstate ? t('otherStateNote') : ''].filter(Boolean).join(' · ') : t('cashSaleHint')}
             </p>
@@ -859,87 +862,90 @@ function SaleLineRow({
 }) {
   const { t, language } = useT();
   const asItem = { name: line.name, nameHi: line.nameHi } as ShopItem;
+  const subtitle = [secondaryName(asItem, language), unitLabel(t, line.unit), isGst ? `GST ${line.gstRate}%` : '']
+    .filter(Boolean)
+    .join(' · ');
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-3 space-y-2.5">
-      <div className="flex items-start gap-2">
+    <div className="bg-white border border-slate-200 rounded-xl px-3 py-2 space-y-1.5">
+      {/* Name, amount, delete */}
+      <div className="flex items-center gap-2">
         <div className="min-w-0 flex-1">
-          <p className="text-base font-bold text-slate-900 leading-snug">{displayName(asItem, language)}</p>
-          <p className="text-sm text-slate-500 truncate">
-            {[secondaryName(asItem, language), unitLabel(t, line.unit), isGst ? `GST ${line.gstRate}%` : '']
-              .filter(Boolean)
-              .join(' · ')}
-          </p>
+          <p className="text-sm font-bold text-slate-900 leading-tight truncate">{displayName(asItem, language)}</p>
+          {subtitle && <p className="text-xs text-slate-500 truncate">{subtitle}</p>}
         </div>
+        <p className="shrink-0 text-base font-extrabold text-slate-900 tabular-nums">{formatRupees(amount, true)}</p>
         <button
           type="button"
           onClick={onRemove}
-          className="min-h-12 shrink-0 flex items-center gap-1.5 px-3 rounded-xl text-sm font-bold text-red-600 hover:bg-red-50 cursor-pointer"
+          aria-label={t('remove')}
+          title={t('remove')}
+          className="h-9 w-9 shrink-0 flex items-center justify-center rounded-lg text-red-600 hover:bg-red-50 cursor-pointer"
         >
-          <Trash2 className="h-5 w-5" />
-          {t('remove')}
+          <Trash2 className="h-4 w-4" />
         </button>
       </div>
 
-      <div className="flex flex-wrap items-end gap-2">
-        <div className="space-y-1">
-          <p className="text-xs font-semibold text-slate-500">{t('qty')}</p>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => onStep(-1)}
-              aria-label={t('decrease')}
-              className="h-12 w-12 flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 text-2xl font-bold text-slate-800 cursor-pointer"
-            >
-              −
-            </button>
-            <input
-              inputMode="decimal"
-              value={line.qtyText}
-              onChange={(e) => onChange({ qtyText: e.target.value })}
-              aria-label={t('qty')}
-              className={`h-12 w-16 text-center rounded-xl border text-lg font-bold text-slate-900 focus:outline-none focus:border-amber-500 ${
-                qtyValid ? 'border-slate-200 bg-slate-50' : 'border-red-400 bg-red-50'
-              }`}
-            />
-            <button
-              type="button"
-              onClick={() => onStep(1)}
-              aria-label={t('increase')}
-              className="h-12 w-12 flex items-center justify-center rounded-xl bg-[#0F172A] hover:bg-slate-800 text-2xl font-bold text-white cursor-pointer"
-            >
-              +
-            </button>
-          </div>
+      {/* − qty +   ×   ₹ rate */}
+      <div className="flex items-center gap-1.5">
+        <div className="flex items-center rounded-lg border border-slate-200 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => onStep(-1)}
+            aria-label={t('decrease')}
+            className="h-9 w-9 flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-lg font-bold text-slate-700 cursor-pointer"
+          >
+            −
+          </button>
+          <input
+            inputMode="decimal"
+            value={line.qtyText}
+            onChange={(e) => onChange({ qtyText: e.target.value })}
+            onFocus={(e) => e.target.select()}
+            aria-label={t('qty')}
+            className={`h-9 w-12 text-center border-x text-sm font-bold text-slate-900 focus:outline-none ${
+              qtyValid ? 'border-slate-200 bg-white' : 'border-red-300 bg-red-50'
+            }`}
+          />
+          <button
+            type="button"
+            onClick={() => onStep(1)}
+            aria-label={t('increase')}
+            className="h-9 w-9 flex items-center justify-center bg-[#0F172A] hover:bg-slate-800 text-lg font-bold text-white cursor-pointer"
+          >
+            +
+          </button>
         </div>
-        <div className="space-y-1">
-          <p className="text-xs font-semibold text-slate-500">{t('rate')} (₹)</p>
+        <span className="text-xs text-slate-400" aria-hidden="true">
+          ×
+        </span>
+        <div
+          className={`flex h-9 w-24 items-center rounded-lg border focus-within:border-amber-500 ${
+            rateValid ? (rateChanged ? 'border-amber-400 bg-amber-50' : 'border-slate-200 bg-white') : 'border-red-300 bg-red-50'
+          }`}
+        >
+          <span className="pl-2 text-xs font-semibold text-slate-400" aria-hidden="true">
+            ₹
+          </span>
           <input
             inputMode="decimal"
             value={line.rateText}
             onChange={(e) => onChange({ rateText: e.target.value })}
+            onFocus={(e) => e.target.select()}
             aria-label={t('rate')}
-            className={`h-12 w-24 px-3 rounded-xl border text-lg font-bold text-slate-900 focus:outline-none focus:border-amber-500 ${
-              rateValid ? (rateChanged ? 'border-amber-400 bg-amber-50' : 'border-slate-200 bg-slate-50') : 'border-red-400 bg-red-50'
-            }`}
+            className="h-full min-w-0 flex-1 bg-transparent px-1 text-sm font-bold text-slate-900 focus:outline-none"
           />
-        </div>
-        <div className="ml-auto text-right">
-          <p className="text-xs font-semibold text-slate-500">{t('amount')}</p>
-          <p className="h-12 flex items-center justify-end text-xl font-extrabold text-slate-900 tabular-nums">
-            {formatRupees(amount, true)}
-          </p>
         </div>
       </div>
 
       {rateChanged && rateValid && canUpdateRate && (
-        <label className="min-h-12 flex items-center gap-3 rounded-xl bg-amber-50 border border-amber-200 px-3 cursor-pointer">
+        <label className="flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-1.5 cursor-pointer">
           <input
             type="checkbox"
             checked={line.updateRate}
             onChange={(e) => onChange({ updateRate: e.target.checked })}
-            className="h-6 w-6 accent-amber-600 shrink-0"
+            className="h-4 w-4 accent-amber-600 shrink-0"
           />
-          <span className="text-sm font-semibold text-amber-900">
+          <span className="text-xs font-semibold text-amber-900">
             {t('updateSavedRate', { old: formatRupees(line.savedRate) })}
           </span>
         </label>
