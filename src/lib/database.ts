@@ -268,6 +268,8 @@ export async function authenticateUser(
 
   if (legacy.error) throw legacy.error;
   if (!legacy.data || legacy.data.password_hash !== password) return null;
+  // No real session on an older database; mark the sign-in so it is kept.
+  setAppSession('legacy');
 
   return {
     id: legacy.data.id,

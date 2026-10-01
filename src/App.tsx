@@ -11,6 +11,7 @@ import {
   Warehouse,
 } from 'lucide-react';
 import { User, Category, WithdrawalLog, StockAddition, Floor } from './types';
+import { getAppSession } from './lib/supabase';
 import { Login } from './components/Login';
 import { Sidebar } from './components/Sidebar';
 import { AdminDashboard } from './components/AdminDashboard';
@@ -66,6 +67,12 @@ function readStoredUser(): User | null {
   try {
     const stored = localStorage.getItem('ims_current_user');
     if (!stored) return null;
+    // Signed in before session tokens existed: the database would hide all
+    // shop data from this sign-in, so ask for a fresh one.
+    if (!getAppSession()) {
+      localStorage.removeItem('ims_current_user');
+      return null;
+    }
     return JSON.parse(stored) as User;
   } catch {
     return null;
