@@ -502,70 +502,123 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
           />
         </section>
 
-        {/* Discount */}
-        <section className="bg-white border border-slate-200 rounded-xl p-3 sm:p-4 space-y-2">
-          <p className="text-sm font-semibold text-slate-700">{t('discount')}</p>
-          <div className="flex gap-2">
-            <div className="w-36 shrink-0">
-              <Segmented<'amount' | 'percent'>
-                value={draft.discountMode}
-                options={[
-                  { value: 'amount', label: t('discountInRupees') },
-                  { value: 'percent', label: t('discountInPercent') },
-                ]}
-                onChange={(mode) => updateDraft({ discountMode: mode })}
-              />
+        {/* Discount, payment and totals in one card */}
+        <section className="bg-white border border-slate-200 rounded-2xl p-4 space-y-4">
+          <div className="grid grid-cols-1 @lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-4">
+            {/* Discount: the % or ₹ toggle sits inside the field */}
+            <div className="space-y-2">
+              <p className="text-sm font-bold text-slate-700">{t('discount')}</p>
+              <div className="flex h-12 rounded-xl border border-slate-200 bg-slate-50 overflow-hidden focus-within:border-amber-500 focus-within:bg-white transition-colors">
+                <span className="pl-3.5 flex items-center text-base font-semibold text-slate-400" aria-hidden="true">
+                  {draft.discountMode === 'percent' ? '%' : '₹'}
+                </span>
+                <input
+                  inputMode="decimal"
+                  value={draft.discountText}
+                  onChange={(e) => updateDraft({ discountText: e.target.value })}
+                  placeholder="0"
+                  aria-label={t('discount')}
+                  className="min-w-0 flex-1 bg-transparent px-2 text-base font-semibold text-slate-900 placeholder-slate-400 focus:outline-none"
+                />
+                <div className="flex border-l border-slate-200" role="radiogroup" aria-label={t('discount')}>
+                  {(['percent', 'amount'] as const).map((mode) => {
+                    const selected = draft.discountMode === mode;
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        onClick={() => updateDraft({ discountMode: mode })}
+                        className={`w-12 text-sm font-bold cursor-pointer transition-colors ${
+                          selected
+                            ? 'bg-white text-emerald-700 shadow-[inset_0_-2px_0_0_rgb(16,185,129)]'
+                            : 'text-slate-500 hover:bg-slate-100'
+                        }`}
+                      >
+                        {mode === 'percent' ? t('discountInPercent') : t('discountInRupees')}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
-            <input
-              inputMode="decimal"
-              value={draft.discountText}
-              onChange={(e) => updateDraft({ discountText: e.target.value })}
-              placeholder="0"
-              aria-label={t('discount')}
-              className="min-w-0 flex-1 min-h-12 bg-slate-50 border border-slate-200 rounded-xl px-4 text-lg font-bold text-slate-900 focus:outline-none focus:bg-white focus:border-amber-500"
-            />
-          </div>
-        </section>
 
-        {/* Payment */}
-        <section className="bg-white border border-slate-200 rounded-xl p-3 sm:p-4 space-y-3">
-          <Segmented<PaymentMode>
-            label={t('payment')}
-            value={draft.paymentMode}
-            columns={2}
-            options={[
-              { value: 'cash', label: t('pay_cash'), icon: <Banknote className="h-4 w-4" /> },
-              { value: 'upi', label: t('pay_upi'), icon: <Smartphone className="h-4 w-4" /> },
-              { value: 'credit', label: t('pay_credit'), icon: <NotebookPen className="h-4 w-4" /> },
-              { value: 'partial', label: t('pay_partial'), icon: <SplitSquareHorizontal className="h-4 w-4" /> },
-            ]}
-            onChange={(mode) => updateDraft({ paymentMode: mode })}
-          />
+            {/* Payment mode */}
+            <div className="space-y-2">
+              <p className="text-sm font-bold text-slate-700">{t('payment')}</p>
+              <div className="grid grid-cols-4 gap-2" role="radiogroup" aria-label={t('payment')}>
+                {(
+                  [
+                    { value: 'cash', icon: Banknote },
+                    { value: 'upi', icon: Smartphone },
+                    { value: 'credit', icon: NotebookPen },
+                    { value: 'partial', icon: SplitSquareHorizontal },
+                  ] as const
+                ).map(({ value, icon: Icon }) => {
+                  const selected = draft.paymentMode === value;
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      onClick={() => updateDraft({ paymentMode: value })}
+                      className={`min-h-12 px-1 flex flex-col items-center justify-center gap-0.5 rounded-xl border text-xs font-semibold leading-tight text-center whitespace-nowrap cursor-pointer transition-colors ${
+                        selected
+                          ? 'border-emerald-500 bg-emerald-50 text-emerald-800 ring-1 ring-emerald-500'
+                          : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                      }`}
+                    >
+                      <Icon className="h-4 w-4 shrink-0" />
+                      {t(`pay_${value}`)}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
           {draft.paymentMode === 'partial' && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <p className="text-sm font-semibold text-slate-700">{t('paidNow')}</p>
+            <div className="grid grid-cols-1 @lg:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <p className="text-sm font-bold text-slate-700">{t('paidNow')}</p>
                 <input
                   inputMode="decimal"
                   value={draft.paidText}
                   onChange={(e) => updateDraft({ paidText: e.target.value })}
                   placeholder="0"
-                  className="w-full min-h-12 bg-slate-50 border border-slate-200 rounded-xl px-4 text-lg font-bold text-slate-900 focus:outline-none focus:bg-white focus:border-amber-500"
+                  className="w-full h-12 bg-slate-50 border border-slate-200 rounded-xl px-3.5 text-base font-semibold text-slate-900 focus:outline-none focus:bg-white focus:border-amber-500"
                 />
               </div>
-              <Segmented<PaidMode>
-                label={t('paidBy')}
-                value={draft.paidMode}
-                options={[
-                  { value: 'cash', label: t('pay_cash') },
-                  { value: 'upi', label: t('pay_upi') },
-                ]}
-                onChange={(mode) => updateDraft({ paidMode: mode })}
-              />
+              <div className="space-y-2">
+                <p className="text-sm font-bold text-slate-700">{t('paidBy')}</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['cash', 'upi'] as const).map((mode) => {
+                    const selected = draft.paidMode === mode;
+                    return (
+                      <button
+                        key={mode}
+                        type="button"
+                        onClick={() => updateDraft({ paidMode: mode })}
+                        className={`min-h-12 flex items-center justify-center gap-1.5 rounded-xl border text-sm font-semibold cursor-pointer ${
+                          selected
+                            ? 'border-emerald-500 bg-emerald-50 text-emerald-800 ring-1 ring-emerald-500'
+                            : 'border-slate-200 bg-white text-slate-700'
+                        }`}
+                      >
+                        {mode === 'cash' ? <Banknote className="h-4 w-4" /> : <Smartphone className="h-4 w-4" />}
+                        {t(`pay_${mode}`)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           )}
+
           {(draft.paymentMode === 'credit' || draft.paymentMode === 'partial') && (
-            <p className="text-base font-bold text-red-700">
+            <p className="text-sm font-bold text-red-700">
               {t('udhaarLeft', {
                 amount: formatRupees(
                   draft.paymentMode === 'credit' ? bill.total : Math.max(0, bill.total - (paidPartial ?? 0)),
@@ -574,57 +627,61 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
               })}
             </p>
           )}
-        </section>
 
-        {/* Totals */}
-        <section className="bg-white border border-slate-200 rounded-xl p-3 sm:p-4 space-y-1.5 text-base">
-          <TotalRow label={t('itemsTotal')} value={formatRupees(bill.itemsTotal, true)} />
-          {bill.discount > 0 && (
-            <TotalRow
-              label={
-                discount?.kind === 'percent'
-                  ? `${t('discount')} (${paiseToInput(discount.basisPoints)}%)`
-                  : t('discount')
-              }
-              value={`− ${formatRupees(bill.discount, true)}`}
-              tone="emerald"
-            />
-          )}
-          {showTaxOnTop && (
-            <>
-              <TotalRow label={t('taxableValue')} value={formatRupees(bill.subtotal, true)} muted />
-              {isInterstate ? (
-                <TotalRow label={`+ ${t('igst')}`} value={formatRupees(bill.igst, true)} />
-              ) : (
-                <>
-                  <TotalRow label={`+ ${t('cgst')}`} value={formatRupees(bill.cgst, true)} />
-                  <TotalRow label={`+ ${t('sgst')}`} value={formatRupees(bill.sgst, true)} />
-                </>
-              )}
-            </>
-          )}
-          {bill.roundOff !== 0 && (
-            <TotalRow
-              label={t('roundOff')}
-              value={`${bill.roundOff > 0 ? '+' : '−'} ${formatRupees(Math.abs(bill.roundOff), true)}`}
-              muted
-            />
-          )}
-          {isGst && ratesIncludeGst && bill.tax > 0 && (
-            <div className="mt-2 pt-2 border-t border-slate-100 text-sm text-slate-500 space-y-1">
-              <TotalRow label={t('taxableValue')} value={formatRupees(bill.subtotal, true)} muted small />
+          <div className="border-t border-slate-200 pt-3 space-y-1.5">
+            <TotalRow label={t('itemsTotal')} value={formatRupees(bill.itemsTotal, true)} small />
+            {bill.discount > 0 && (
               <TotalRow
-                label={t('gstIncluded')}
-                value={
-                  isInterstate
-                    ? `${t('igst')} ${formatRupees(bill.igst, true)}`
-                    : `${t('cgst')} ${formatRupees(bill.cgst, true)} + ${t('sgst')} ${formatRupees(bill.sgst, true)}`
+                label={
+                  discount?.kind === 'percent'
+                    ? `${t('discount')} (${paiseToInput(discount.basisPoints)}%)`
+                    : t('discount')
                 }
+                value={`− ${formatRupees(bill.discount, true)}`}
+                tone="emerald"
+                small
+              />
+            )}
+            {showTaxOnTop && (
+              <>
+                <TotalRow label={t('taxableValue')} value={formatRupees(bill.subtotal, true)} muted small />
+                {isInterstate ? (
+                  <TotalRow label={`+ ${t('igst')}`} value={formatRupees(bill.igst, true)} small />
+                ) : (
+                  <>
+                    <TotalRow label={`+ ${t('cgst')}`} value={formatRupees(bill.cgst, true)} small />
+                    <TotalRow label={`+ ${t('sgst')}`} value={formatRupees(bill.sgst, true)} small />
+                  </>
+                )}
+              </>
+            )}
+            {bill.roundOff !== 0 && (
+              <TotalRow
+                label={t('roundOff')}
+                value={`${bill.roundOff > 0 ? '+' : '−'} ${formatRupees(Math.abs(bill.roundOff), true)}`}
                 muted
                 small
               />
+            )}
+          </div>
+
+          <div className="border-t border-slate-200 pt-3 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-600">{t('grandTotal')}</p>
+              {isGst && ratesIncludeGst && bill.tax > 0 && (
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {t('inclTax', {
+                    taxes: isInterstate
+                      ? `IGST ${formatRupees(bill.igst, true)}`
+                      : `CGST ${formatRupees(bill.cgst, true)} + SGST ${formatRupees(bill.sgst, true)}`,
+                  })}
+                </p>
+              )}
             </div>
-          )}
+            <p className="shrink-0 text-3xl font-extrabold text-slate-900 tabular-nums tracking-tight">
+              {formatRupees(bill.total, true)}
+            </p>
+          </div>
         </section>
 
         {problem && <FormError message={problem.message} detail={problem.detail} />}
