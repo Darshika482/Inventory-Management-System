@@ -65,3 +65,8 @@ export function toPhoneDigits(value: string): string {
   if (digits.length > 10 && digits.startsWith('0')) digits = digits.slice(1);
   return digits.slice(0, 10);
 }
+
+/** Shop phone: up to two numbers, e.g. "9131297397, 9300106271" (digits, commas and spaces only). */
+export function toShopPhones(value: string): string {
+  return value.replace(/[^\d, ]/g, '').replace(/\s{2,}/g, ' ').slice(0, 23);
+}

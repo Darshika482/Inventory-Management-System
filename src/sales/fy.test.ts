@@ -32,3 +32,12 @@ describe('phone numbers', () => {
     expect(toPhoneDigits('abc98-26')).toBe('9826');
   });
 });
+
+import { toShopPhones } from './states';
+
+describe('shop phone numbers', () => {
+  it('allows two numbers', () => {
+    expect(toShopPhones('9131297397, 9300106271')).toBe('9131297397, 9300106271');
+    expect(toShopPhones('91312-97397 / 93001')).toBe('9131297397 93001');
+  });
+});

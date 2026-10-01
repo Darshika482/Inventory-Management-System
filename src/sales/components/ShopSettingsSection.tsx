@@ -7,7 +7,7 @@ import { fetchShopSettings, updateShopSettings } from '../db';
 import { writeCache } from '../cache';
 import { useT } from '../i18n';
 import { getDeviceSeries, setDeviceSeries } from '../outbox';
-import { GST_STATES, isValidGstin, stateFromGstin, toPhoneDigits } from '../states';
+import { GST_STATES, isValidGstin, stateFromGstin, toShopPhones } from '../states';
 import { formatBillNumber, fyFor, istToday } from '../fy';
 import type { ShopSettings } from '../types';
 import { PrinterSetupPanel } from './PrintUi';
@@ -127,10 +127,11 @@ export function ShopSettingsSection({ currentUser, showToast }: ShopSettingsSect
             <FormInput
               label={t('phone')}
               type="tel"
-              inputMode="numeric"
-              maxLength={10}
+              inputMode="tel"
+              maxLength={23}
+              placeholder="9131297397, 9300106271"
               value={settings.phone}
-              onChange={(e) => update('phone', toPhoneDigits(e.target.value))}
+              onChange={(e) => update('phone', toShopPhones(e.target.value))}
             />
             <FormInput
               label={`${t('gstin')} ${t('optional')}`}
