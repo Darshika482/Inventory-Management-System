@@ -292,7 +292,7 @@ export async function updateShopItem(item: ShopItem, userId: string | null): Pro
 /** item id -> times sold in the last 90 days. */
 export async function fetchItemSaleCounts(): Promise<Record<string, number>> {
   const data = await runDb<{ item_id: string; times_sold: number }[]>((signal) =>
-    assertSupabase().from('shop_item_sale_counts').select('item_id, times_sold').abortSignal(signal)
+    assertSupabase().rpc('shop_item_sale_counts').abortSignal(signal)
   );
   return Object.fromEntries((data ?? []).map((row) => [row.item_id, row.times_sold]));
 }
@@ -532,7 +532,38 @@ export async function fetchSaleByClientId(clientId: string): Promise<ShopInvoice
 /** app user id -> username, to show who made a bill. Reads only id and name. */
 export async function fetchUserNames(): Promise<Record<string, string>> {
   const data = await runDb<{ id: string; username: string }[]>((signal) =>
-    assertSupabase().from('app_users').select('id, username').abortSignal(signal)
+    assertSupabase().from('app_user_list').select('id, username').abortSignal(signal)
   );
   return Object.fromEntries((data ?? []).map((row) => [row.id, row.username]));
+}
+
+// --- Deleting master data ---
+
+/** Old bills keep the item's name: their lines only lose the link. */
+export async function deleteShopItem(itemId: string): Promise<void> {
+  await runDb((signal) => assertSupabase().from('shop_items').delete().eq('id', itemId).abortSignal(signal));
+}
+
+/** The category's items move to "No category". */
+export async function deleteShopCategory(categoryId: string): Promise<void> {
+  await runDb((signal) =>
+    assertSupabase().from('shop_categories').delete().eq('id', categoryId).abortSignal(signal)
+  );
+}
+
+/**
+ * Deletes a customer who has no bills or payments. One who has them is hidden
+ * instead, so their old bills and balance stay correct.
+ */
+export async function deleteShopParty(partyId: string): Promise<'deleted' | 'hidden'> {
+  try {
+    await runDb((signal) => assertSupabase().from('shop_parties').delete().eq('id', partyId).abortSignal(signal));
+    return 'deleted';
+  } catch (err) {
+    if ((err as { code?: string })?.code !== '23503') throw err;
+    await runDb((signal) =>
+      assertSupabase().from('shop_parties').update({ is_active: false }).eq('id', partyId).abortSignal(signal)
+    );
+    return 'hidden';
+  }
 }

@@ -4,7 +4,7 @@
  * at least 48px tall and carries an icon plus a label.
  */
 import React, { useMemo, useState } from 'react';
-import { AlertOctagon, Check, ChevronDown, Languages, Loader2, Search } from 'lucide-react';
+import { AlertOctagon, Check, ChevronDown, Languages, Loader2, Search, Trash2, X } from 'lucide-react';
 import { AppModal } from '../../components/AppModal';
 import type { FriendlyError } from '../../lib/dbErrors';
 import { setLanguage, useT } from '../i18n';
@@ -385,6 +385,59 @@ export function SearchBox({
         placeholder={placeholder}
         className="w-full min-h-12 bg-white border border-slate-200 rounded-xl pl-11 pr-3 text-base text-slate-900 placeholder-slate-400 focus:outline-none focus:border-amber-500 transition-all"
       />
+    </div>
+  );
+}
+
+// --- Delete with a plain-words confirmation ---
+
+interface DeleteZoneProps {
+  label: string;
+  confirmText: string;
+  /** Throws to keep the confirmation open (the caller shows the error). */
+  onConfirm: () => Promise<void>;
+}
+
+/** A red "Delete" button that asks once more, in plain words, before deleting. */
+export function DeleteZone({ label, confirmText, onConfirm }: DeleteZoneProps) {
+  const { t } = useT();
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  if (!asking) {
+    return (
+      <button
+        type="button"
+        onClick={() => setAsking(true)}
+        className="w-full min-h-12 flex items-center justify-center gap-2 rounded-xl text-sm font-bold text-red-600 hover:bg-red-50 cursor-pointer transition-colors"
+      >
+        <Trash2 className="h-5 w-5" />
+        {label}
+      </button>
+    );
+  }
+  return (
+    <div className="rounded-xl border border-red-200 bg-red-50 p-3 space-y-3" role="alertdialog">
+      <p className="text-sm font-semibold text-red-800 leading-relaxed">{confirmText}</p>
+      <div className="grid grid-cols-2 gap-2">
+        <ActionButton tone="secondary" icon={<X className="h-5 w-5" />} label={t('cancel')} onClick={() => setAsking(false)} />
+        <ActionButton
+          tone="danger"
+          icon={<Trash2 className="h-5 w-5" />}
+          label={t('deleteYes')}
+          busy={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await onConfirm();
+            } catch {
+              // The caller has shown what went wrong.
+            } finally {
+              setBusy(false);
+            }
+          }}
+        />
+      </div>
     </div>
   );
 }

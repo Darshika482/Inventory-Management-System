@@ -4,7 +4,7 @@ import type { User } from '../../types';
 import { AppModal } from '../../components/AppModal';
 import { FormError, FormInput } from '../../components/FormInput';
 import { describeDbError, type FriendlyError } from '../../lib/dbErrors';
-import { fetchShopParties, fetchShopSettings, insertShopParty, updateShopParty } from '../db';
+import { deleteShopParty, fetchShopParties, fetchShopSettings, insertShopParty, updateShopParty } from '../db';
 import { loadWithCache } from '../cache';
 import { useT } from '../i18n';
 import { newId } from '../ids';
@@ -19,6 +19,7 @@ import {
   PageHeader,
   PageShell,
   PickerField,
+  DeleteZone,
   SearchBox,
   Segmented,
 } from './ui';
@@ -45,7 +46,8 @@ export function ShopPartiesSection({ currentUser, showToast }: ShopPartiesSectio
         fetchShopParties(),
         loadWithCache<ShopSettings>('settings', fetchShopSettings),
       ]);
-      setParties(partyData);
+      // Hidden customers (deleted but with old bills) are not listed.
+      setParties(partyData.filter((p) => p.isActive));
       setShopState(settings.data.stateCode);
     } catch (err) {
       setLoadError(describeDbError(err, 'Customers could not be loaded'));
@@ -152,6 +154,11 @@ export function ShopPartiesSection({ currentUser, showToast }: ShopPartiesSectio
         canEditBalance={currentUser.role === 'Admin'}
         onClose={() => setEditing(null)}
         onSaved={handleSaved}
+        onDeleted={(deleted, result) => {
+          setParties((prev) => prev.filter((p) => p.id !== deleted.id));
+          setEditing(null);
+          showToast(t(result === 'hidden' ? 'partyHidden' : 'partyDeleted', { name: deleted.name }), 'info');
+        }}
       />
     </PageShell>
   );
@@ -171,6 +178,8 @@ interface PartyFormModalProps {
   initialName?: string;
   onClose: () => void;
   onSaved: (party: ShopParty, isNew: boolean) => void;
+  /** Shown to the owner when changing a saved customer. */
+  onDeleted?: (party: ShopParty, result: 'deleted' | 'hidden') => void;
 }
 
 function cleanPhone(phone: string): string {
@@ -186,6 +195,7 @@ export function PartyFormModal({
   initialName = '',
   onClose,
   onSaved,
+  onDeleted,
 }: PartyFormModalProps) {
   const { t } = useT();
   const [name, setName] = useState('');
@@ -335,6 +345,21 @@ export function PartyFormModal({
             className="sm:flex-1"
           />
         </div>
+        {party && onDeleted && canEditBalance && (
+          <DeleteZone
+            key={party.id}
+            label={t('deleteParty')}
+            confirmText={t('deletePartyConfirm', { name: party.name })}
+            onConfirm={async () => {
+              try {
+                onDeleted(party, await deleteShopParty(party.id));
+              } catch (err) {
+                setProblem(describeDbError(err, t('deleteFailed')));
+                throw err;
+              }
+            }}
+          />
+        )}
       </form>
     </AppModal>
   );

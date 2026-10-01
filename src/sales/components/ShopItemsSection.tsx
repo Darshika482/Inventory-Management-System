@@ -20,6 +20,8 @@ import { describeDbError, type FriendlyError } from '../../lib/dbErrors';
 import {
   fetchShopCategories,
   fetchShopItems,
+  deleteShopCategory,
+  deleteShopItem,
   insertShopCategory,
   insertShopItem,
   saveCategoryOrder,
@@ -41,6 +43,7 @@ import {
   PageShell,
   PickerField,
   SearchBox,
+  DeleteZone,
   Segmented,
   ToggleRow,
 } from './ui';
@@ -248,6 +251,11 @@ export function ShopItemsSection({ currentUser, showToast }: ShopItemsSectionPro
                   )}
                 </header>
 
+                {!reordering && category && !category.isActive && group.items.length > 0 && (
+                  <p className="px-4 py-2 text-sm font-semibold text-amber-800 bg-amber-50 border-b border-amber-100">
+                    {t('hiddenCategoryNote')}
+                  </p>
+                )}
                 {!reordering && (
                   <ul className="divide-y divide-slate-100">
                     {group.items.map((item) => (
@@ -294,6 +302,11 @@ export function ShopItemsSection({ currentUser, showToast }: ShopItemsSectionPro
         userId={currentUser.id}
         onClose={() => setEditingItem(null)}
         onSaved={handleItemSaved}
+        onDeleted={(deleted) => {
+          setItems((prev) => prev.filter((i) => i.id !== deleted.id));
+          setEditingItem(null);
+          showToast(t('itemDeleted', { name: deleted.name }), 'info');
+        }}
       />
       <CategoryFormModal
         open={editingCategory !== null}
@@ -301,6 +314,12 @@ export function ShopItemsSection({ currentUser, showToast }: ShopItemsSectionPro
         nextSortOrder={categories.length}
         onClose={() => setEditingCategory(null)}
         onSaved={handleCategorySaved}
+        onDeleted={(deleted) => {
+          setCategories((prev) => prev.filter((c) => c.id !== deleted.id));
+          setItems((prev) => prev.map((i) => (i.categoryId === deleted.id ? { ...i, categoryId: null } : i)));
+          setEditingCategory(null);
+          showToast(t('categoryDeleted', { name: deleted.name }), 'info');
+        }}
       />
     </PageShell>
   );
@@ -315,9 +334,10 @@ interface ItemFormModalProps {
   userId: string;
   onClose: () => void;
   onSaved: (item: ShopItem, isNew: boolean) => void;
+  onDeleted: (item: ShopItem) => void;
 }
 
-function ItemFormModal({ open, item, categories, userId, onClose, onSaved }: ItemFormModalProps) {
+function ItemFormModal({ open, item, categories, userId, onClose, onSaved, onDeleted }: ItemFormModalProps) {
   const { t, language } = useT();
   const [name, setName] = useState('');
   const [nameHi, setNameHi] = useState('');
@@ -460,6 +480,22 @@ function ItemFormModal({ open, item, categories, userId, onClose, onSaved }: Ite
             className="sm:flex-1"
           />
         </div>
+        {item && (
+          <DeleteZone
+            key={item.id}
+            label={t('deleteItem')}
+            confirmText={t('deleteItemConfirm', { name: item.name })}
+            onConfirm={async () => {
+              try {
+                await deleteShopItem(item.id);
+                onDeleted(item);
+              } catch (err) {
+                setProblem(describeDbError(err, t('deleteFailed')));
+                throw err;
+              }
+            }}
+          />
+        )}
       </form>
     </AppModal>
   );
@@ -473,9 +509,10 @@ interface CategoryFormModalProps {
   nextSortOrder: number;
   onClose: () => void;
   onSaved: (category: ShopCategory, isNew: boolean) => void;
+  onDeleted: (category: ShopCategory) => void;
 }
 
-function CategoryFormModal({ open, category, nextSortOrder, onClose, onSaved }: CategoryFormModalProps) {
+function CategoryFormModal({ open, category, nextSortOrder, onClose, onSaved, onDeleted }: CategoryFormModalProps) {
   const { t } = useT();
   const [name, setName] = useState('');
   const [nameHi, setNameHi] = useState('');
@@ -543,6 +580,22 @@ function CategoryFormModal({ open, category, nextSortOrder, onClose, onSaved }: 
             className="sm:flex-1"
           />
         </div>
+        {category && (
+          <DeleteZone
+            key={category.id}
+            label={t('deleteCategory')}
+            confirmText={t('deleteCategoryConfirm', { name: category.name })}
+            onConfirm={async () => {
+              try {
+                await deleteShopCategory(category.id);
+                onDeleted(category);
+              } catch (err) {
+                setProblem(describeDbError(err, t('deleteFailed')));
+                throw err;
+              }
+            }}
+          />
+        )}
       </form>
     </AppModal>
   );

@@ -268,6 +268,19 @@ const en = {
   printerStatus_connecting: 'Connecting...',
   printerStatus_printing: 'Printing...',
   previewTitle: 'Print preview',
+  deleteItem: 'Delete item',
+  deleteItemConfirm: 'Delete "{name}"? Old bills keep the name. This cannot be undone.',
+  deleteCategory: 'Delete category',
+  deleteCategoryConfirm: 'Delete category "{name}"? Its items move to "No category".',
+  deleteParty: 'Delete customer',
+  deletePartyConfirm: 'Delete "{name}"? If they already have bills, they are hidden instead so old bills stay correct.',
+  deleteYes: 'Yes, delete',
+  itemDeleted: '"{name}" deleted.',
+  categoryDeleted: 'Category "{name}" deleted.',
+  partyDeleted: '"{name}" deleted.',
+  partyHidden: '"{name}" has bills, so they were hidden instead of deleted.',
+  deleteFailed: 'It could not be deleted',
+  hiddenCategoryNote: 'Hidden: these items do not show when billing. Tap Edit and turn on "Show this category when billing".',
 };
 
 export type TranslationKey = keyof typeof en;
@@ -523,6 +536,19 @@ const hi: Record<TranslationKey, string> = {
   printerStatus_connecting: 'जुड़ रहा है...',
   printerStatus_printing: 'प्रिंट हो रहा है...',
   previewTitle: 'प्रिंट से पहले देखें',
+  deleteItem: 'सामान हटाएँ',
+  deleteItemConfirm: '"{name}" हटाएँ? पुराने बिलों में नाम बना रहेगा। यह वापस नहीं होगा।',
+  deleteCategory: 'कैटेगरी हटाएँ',
+  deleteCategoryConfirm: 'कैटेगरी "{name}" हटाएँ? इसके सामान "बिना कैटेगरी" में चले जाएँगे।',
+  deleteParty: 'ग्राहक हटाएँ',
+  deletePartyConfirm: '"{name}" हटाएँ? अगर उनके बिल हैं, तो उन्हें छुपा दिया जाएगा ताकि पुराने बिल सही रहें।',
+  deleteYes: 'हाँ, हटाएँ',
+  itemDeleted: '"{name}" हटा दिया।',
+  categoryDeleted: 'कैटेगरी "{name}" हटा दी।',
+  partyDeleted: '"{name}" हटा दिया।',
+  partyHidden: '"{name}" के बिल हैं, इसलिए उन्हें हटाने की जगह छुपा दिया।',
+  deleteFailed: 'हटाया नहीं जा सका',
+  hiddenCategoryNote: 'छुपी हुई: ये सामान बिल बनाते समय नहीं दिखते। "बदलें" दबाकर "बिल बनाते समय यह कैटेगरी दिखाएँ" चालू करें।',
 };
 
 const STRINGS: Record<Language, Record<TranslationKey, string>> = { en, hi };
