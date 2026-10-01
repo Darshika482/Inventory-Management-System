@@ -1,4 +1,5 @@
-const CACHE_NAME = 'akshay-traders-portal-v1';
+// Bump the version when this file changes, so phones drop the old cache.
+const CACHE_NAME = 'akshay-traders-portal-v2';
 const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/pwa-icon.svg'];
 
 self.addEventListener('install', (event) => {
@@ -22,9 +23,19 @@ self.addEventListener('fetch', (event) => {
 
   if (request.method !== 'GET') return;
 
+  // Database and other sites: never touch, the browser handles them directly.
+  if (new URL(request.url).origin !== self.location.origin) return;
+
+  // Pages: always the newest from the server; the saved copy only when offline.
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(() => caches.match('/index.html'))
+      fetch(request, { cache: 'no-store' })
+        .then((response) => {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put('/index.html', copy));
+          return response;
+        })
+        .catch(() => caches.match('/index.html'))
     );
     return;
   }
