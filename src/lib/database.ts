@@ -27,6 +27,8 @@ import {
   DbWithdrawalLog,
   DbWorker,
   DbWorkerPayment,
+  getAppSession,
+  setAppSession,
   supabase,
 } from './supabase';
 import { isTransientError, RequestTimeoutError } from './dbErrors';
@@ -182,46 +184,109 @@ export async function fetchWithdrawalLogs(): Promise<WithdrawalLog[]> {
   return (data as DbWithdrawalLog[]).map(mapLog);
 }
 
-export async function fetchAppUsers(): Promise<DbAppUser[]> {
-  const { data, error } = await assertSupabase().from('app_users').select('*').order('username');
+type AppUserListRow = Pick<DbAppUser, 'id' | 'username' | 'role'>;
 
-  if (error) throw error;
-  return data as DbAppUser[];
-}
-
-export async function fetchStaffUsers(): Promise<User[]> {
+export async function fetchAppUsers(): Promise<AppUserListRow[]> {
   const { data, error } = await assertSupabase()
-    .from('app_users')
+    .from('app_user_list')
     .select('id, username, role')
-    .eq('role', 'Worker')
     .order('username');
 
   if (error) throw error;
-  return (data as Pick<DbAppUser, 'id' | 'username' | 'role'>[]).map((row) => ({
+  return (data ?? []) as AppUserListRow[];
+}
+
+export async function fetchStaffUsers(): Promise<User[]> {
+  const client = assertSupabase();
+  const listed = await client
+    .from('app_user_list')
+    .select('id, username, role')
+    .eq('role', 'Worker')
+    .order('username');
+  const { data, error } = listed.error
+    ? await client
+        .from('app_users')
+        .select('id, username, role')
+        .eq('role', 'Worker')
+        .order('username')
+    : listed;
+
+  if (error) throw error;
+  return (data as AppUserListRow[]).map((row) => ({
     id: row.id,
     username: row.username,
     role: row.role,
   }));
 }
 
+interface AppLoginResult {
+  token: string;
+  user: { id: string; username: string; role: User['role'] };
+}
+
+function isMissingDbObject(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  const message = error.message ?? '';
+  return (
+    error.code === 'PGRST202' ||
+    error.code === 'PGRST205' ||
+    error.code === '42883' ||
+    error.code === '42P01' ||
+    /could not find the function|does not exist|schema cache/i.test(message)
+  );
+}
+
 export async function authenticateUser(
   username: string,
   password: string
 ): Promise<User | null> {
-  const { data, error } = await assertSupabase()
+  const client = assertSupabase();
+  const { data, error } = await client.rpc('app_login', {
+    p_username: username.trim(),
+    p_password: password,
+  });
+
+  if (!error) {
+    const result = data as AppLoginResult | null;
+    if (!result?.token || !result.user) return null;
+    setAppSession(result.token);
+    return {
+      id: result.user.id,
+      username: result.user.username,
+      role: result.user.role,
+    };
+  }
+
+  if (!isMissingDbObject(error)) throw error;
+
+  // File 6 has not been run yet: compare against the table the old way.
+  const legacy = await client
     .from('app_users')
     .select('id, username, role, password_hash')
     .ilike('username', username.trim())
     .maybeSingle();
 
-  if (error) throw error;
-  if (!data || data.password_hash !== password) return null;
+  if (legacy.error) throw legacy.error;
+  if (!legacy.data || legacy.data.password_hash !== password) return null;
 
   return {
-    id: data.id,
-    username: data.username,
-    role: data.role,
+    id: legacy.data.id,
+    username: legacy.data.username,
+    role: legacy.data.role,
   };
+}
+
+export async function logoutUser(): Promise<void> {
+  const token = getAppSession();
+  try {
+    if (token) {
+      await assertSupabase().rpc('app_logout', { p_token: token });
+    }
+  } catch {
+    // Local sign-out still has to happen if the network is down.
+  } finally {
+    setAppSession(null);
+  }
 }
 
 export async function insertCategory(category: Category): Promise<void> {

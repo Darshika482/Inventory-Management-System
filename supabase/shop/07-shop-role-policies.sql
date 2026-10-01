@@ -49,13 +49,16 @@ create policy "shop_items_read" on public.shop_items
 create policy "shop_items_owner_write" on public.shop_items
   for all using (public.app_role() = 'owner') with check (public.app_role() = 'owner');
 
--- Customers: staff can add (quick add on the bill), only the owner changes.
+-- Customers: staff can add (quick add on the bill), only the owner changes or deletes.
 create policy "shop_parties_read" on public.shop_parties
   for select using (public.app_role() is not null);
 create policy "shop_parties_add" on public.shop_parties
   for insert with check (public.app_role() is not null);
 create policy "shop_parties_owner_update" on public.shop_parties
   for update using (public.app_role() = 'owner') with check (public.app_role() = 'owner');
+-- A customer with bills cannot be deleted (the database refuses); the app hides them instead.
+create policy "shop_parties_owner_delete" on public.shop_parties
+  for delete using (public.app_role() = 'owner');
 
 -- Bill number counters: read to start a phone's numbering.
 create policy "shop_counters_read" on public.shop_counters
@@ -84,6 +87,8 @@ create policy "shop_monthly_summary_owner_read" on public.shop_monthly_summary
   for select using (public.app_role() = 'owner');
 create policy "shop_backup_log_owner_read" on public.shop_backup_log
   for select using (public.app_role() = 'owner');
+
+grant execute on function public.shop_today() to anon, authenticated;
 
 -- Numbers are handed out only inside the save functions.
 revoke execute on function public.shop_next_bill_number(text, text, text) from public, anon, authenticated;

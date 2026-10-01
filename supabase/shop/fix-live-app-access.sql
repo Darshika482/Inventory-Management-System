@@ -1,3 +1,90 @@
+-- FIX: make the shop pages work with the app version that is live now.
+-- Run this whole file in Supabase Dashboard -> SQL Editor. Safe to re-run.
+-- It (1) adds the shop details row, (2) puts back the simple access rules
+-- the live app needs, and (3) puts back the save function the live app uses.
+-- Godown stock tables are not touched.
+
+-- 1. Shop details row and this year's bill counter
+insert into public.shop_settings (id, shop_name, state_code)
+values (1, 'Akshay Traders', '23')
+on conflict (id) do nothing;
+
+-- 2. Access rules (remove any newer owner/staff rules, add the simple ones)
+do $$
+declare r record;
+begin
+  for r in select policyname, tablename from pg_policies
+            where schemaname = 'public' and tablename like 'shop\_%'
+  loop
+    execute format('drop policy if exists %I on public.%I', r.policyname, r.tablename);
+  end loop;
+end $$;
+
+alter table public.shop_settings enable row level security;
+alter table public.shop_categories enable row level security;
+alter table public.shop_items enable row level security;
+alter table public.shop_parties enable row level security;
+alter table public.shop_counters enable row level security;
+alter table public.shop_invoices enable row level security;
+alter table public.shop_invoice_items enable row level security;
+alter table public.shop_payments enable row level security;
+alter table public.shop_audit_log enable row level security;
+alter table public.shop_monthly_summary enable row level security;
+alter table public.shop_backup_log enable row level security;
+
+-- Shop details: read and edit, never add or remove (there is exactly one row).
+drop policy if exists "shop_settings_select" on public.shop_settings;
+create policy "shop_settings_select" on public.shop_settings for select using (true);
+drop policy if exists "shop_settings_update" on public.shop_settings;
+create policy "shop_settings_update" on public.shop_settings for update using (true) with check (true);
+
+drop policy if exists "shop_categories_all" on public.shop_categories;
+create policy "shop_categories_all" on public.shop_categories for all using (true) with check (true);
+
+drop policy if exists "shop_items_all" on public.shop_items;
+create policy "shop_items_all" on public.shop_items for all using (true) with check (true);
+
+drop policy if exists "shop_parties_all" on public.shop_parties;
+create policy "shop_parties_all" on public.shop_parties for all using (true) with check (true);
+
+-- Counters: read by the app to start a device's numbering, moved by the save function.
+drop policy if exists "shop_counters_all" on public.shop_counters;
+create policy "shop_counters_all" on public.shop_counters for all using (true) with check (true);
+
+-- Bills are never deleted (they are cancelled), so no delete policy.
+drop policy if exists "shop_invoices_select" on public.shop_invoices;
+create policy "shop_invoices_select" on public.shop_invoices for select using (true);
+drop policy if exists "shop_invoices_insert" on public.shop_invoices;
+create policy "shop_invoices_insert" on public.shop_invoices for insert with check (true);
+drop policy if exists "shop_invoices_update" on public.shop_invoices;
+create policy "shop_invoices_update" on public.shop_invoices for update using (true) with check (true);
+
+drop policy if exists "shop_invoice_items_select" on public.shop_invoice_items;
+create policy "shop_invoice_items_select" on public.shop_invoice_items for select using (true);
+drop policy if exists "shop_invoice_items_insert" on public.shop_invoice_items;
+create policy "shop_invoice_items_insert" on public.shop_invoice_items for insert with check (true);
+drop policy if exists "shop_invoice_items_update" on public.shop_invoice_items;
+create policy "shop_invoice_items_update" on public.shop_invoice_items for update using (true) with check (true);
+
+drop policy if exists "shop_payments_select" on public.shop_payments;
+create policy "shop_payments_select" on public.shop_payments for select using (true);
+drop policy if exists "shop_payments_insert" on public.shop_payments;
+create policy "shop_payments_insert" on public.shop_payments for insert with check (true);
+drop policy if exists "shop_payments_update" on public.shop_payments;
+create policy "shop_payments_update" on public.shop_payments for update using (true) with check (true);
+
+-- Audit log, monthly summary and backup log: read only for the app.
+-- (The audit trigger and the backup function write to them with owner rights.)
+drop policy if exists "shop_audit_log_select" on public.shop_audit_log;
+create policy "shop_audit_log_select" on public.shop_audit_log for select using (true);
+
+drop policy if exists "shop_monthly_summary_select" on public.shop_monthly_summary;
+create policy "shop_monthly_summary_select" on public.shop_monthly_summary for select using (true);
+
+drop policy if exists "shop_backup_log_select" on public.shop_backup_log;
+create policy "shop_backup_log_select" on public.shop_backup_log for select using (true);
+
+-- 3. Save function and bill numbers (version used by the live app)
 -- Run this in Supabase Dashboard → SQL Editor, after 01-shop-tables.sql.
 -- Main shop sales module, file 2 of 5: bill numbers and saving a sale.
 -- Safe to re-run.
@@ -58,8 +145,6 @@ $$;
 create or replace function public.shop_save_sale(p jsonb)
 returns jsonb
 language plpgsql
-security definer
-set search_path = public
 as $$
 declare
   v_client_id uuid := (p->>'client_id')::uuid;
@@ -81,7 +166,7 @@ declare
   v_round numeric := coalesce((p->>'round_off')::numeric, 0);
   v_total numeric := (p->>'total')::numeric;
   v_paid numeric := coalesce((p->>'paid_amount')::numeric, 0);
-  v_user uuid;
+  v_user uuid := nullif(p->>'created_by', '')::uuid;
   v_lines jsonb := p->'lines';
   v_line jsonb;
   v_sum_taxable numeric := 0;
@@ -90,11 +175,6 @@ declare
   v_invoice_id uuid;
   v_line_no int := 0;
 begin
-  -- Signed-in owner or staff only (see 06-secure-sign-in.sql); the maker is
-  -- taken from the session, never from what the app sends.
-  perform public.app_require_role(array['owner', 'staff']);
-  v_user := public.app_user_id();
-
   if v_client_id is null then
     raise exception 'This bill has no device id (client_id).';
   end if;
@@ -225,9 +305,7 @@ begin
     );
 
     -- "Update saved rate" was ticked for this line: the item list gets the new rate too.
-    -- Only the owner may change saved rates.
-    if coalesce((v_line->>'update_saved_rate')::boolean, false) and nullif(v_line->>'item_id', '') is not null
-       and public.app_role() = 'owner' then
+    if coalesce((v_line->>'update_saved_rate')::boolean, false) and nullif(v_line->>'item_id', '') is not null then
       update public.shop_items
          set sale_rate = (v_line->>'rate')::numeric, updated_by = v_user
        where id = (v_line->>'item_id')::uuid;
@@ -239,25 +317,17 @@ end;
 $$;
 
 -- How often each item was sold in the last 90 days, so the item picker can
--- show the usual items first.
-drop view if exists public.shop_item_sale_counts;
-create or replace function public.shop_item_sale_counts()
-returns table (item_id uuid, times_sold int)
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select l.item_id, count(*)::int
-    from public.shop_invoice_items l
-    join public.shop_invoices i on i.id = l.invoice_id
-   where public.app_role() is not null
-     and i.bill_type = 'sale'
-     and i.status = 'active'
-     and l.item_id is not null
-     and i.bill_date >= ((now() at time zone 'Asia/Kolkata')::date - 90)
-   group by l.item_id;
-$$;
+-- show the usual items first. Runs with the caller's rights.
+create or replace view public.shop_item_sale_counts with (security_invoker = true) as
+select l.item_id, count(*)::int as times_sold
+  from public.shop_invoice_items l
+  join public.shop_invoices i on i.id = l.invoice_id
+ where i.bill_type = 'sale'
+   and i.status = 'active'
+   and l.item_id is not null
+   and i.bill_date >= ((now() at time zone 'Asia/Kolkata')::date - 90)
+ group by l.item_id;
 
-grant execute on function public.shop_save_sale(jsonb) to anon, authenticated;
-grant execute on function public.shop_item_sale_counts() to anon, authenticated;
+insert into public.shop_counters (bill_type, fy, series, last_number)
+values ('sale', public.shop_fy_for((now() at time zone 'Asia/Kolkata')::date), 'A', 0)
+on conflict (bill_type, fy, series) do nothing;

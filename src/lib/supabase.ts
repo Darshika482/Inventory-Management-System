@@ -5,8 +5,37 @@ const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY ?? '';
 
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
 
+/** Session token from app_login(); the database reads it as header x-app-session. */
+export const APP_SESSION_KEY = 'ims_app_session';
+
+export function getAppSession(): string | null {
+  try {
+    return localStorage.getItem(APP_SESSION_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setAppSession(token: string | null): void {
+  try {
+    if (token) localStorage.setItem(APP_SESSION_KEY, token);
+    else localStorage.removeItem(APP_SESSION_KEY);
+  } catch {
+    // Private mode or a full disk: sign-in still works for this tab.
+  }
+}
+
+function fetchWithSession(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers);
+  const token = getAppSession();
+  if (token) headers.set('x-app-session', token);
+  return fetch(input, { ...init, headers });
+}
+
 export const supabase = isSupabaseConfigured
-  ? createClient(supabaseUrl, supabaseAnonKey)
+  ? createClient(supabaseUrl, supabaseAnonKey, {
+      global: { fetch: fetchWithSession },
+    })
   : null;
 
 export type DbCategory = {

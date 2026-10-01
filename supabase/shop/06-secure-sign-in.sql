@@ -66,7 +66,10 @@ alter table public.app_users enable row level security;
 drop policy if exists "app_users_select" on public.app_users;
 
 -- Names and roles only (used for "who made this bill" and the staff list).
-create or replace view public.app_user_list as
+-- Runs as the view owner so RLS on app_users does not hide the rows.
+drop view if exists public.app_user_list;
+create view public.app_user_list
+  with (security_invoker = false) as
   select id, username, role from public.app_users;
 grant select on public.app_user_list to anon, authenticated;
 
@@ -83,8 +86,17 @@ declare
   v_token text;
 begin
   select * into v_user from public.app_users where lower(username) = lower(btrim(p_username));
-  if not found or v_user.password_hash is null
-     or v_user.password_hash <> extensions.crypt(p_password, v_user.password_hash) then
+  if not found or v_user.password_hash is null then
+    return null;
+  end if;
+  -- Hashed passwords are checked with bcrypt. A password still stored as plain
+  -- text (e.g. set by hand in the SQL editor while the hashing trigger was off)
+  -- is compared as it is, so the user can still sign in.
+  if v_user.password_hash ~ '^\$2[abxy]\$' then
+    if v_user.password_hash <> extensions.crypt(p_password, v_user.password_hash) then
+      return null;
+    end if;
+  elsif v_user.password_hash <> p_password then
     return null;
   end if;
 
@@ -163,3 +175,7 @@ $$;
 
 grant execute on function public.app_login(text, text) to anon, authenticated;
 grant execute on function public.app_logout(text) to anon, authenticated;
+grant execute on function public.app_session_token() to anon, authenticated;
+grant execute on function public.app_user_id() to anon, authenticated;
+grant execute on function public.app_role() to anon, authenticated;
+grant execute on function public.app_require_role(text[]) to anon, authenticated;

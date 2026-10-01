@@ -27,6 +27,7 @@ import {
   fetchWithdrawalLogs,
   fetchStaffUsers,
   fetchStockAdditions,
+  logoutUser,
   insertCategory,
   insertStockAddition,
   insertWithdrawalLog,
@@ -61,11 +62,18 @@ function readInitialSection(user: User | null): string {
   return stored || home;
 }
 
-export default function App() {
-  const [currentUser, setCurrentUser] = useState<User | null>(() => {
+function readStoredUser(): User | null {
+  try {
     const stored = localStorage.getItem('ims_current_user');
-    return stored ? JSON.parse(stored) : null;
-  });
+    if (!stored) return null;
+    return JSON.parse(stored) as User;
+  } catch {
+    return null;
+  }
+}
+
+export default function App() {
+  const [currentUser, setCurrentUser] = useState<User | null>(() => readStoredUser());
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [logs, setLogs] = useState<WithdrawalLog[]>([]);
@@ -99,7 +107,7 @@ export default function App() {
         fetchCategories(),
         fetchWithdrawalLogs(),
         fetchStockAdditions(),
-        fetchStaffUsers(),
+        fetchStaffUsers().catch(() => [] as User[]),
       ]);
       setCategories(categoriesData);
       setLogs(logsData);
@@ -176,6 +184,7 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    void logoutUser();
     setCurrentUser(null);
     showToast('You have signed out.', 'info');
   };
