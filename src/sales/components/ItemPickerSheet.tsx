@@ -1,11 +1,23 @@
 import React, { useMemo, useState } from 'react';
-import { Check, PackageSearch, Star } from 'lucide-react';
+import { Check, Minus, PackageSearch, Plus, Star, Trash2 } from 'lucide-react';
 import { AppModal } from '../../components/AppModal';
 import { useT } from '../i18n';
 import { displayName, matchesSearch, secondaryName, unitLabel } from '../labels';
-import { formatQty, formatRupees, type Milli } from '../money';
+import { formatRupees, parseMilli, type Paise } from '../money';
 import type { ShopCategory, ShopItem } from '../types';
 import { ActionButton, SearchBox } from './ui';
+
+/** What the picker needs to show and edit an item that is already on the bill. */
+export interface PickerLine {
+  qtyText: string;
+  rateText: string;
+  /** qty × rate for this line */
+  amount: Paise;
+  qtyValid: boolean;
+  rateValid: boolean;
+  /** Rate differs from the item's saved rate */
+  rateChanged: boolean;
+}
 
 interface ItemPickerSheetProps {
   open: boolean;
@@ -14,9 +26,13 @@ interface ItemPickerSheetProps {
   categories: ShopCategory[];
   /** item id -> times sold recently */
   saleCounts: Record<string, number>;
-  /** item id -> quantity already on the bill */
-  onBill: Record<string, Milli>;
+  /** item id -> its line on the bill */
+  lines: Record<string, PickerLine>;
+  billTotal: Paise;
   onPick: (item: ShopItem) => void;
+  onChangeLine: (itemId: string, patch: { qtyText?: string; rateText?: string }) => void;
+  onStep: (itemId: string, direction: 1 | -1) => void;
+  onRemove: (itemId: string) => void;
 }
 
 const ALL = '__all__';
@@ -24,18 +40,32 @@ const FREQUENT = '__frequent__';
 
 /**
  * Bottom sheet for adding items to a bill: search, category chips, the usual
- * items first. Tapping an item adds it; tapping again adds one more.
+ * items first. Tapping an item adds it; once on the bill its quantity and rate
+ * can be changed right here.
  */
-export function ItemPickerSheet({ open, onClose, items, categories, saleCounts, onBill, onPick }: ItemPickerSheetProps) {
+export function ItemPickerSheet({
+  open,
+  onClose,
+  items,
+  categories,
+  saleCounts,
+  lines,
+  billTotal,
+  onPick,
+  onChangeLine,
+  onStep,
+  onRemove,
+}: ItemPickerSheetProps) {
   const { t, language } = useT();
   const [search, setSearch] = useState('');
   const [chip, setChip] = useState(ALL);
 
   const activeCategories = categories.filter((c) => c.isActive);
-  const hiddenCategoryIds = new Set(categories.filter((c) => !c.isActive).map((c) => c.id));
   const hasFrequent = Object.keys(saleCounts).length > 0;
+  const lineCount = Object.keys(lines).length;
 
   const shown = useMemo(() => {
+    const hiddenCategoryIds = new Set(categories.filter((c) => !c.isActive).map((c) => c.id));
     const sellable = items.filter((item) => item.isActive && !(item.categoryId && hiddenCategoryIds.has(item.categoryId)));
     const searching = search.trim().length > 0;
     const list = sellable.filter((item) => {
@@ -46,10 +76,10 @@ export function ItemPickerSheet({ open, onClose, items, categories, saleCounts, 
     });
     // Usual items first, then A to Z.
     return list.sort(
-      (a, b) => (saleCounts[b.id] ?? 0) - (saleCounts[a.id] ?? 0) || displayName(a, language).localeCompare(displayName(b, language))
+      (a, b) =>
+        (saleCounts[b.id] ?? 0) - (saleCounts[a.id] ?? 0) ||
+        displayName(a, language).localeCompare(displayName(b, language))
     );
-    // hiddenCategoryIds is derived from categories
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, categories, saleCounts, search, chip, language]);
 
   const chips = [
@@ -59,19 +89,19 @@ export function ItemPickerSheet({ open, onClose, items, categories, saleCounts, 
   ];
 
   return (
-    <AppModal open={open} onClose={onClose} title={t('addItems')} description={t('pickerHint')} icon={<PackageSearch className="h-5 w-5" />}>
+    <AppModal open={open} onClose={onClose} title={t('addItems')} icon={<PackageSearch className="h-5 w-5" />}>
       <div className="space-y-3">
         <SearchBox value={search} onChange={setSearch} placeholder={t('searchItems')} />
 
         {!search.trim() && chips.length > 1 && (
-          <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+          <div className="flex gap-1.5 overflow-x-auto -mx-1 px-1 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {chips.map((c) => (
               <button
                 key={c.id}
                 type="button"
                 onClick={() => setChip(c.id)}
-                className={`shrink-0 min-h-12 px-4 flex items-center gap-1.5 rounded-full border text-sm font-bold cursor-pointer whitespace-nowrap transition-colors ${
-                  chip === c.id ? 'bg-[#0F172A] border-[#0F172A] text-white' : 'bg-white border-slate-200 text-slate-700'
+                className={`shrink-0 min-h-12 px-4 flex items-center gap-1.5 rounded-full text-sm font-semibold cursor-pointer whitespace-nowrap transition-colors ${
+                  chip === c.id ? 'bg-[#0F172A] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
                 {c.id === FREQUENT && <Star className="h-4 w-4" />}
@@ -86,44 +116,137 @@ export function ItemPickerSheet({ open, onClose, items, categories, saleCounts, 
         ) : shown.length === 0 ? (
           <p className="px-4 py-8 text-center text-base text-slate-500">{t('noMatch')}</p>
         ) : (
-          <ul className="space-y-2">
-            {shown.map((item) => {
-              const qty = onBill[item.id] ?? 0;
-              return (
-                <li key={item.id}>
-                  <button
-                    type="button"
-                    onClick={() => onPick(item)}
-                    className={`w-full min-h-14 flex items-center gap-3 rounded-xl border px-4 py-2.5 text-left cursor-pointer transition-colors active:scale-[0.99] ${
-                      qty > 0 ? 'bg-emerald-50 border-emerald-300' : 'bg-white border-slate-200 hover:border-amber-300'
-                    }`}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="text-base font-bold text-slate-900 truncate">{displayName(item, language)}</p>
-                      <p className="text-sm text-slate-500 truncate">
-                        {[secondaryName(item, language), unitLabel(t, item.unit)].filter(Boolean).join(' · ')}
-                      </p>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <p className="text-base font-bold text-slate-900 tabular-nums">{formatRupees(item.saleRate)}</p>
-                      {qty > 0 && (
-                        <p className="text-sm font-bold text-emerald-700 flex items-center justify-end gap-1">
-                          <Check className="h-4 w-4" />
-                          {t('onBill', { n: formatQty(qty) })}
-                        </p>
-                      )}
-                    </div>
-                  </button>
-                </li>
-              );
-            })}
+          <ul className="rounded-xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
+            {shown.map((item) => (
+              <PickerRow
+                key={item.id}
+                item={item}
+                line={lines[item.id]}
+                onPick={() => onPick(item)}
+                onChange={(patch) => onChangeLine(item.id, patch)}
+                onStep={(direction) => onStep(item.id, direction)}
+                onRemove={() => onRemove(item.id)}
+              />
+            ))}
           </ul>
         )}
 
-        <div className="sticky bottom-0 pt-2 bg-white">
-          <ActionButton icon={<Check className="h-5 w-5" />} label={t('pickerDone')} onClick={onClose} size="lg" className="w-full" />
+        <div className="sticky bottom-0 -mx-1 px-1 pt-2 bg-white">
+          <ActionButton
+            icon={<Check className="h-5 w-5" />}
+            label={
+              lineCount > 0
+                ? `${t('pickerDone')} · ${lineCount === 1 ? t('oneItem') : t('itemsCount', { n: lineCount })} · ${formatRupees(billTotal)}`
+                : t('pickerDone')
+            }
+            onClick={onClose}
+            className="w-full"
+          />
         </div>
       </div>
     </AppModal>
+  );
+}
+
+interface PickerRowProps {
+  item: ShopItem;
+  line: PickerLine | undefined;
+  onPick: () => void;
+  onChange: (patch: { qtyText?: string; rateText?: string }) => void;
+  onStep: (direction: 1 | -1) => void;
+  onRemove: () => void;
+}
+
+function PickerRow({ item, line, onPick, onChange, onStep, onRemove }: PickerRowProps) {
+  const { t, language } = useT();
+  const subtitle = [secondaryName(item, language), unitLabel(t, item.unit)].filter(Boolean).join(' · ');
+
+  // Not on the bill yet: the whole row is one big "add" button.
+  if (!line) {
+    return (
+      <li>
+        <button
+          type="button"
+          onClick={onPick}
+          className="w-full min-h-14 flex items-center gap-3 px-3.5 py-2.5 text-left bg-white hover:bg-slate-50 cursor-pointer transition-colors"
+        >
+          <span className="min-w-0 flex-1">
+            <span className="block text-base font-semibold text-slate-900 truncate">{displayName(item, language)}</span>
+            <span className="block text-sm text-slate-500 truncate">{subtitle}</span>
+          </span>
+          <span className="shrink-0 text-base font-semibold text-slate-700 tabular-nums">{formatRupees(item.saleRate)}</span>
+          <span className="shrink-0 flex h-9 w-9 items-center justify-center rounded-full bg-amber-500 text-[#0F172A]">
+            <Plus className="h-5 w-5" />
+          </span>
+        </button>
+      </li>
+    );
+  }
+
+  // On the bill: quantity and rate can be changed right here.
+  const qty = parseMilli(line.qtyText) ?? 0;
+  const atOne = qty <= 1000;
+  return (
+    <li className="bg-emerald-50/60 px-3.5 py-2.5 space-y-2">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-base font-semibold text-slate-900 truncate">{displayName(item, language)}</p>
+          <p className="text-sm text-slate-500 truncate">{subtitle}</p>
+        </div>
+        <p className="shrink-0 text-base font-bold text-emerald-800 tabular-nums">{formatRupees(line.amount, true)}</p>
+      </div>
+      <div className="flex items-center gap-2">
+        <div className="flex items-center rounded-xl border border-slate-200 bg-white overflow-hidden">
+          <button
+            type="button"
+            onClick={atOne ? onRemove : () => onStep(-1)}
+            aria-label={atOne ? t('remove') : t('decrease')}
+            className={`h-12 w-12 flex items-center justify-center cursor-pointer transition-colors ${
+              atOne ? 'text-red-600 hover:bg-red-50' : 'text-slate-700 hover:bg-slate-100'
+            }`}
+          >
+            {atOne ? <Trash2 className="h-4 w-4" /> : <Minus className="h-4 w-4" />}
+          </button>
+          <input
+            inputMode="decimal"
+            value={line.qtyText}
+            onChange={(e) => onChange({ qtyText: e.target.value })}
+            onFocus={(e) => e.target.select()}
+            aria-label={t('qty')}
+            className={`h-12 w-14 text-center text-base font-bold text-slate-900 border-x focus:outline-none ${
+              line.qtyValid ? 'border-slate-200' : 'border-red-300 bg-red-50'
+            }`}
+          />
+          <button
+            type="button"
+            onClick={() => onStep(1)}
+            aria-label={t('increase')}
+            className="h-12 w-12 flex items-center justify-center text-slate-700 hover:bg-slate-100 cursor-pointer transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+        </div>
+        <span className="text-sm text-slate-400" aria-hidden="true">
+          ×
+        </span>
+        <div
+          className={`flex h-12 min-w-0 flex-1 items-center rounded-xl border bg-white focus-within:border-amber-500 ${
+            !line.rateValid ? 'border-red-300 bg-red-50' : line.rateChanged ? 'border-amber-400' : 'border-slate-200'
+          }`}
+        >
+          <span className="pl-3 text-sm font-semibold text-slate-400" aria-hidden="true">
+            ₹
+          </span>
+          <input
+            inputMode="decimal"
+            value={line.rateText}
+            onChange={(e) => onChange({ rateText: e.target.value })}
+            onFocus={(e) => e.target.select()}
+            aria-label={t('rate')}
+            className="h-full min-w-0 flex-1 bg-transparent px-1.5 text-base font-bold text-slate-900 focus:outline-none"
+          />
+        </div>
+      </div>
+    </li>
   );
 }

@@ -43,7 +43,7 @@ import { displayName, secondaryName, unitLabel } from '../labels';
 import { formatQty, formatRupees, paiseToInput, parseMilli, parsePaise, type Paise } from '../money';
 import { getDeviceSeries, queueSale, refreshCounter, syncOutbox } from '../outbox';
 import type { PaidMode, PaymentMode, ShopCategory, ShopInvoice, ShopItem, ShopParty, ShopSettings } from '../types';
-import { ItemPickerSheet } from './ItemPickerSheet';
+import { ItemPickerSheet, type PickerLine } from './ItemPickerSheet';
 import { PartyFormModal } from './ShopPartiesSection';
 import { ActionButton, ErrorState, LoadingState, PageHeader, PageShell, SearchBox, Segmented } from './ui';
 
@@ -198,13 +198,18 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
   });
 
   const paidPartial = parsePaise(draft.paidText || '');
-  const onBill = useMemo(() => {
-    const map: Record<string, number> = {};
-    for (const { line, qty } of parsedLines) map[line.itemId] = (map[line.itemId] ?? 0) + (qty ?? 0);
-    return map;
-    // parsedLines is rebuilt from draft.lines
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft.lines]);
+  // Each item's line, for editing quantity and rate inside the item picker.
+  const pickerLines: Record<string, PickerLine> = {};
+  parsedLines.forEach(({ line, qty, rate }, index) => {
+    pickerLines[line.itemId] = {
+      qtyText: line.qtyText,
+      rateText: line.rateText,
+      amount: bill.lines[index]?.gross ?? 0,
+      qtyValid: qty !== null && qty > 0,
+      rateValid: rate !== null && rate >= 0,
+      rateChanged: rate !== null && rate !== line.savedRate,
+    };
+  });
 
   if (isLoading) return <LoadingState />;
   if (loadError || !settings) {
@@ -249,6 +254,10 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
     if (next <= 0) return;
     updateLine(line.key, { qtyText: formatQty(next) });
   };
+
+  const lineForItem = (itemId: string) => draft.lines.find((l) => l.itemId === itemId);
+  const removeItem = (itemId: string) =>
+    setDraft((prev) => ({ ...prev, lines: prev.lines.filter((l) => l.itemId !== itemId) }));
 
   const setGst = (value: boolean) => {
     setIsGst(value);
@@ -724,8 +733,18 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
         items={items}
         categories={categories}
         saleCounts={saleCounts}
-        onBill={onBill}
+        lines={pickerLines}
+        billTotal={bill.total}
         onPick={addItem}
+        onChangeLine={(itemId, patch) => {
+          const line = lineForItem(itemId);
+          if (line) updateLine(line.key, patch);
+        }}
+        onStep={(itemId, direction) => {
+          const line = lineForItem(itemId);
+          if (line) stepQty(line, direction);
+        }}
+        onRemove={removeItem}
       />
 
       <PartyPickerSheet
