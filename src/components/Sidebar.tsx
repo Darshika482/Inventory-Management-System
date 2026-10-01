@@ -1,6 +1,7 @@
 import React from 'react';
 import { LogOut, Shield, User as UserIcon, Package, FileClock, CalendarPlus, ReceiptText, Truck, Users, Wallet, Warehouse, BarChart3, X } from 'lucide-react';
 import { User } from '../types';
+import { ShopNavGroup } from '../sales/ShopModule';
 
 interface SidebarProps {
   currentUser: User;
@@ -194,6 +195,8 @@ export function Sidebar({
             Take stock
           </button>
         )}
+
+        <ShopNavGroup role={userRole} activeSection={activeSection} onNavigate={handleNavClick} />
       </nav>
 
       <div className="p-4 border-t border-white/5">

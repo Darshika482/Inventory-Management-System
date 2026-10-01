@@ -36,6 +36,7 @@ import {
 } from './lib/database';
 import { createCategoryId } from './lib/floors';
 import { useBackDismiss } from './lib/backGuard';
+import { isShopSection, ShopSection } from './sales/ShopModule';
 
 interface Toast {
   id: string;
@@ -50,12 +51,14 @@ function homeSectionFor(role?: User['role']): string {
 }
 
 // Reopen on the page the user last had. Admins can land on any of their pages
-// (whatever was stored came from a real menu click), while workers only ever
-// have their single page. Falls back to the home page when nothing is stored.
+// (whatever was stored came from a real menu click), while workers only have
+// their stock page and the shop sales pages open to staff. Falls back to the
+// home page when nothing is stored.
 function readInitialSection(user: User | null): string {
   const home = homeSectionFor(user?.role);
-  if (user?.role !== 'Admin') return home;
-  return localStorage.getItem(ACTIVE_SECTION_KEY) || home;
+  const stored = localStorage.getItem(ACTIVE_SECTION_KEY);
+  if (user?.role !== 'Admin') return stored && isShopSection(stored, user?.role ?? 'Worker') ? stored : home;
+  return stored || home;
 }
 
 export default function App() {
@@ -522,7 +525,15 @@ export default function App() {
           </div>
         </header>
 
-        {currentUser.role === 'Admin' && activeSection === 'bills' ? (
+        {isShopSection(activeSection, currentUser.role) ? (
+          <ShopSection
+            key={activeSection}
+            section={activeSection}
+            currentUser={currentUser}
+            onNavigate={setActiveSection}
+            showToast={showToast}
+          />
+        ) : currentUser.role === 'Admin' && activeSection === 'bills' ? (
           <BillsSection showToast={showToast} />
         ) : currentUser.role === 'Admin' && activeSection === 'payments' ? (
           <PaymentsSection showToast={showToast} />

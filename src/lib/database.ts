@@ -31,7 +31,7 @@ import {
 } from './supabase';
 import { isTransientError, RequestTimeoutError } from './dbErrors';
 
-function assertSupabase() {
+export function assertSupabase() {
   if (!supabase) {
     throw new Error(
       'Missing Supabase env vars. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Vercel project settings.'
@@ -94,7 +94,7 @@ interface RunDbOptions {
 }
 
 /** Retries the failures that are worth retrying, and only those. */
-async function runDb<T>(request: DbRequest<T>, options: RunDbOptions = {}): Promise<T | null> {
+export async function runDb<T>(request: DbRequest<T>, options: RunDbOptions = {}): Promise<T | null> {
   const { duplicateMeansSaved = false } = options;
   const startedAt = Date.now();
 

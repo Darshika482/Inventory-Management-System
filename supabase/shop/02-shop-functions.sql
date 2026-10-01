@@ -228,3 +228,15 @@ begin
   return jsonb_build_object('id', v_invoice_id, 'bill_number', v_number, 'already_saved', false);
 end;
 $$;
+
+-- How often each item was sold in the last 90 days, so the item picker can
+-- show the usual items first. Runs with the caller's rights.
+create or replace view public.shop_item_sale_counts with (security_invoker = true) as
+select l.item_id, count(*)::int as times_sold
+  from public.shop_invoice_items l
+  join public.shop_invoices i on i.id = l.invoice_id
+ where i.bill_type = 'sale'
+   and i.status = 'active'
+   and l.item_id is not null
+   and i.bill_date >= ((now() at time zone 'Asia/Kolkata')::date - 90)
+ group by l.item_id;
