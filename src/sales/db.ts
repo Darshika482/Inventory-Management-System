@@ -528,3 +528,11 @@ export async function fetchSaleByClientId(clientId: string): Promise<ShopInvoice
   );
   return data ? mapInvoice(data) : null;
 }
+
+/** app user id -> username, to show who made a bill. Reads only id and name. */
+export async function fetchUserNames(): Promise<Record<string, string>> {
+  const data = await runDb<{ id: string; username: string }[]>((signal) =>
+    assertSupabase().from('app_users').select('id, username').abortSignal(signal)
+  );
+  return Object.fromEntries((data ?? []).map((row) => [row.id, row.username]));
+}

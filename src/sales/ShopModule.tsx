@@ -3,16 +3,17 @@
  * its pages. App.tsx and Sidebar.tsx only call these two components.
  */
 import React, { useEffect } from 'react';
-import { Package, Settings, ShoppingCart, Users } from 'lucide-react';
+import { Package, ReceiptText, Settings, ShoppingCart, Users } from 'lucide-react';
 import type { User } from '../types';
 import { useT, type TranslationKey } from './i18n';
 import { startOutboxSync } from './outbox';
 import { NewSaleSection } from './components/NewSaleSection';
 import { ShopItemsSection } from './components/ShopItemsSection';
+import { SalesListSection } from './components/SalesListSection';
 import { ShopPartiesSection } from './components/ShopPartiesSection';
 import { ShopSettingsSection } from './components/ShopSettingsSection';
 
-export type ShopSectionId = 'shop-new-sale' | 'shop-items' | 'shop-parties' | 'shop-settings';
+export type ShopSectionId = 'shop-new-sale' | 'shop-sales' | 'shop-items' | 'shop-parties' | 'shop-settings';
 
 interface ShopPage {
   id: ShopSectionId;
@@ -23,6 +24,7 @@ interface ShopPage {
 
 const PAGES: ShopPage[] = [
   { id: 'shop-new-sale', labelKey: 'menuNewSale', icon: ShoppingCart, ownerOnly: false },
+  { id: 'shop-sales', labelKey: 'menuSales', icon: ReceiptText, ownerOnly: false },
   { id: 'shop-items', labelKey: 'menuItems', icon: Package, ownerOnly: true },
   { id: 'shop-parties', labelKey: 'menuParties', icon: Users, ownerOnly: false },
   { id: 'shop-settings', labelKey: 'menuSettings', icon: Settings, ownerOnly: true },
@@ -80,6 +82,8 @@ export function ShopSection({ section, currentUser, onNavigate, showToast }: Sho
   switch (section) {
     case 'shop-new-sale':
       return <NewSaleSection currentUser={currentUser} onNavigate={onNavigate} showToast={showToast} />;
+    case 'shop-sales':
+      return <SalesListSection currentUser={currentUser} showToast={showToast} />;
     case 'shop-items':
       return <ShopItemsSection currentUser={currentUser} showToast={showToast} />;
     case 'shop-parties':
