@@ -36,6 +36,8 @@ create trigger shop_invoices_touch before update on public.shop_invoices
 create or replace function public.shop_fill_cost_rate()
 returns trigger
 language plpgsql
+security definer
+set search_path = public
 as $$
 declare
   v_type text;
@@ -65,6 +67,8 @@ create trigger shop_invoice_items_cost_rate before insert on public.shop_invoice
 create or replace function public.shop_update_purchase_rate()
 returns trigger
 language plpgsql
+security definer
+set search_path = public
 as $$
 begin
   if new.item_id is not null and exists (

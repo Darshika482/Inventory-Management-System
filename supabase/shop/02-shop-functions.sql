@@ -58,6 +58,8 @@ $$;
 create or replace function public.shop_save_sale(p jsonb)
 returns jsonb
 language plpgsql
+security definer
+set search_path = public
 as $$
 declare
   v_client_id uuid := (p->>'client_id')::uuid;
@@ -79,7 +81,7 @@ declare
   v_round numeric := coalesce((p->>'round_off')::numeric, 0);
   v_total numeric := (p->>'total')::numeric;
   v_paid numeric := coalesce((p->>'paid_amount')::numeric, 0);
-  v_user uuid := nullif(p->>'created_by', '')::uuid;
+  v_user uuid;
   v_lines jsonb := p->'lines';
   v_line jsonb;
   v_sum_taxable numeric := 0;
@@ -88,6 +90,11 @@ declare
   v_invoice_id uuid;
   v_line_no int := 0;
 begin
+  -- Signed-in owner or staff only (see 06-secure-sign-in.sql); the maker is
+  -- taken from the session, never from what the app sends.
+  perform public.app_require_role(array['owner', 'staff']);
+  v_user := public.app_user_id();
+
   if v_client_id is null then
     raise exception 'This bill has no device id (client_id).';
   end if;
@@ -218,7 +225,9 @@ begin
     );
 
     -- "Update saved rate" was ticked for this line: the item list gets the new rate too.
-    if coalesce((v_line->>'update_saved_rate')::boolean, false) and nullif(v_line->>'item_id', '') is not null then
+    -- Only the owner may change saved rates.
+    if coalesce((v_line->>'update_saved_rate')::boolean, false) and nullif(v_line->>'item_id', '') is not null
+       and public.app_role() = 'owner' then
       update public.shop_items
          set sale_rate = (v_line->>'rate')::numeric, updated_by = v_user
        where id = (v_line->>'item_id')::uuid;
@@ -230,13 +239,22 @@ end;
 $$;
 
 -- How often each item was sold in the last 90 days, so the item picker can
--- show the usual items first. Runs with the caller's rights.
-create or replace view public.shop_item_sale_counts with (security_invoker = true) as
-select l.item_id, count(*)::int as times_sold
-  from public.shop_invoice_items l
-  join public.shop_invoices i on i.id = l.invoice_id
- where i.bill_type = 'sale'
-   and i.status = 'active'
-   and l.item_id is not null
-   and i.bill_date >= ((now() at time zone 'Asia/Kolkata')::date - 90)
- group by l.item_id;
+-- show the usual items first.
+drop view if exists public.shop_item_sale_counts;
+create or replace function public.shop_item_sale_counts()
+returns table (item_id uuid, times_sold int)
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select l.item_id, count(*)::int
+    from public.shop_invoice_items l
+    join public.shop_invoices i on i.id = l.invoice_id
+   where public.app_role() is not null
+     and i.bill_type = 'sale'
+     and i.status = 'active'
+     and l.item_id is not null
+     and i.bill_date >= ((now() at time zone 'Asia/Kolkata')::date - 90)
+   group by l.item_id;
+$$;
