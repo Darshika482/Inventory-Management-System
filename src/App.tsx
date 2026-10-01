@@ -36,7 +36,7 @@ import {
 } from './lib/database';
 import { createCategoryId } from './lib/floors';
 import { useBackDismiss } from './lib/backGuard';
-import { isShopSection, ShopSection } from './sales/ShopModule';
+import { isShopSection, NewSaleShortcut, ShopSection } from './sales/ShopModule';
 
 interface Toast {
   id: string;
@@ -523,6 +523,7 @@ export default function App() {
               {currentUser.username} · {currentUser.role === 'Worker' ? 'Staff' : currentUser.role}
             </p>
           </div>
+          <NewSaleShortcut activeSection={activeSection} onNavigate={setActiveSection} />
         </header>
 
         {isShopSection(activeSection, currentUser.role) ? (

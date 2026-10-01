@@ -3,10 +3,10 @@
  * its pages. App.tsx and Sidebar.tsx only call these two components.
  */
 import React, { useEffect } from 'react';
-import { Package, ReceiptText, Settings, ShoppingCart, Users } from 'lucide-react';
+import { AlertTriangle, CloudOff, Package, ReceiptText, Settings, ShoppingCart, Users } from 'lucide-react';
 import type { User } from '../types';
 import { useT, type TranslationKey } from './i18n';
-import { startOutboxSync } from './outbox';
+import { startOutboxSync, useOutboxCounts } from './outbox';
 import { NewSaleSection } from './components/NewSaleSection';
 import { ShopItemsSection } from './components/ShopItemsSection';
 import { SalesListSection } from './components/SalesListSection';
@@ -67,7 +67,43 @@ export function ShopNavGroup({ role, activeSection, onNavigate }: ShopNavGroupPr
           {t(labelKey)}
         </button>
       ))}
+      <SyncNotice onOpen={() => onNavigate('shop-sales')} />
     </>
+  );
+}
+
+/** "3 bills waiting to upload" under the menu group; hidden when nothing waits. */
+function SyncNotice({ onOpen }: { onOpen: () => void }) {
+  const { t } = useT();
+  const { pending, failed } = useOutboxCounts();
+  if (pending === 0 && failed === 0) return null;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={`mx-4 mt-2 w-[calc(100%-2rem)] min-h-12 flex items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold cursor-pointer ${
+        failed > 0 ? 'bg-red-500/15 text-red-300' : 'bg-amber-500/15 text-amber-300'
+      }`}
+    >
+      {failed > 0 ? <AlertTriangle className="h-5 w-5 shrink-0" /> : <CloudOff className="h-5 w-5 shrink-0" />}
+      <span>{failed > 0 ? t('syncFailed', { n: failed }) : t('syncWaiting', { n: pending })}</span>
+    </button>
+  );
+}
+
+/** Big "New sale" button for the phone header, so billing is one tap away. */
+export function NewSaleShortcut({ activeSection, onNavigate }: { activeSection: string; onNavigate: (section: string) => void }) {
+  const { t } = useT();
+  if (activeSection === 'shop-new-sale') return null;
+  return (
+    <button
+      type="button"
+      onClick={() => onNavigate('shop-new-sale')}
+      className="ml-auto shrink-0 min-h-12 flex items-center gap-2 px-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-[#0F172A] text-sm font-bold cursor-pointer"
+    >
+      <ShoppingCart className="h-5 w-5" />
+      {t('menuNewSale')}
+    </button>
   );
 }
 
