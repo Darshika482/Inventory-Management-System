@@ -227,9 +227,12 @@ export function SalesListSection({ currentUser, showToast }: SalesListSectionPro
             </>
           )}
         </span>
-        <span className="text-lg font-extrabold text-slate-900 tabular-nums">
-          {t('billsSummary', { n: activeBills.length, amount: formatRupees(total) })}
-        </span>
+        {/* Staff do not see the money total, only the owner does. */}
+        {!isStaff && (
+          <span className="text-lg font-extrabold text-slate-900 tabular-nums">
+            {t('billsSummary', { n: activeBills.length, amount: formatRupees(total) })}
+          </span>
+        )}
       </div>
 
       {queuedBills.some((b) => b.syncState === 'failed') && (
