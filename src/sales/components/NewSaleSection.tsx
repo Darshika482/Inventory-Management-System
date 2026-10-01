@@ -44,7 +44,8 @@ import { getDeviceSeries, queueSale, refreshCounter, syncOutbox } from '../outbo
 import type { PaidMode, PaymentMode, ShopCategory, ShopInvoice, ShopItem, ShopParty, ShopSettings } from '../types';
 import { ItemPickerSheet, type PickerLine } from './ItemPickerSheet';
 import { ShareBillButton } from './ShareBill';
-import { PrinterChip, ReceiptPreviewModal, printDetail, printMessageKey } from './PrintUi';
+import { PrinterChip, QrSvg, ReceiptPreviewModal, printDetail, printMessageKey } from './PrintUi';
+import { upiLink } from '../print/receipt';
 import { printBill, receiptLinesFor } from '../print/printBill';
 import { warmUpPrinter, type PrintResult } from '../print/printer';
 import { PartyFormModal } from './ShopPartiesSection';
@@ -683,6 +684,27 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
               </div>
             </div>
           )}
+
+          {/* Customer scans this from the screen to pay by UPI. */}
+          {(draft.paymentMode === 'upi' || draft.paymentMode === 'partial') && (() => {
+            const amount = draft.paymentMode === 'upi' ? bill.total : paidPartial && paidPartial > 0 ? paidPartial : 0;
+            if (!settings.upiId) {
+              return <p className="text-sm text-slate-500">{t('upiQrNoId')}</p>;
+            }
+            if (draft.paymentMode === 'partial' && draft.paidMode !== 'upi') return null;
+            return (
+              <div className="flex items-center gap-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3" data-testid="upi-qr">
+                <div className="shrink-0 rounded-lg bg-white p-1.5 border border-slate-200">
+                  <QrSvg data={upiLink(settings.upiId, settings.shopName, amount)} className="h-36 w-36" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-600">{t('upiQrScan')}</p>
+                  {amount > 0 && <p className="text-2xl font-extrabold text-slate-900 tabular-nums">{formatRupees(amount, true)}</p>}
+                  <p className="text-xs text-slate-500 break-all mt-1">{settings.upiId}</p>
+                </div>
+              </div>
+            );
+          })()}
 
           {(draft.paymentMode === 'credit' || draft.paymentMode === 'partial') && (
             <p className="text-sm font-bold text-red-700">

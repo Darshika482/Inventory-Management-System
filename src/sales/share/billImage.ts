@@ -6,7 +6,7 @@ import { jsPDF } from 'jspdf';
 import { formatBillDate, formatIstTime } from '../fy';
 import { formatQty, formatRupees, mulDivRound } from '../money';
 import { qrMatrix } from '../print/qr';
-import { upiLink } from '../print/receipt';
+import { upiLink, upiQrAmount } from '../print/receipt';
 import type { ShopInvoice, ShopSettings } from '../types';
 
 const NAVY = '#0F172A';
@@ -216,8 +216,8 @@ export async function drawBillCanvas(bill: ShopInvoice, settings: ShopSettings):
     y += 30;
   }
 
-  const qrAmount = due > 0 ? due : bill.paymentMode === 'upi' ? bill.total : 0;
-  if (settings.upiId && qrAmount > 0 && bill.billType === 'sale') {
+  const qrAmount = upiQrAmount(bill);
+  if (settings.upiId && bill.billType === 'sale' && bill.status !== 'cancelled') {
     const matrix = qrMatrix(upiLink(settings.upiId, settings.shopName, qrAmount));
     const scale = Math.floor(250 / matrix.length);
     const size = matrix.length * scale;
@@ -229,7 +229,7 @@ export async function drawBillCanvas(bill: ShopInvoice, settings: ShopSettings):
     ctx.fillStyle = '#000000';
     matrix.forEach((r, ri) => r.forEach((dark, ci) => dark && ctx.fillRect(qx + ci * scale, qy + ri * scale, scale, scale)));
     font(24, 700);
-    text(`Scan to pay ${formatRupees(qrAmount)}`, qx + size / 2, qy + size + 40, 'center');
+    text(qrAmount ? `Scan to pay ${formatRupees(qrAmount)}` : 'Pay by UPI', qx + size / 2, qy + size + 40, 'center');
     font(20, 500);
     text(fit(settings.upiId, size + 20), qx + size / 2, qy + size + 72, 'center', SLATE_500);
     y = Math.max(y, qy + size + 120);

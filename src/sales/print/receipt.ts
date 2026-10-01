@@ -55,15 +55,23 @@ const PAYMENT_LABELS: Record<ShopInvoice['paymentMode'], string> = {
   partial: 'Part paid',
 };
 
-/** UPI payment link for the QR code. */
-export function upiLink(upiId: string, shopName: string, amount: Paise): string {
-  const params = new URLSearchParams({
-    pa: upiId,
-    pn: shopName,
-    am: (amount / 100).toFixed(2),
-    cu: 'INR',
-  });
+/** UPI payment link for the QR code. With no amount, the payer types it. */
+export function upiLink(upiId: string, shopName: string, amount?: Paise | null): string {
+  const params = new URLSearchParams({ pa: upiId, pn: shopName });
+  if (amount && amount > 0) params.set('am', (amount / 100).toFixed(2));
+  params.set('cu', 'INR');
   return `upi://pay?${params.toString()}`;
+}
+
+/**
+ * Amount for a bill's UPI QR: what is still due, the total on a UPI bill, or
+ * null (a plain "pay by UPI" QR) when the bill is already settled.
+ */
+export function upiQrAmount(bill: ShopInvoice): Paise | null {
+  const due = bill.billType === 'quotation' ? 0 : bill.total - bill.paidAmount;
+  if (due > 0) return due;
+  if (bill.paymentMode === 'upi' && bill.total > 0) return bill.total;
+  return null;
 }
 
 export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options: ReceiptOptions): ReceiptLine[] {
@@ -147,14 +155,16 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
     if (due > 0) lines.push({ kind: 'pair', left: 'Balance due', right: receiptMoney(due), bold: true });
   }
 
-  // UPI QR: for the amount still due, or the total on a UPI bill.
-  const qrAmount = due > 0 ? due : bill.paymentMode === 'upi' ? bill.total : 0;
-  if (options.showUpiQr && settings.upiId && qrAmount > 0 && bill.billType === 'sale') {
+  // UPI QR on every sale bill: with the amount due (or the UPI total), else plain.
+  const qrAmount = upiQrAmount(bill);
+  if (options.showUpiQr && settings.upiId && bill.billType === 'sale' && bill.status !== 'cancelled') {
     lines.push({ kind: 'feed', lines: 1 });
     lines.push({
       kind: 'qr',
       data: upiLink(settings.upiId, settings.shopName, qrAmount),
-      caption: `Scan to pay ${receiptMoney(qrAmount)} - ${settings.upiId}`,
+      caption: qrAmount
+        ? `Scan to pay ${receiptMoney(qrAmount)} - ${settings.upiId}`
+        : `Pay by UPI - ${settings.upiId}`,
     });
   }
 

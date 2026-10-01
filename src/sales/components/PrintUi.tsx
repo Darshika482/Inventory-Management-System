@@ -21,11 +21,11 @@ import { ActionButton, Segmented, ToggleRow } from './ui';
 
 // --- Preview ---
 
-function QrSvg({ data }: { data: string }) {
+export function QrSvg({ data, className = 'mx-auto h-36 w-36' }: { data: string; className?: string }) {
   const matrix = qrMatrix(data);
   const size = matrix.length;
   return (
-    <svg viewBox={`-2 -2 ${size + 4} ${size + 4}`} className="mx-auto h-36 w-36" shapeRendering="crispEdges" aria-hidden="true">
+    <svg viewBox={`-2 -2 ${size + 4} ${size + 4}`} className={className} shapeRendering="crispEdges" aria-hidden="true">
       <rect x={-2} y={-2} width={size + 4} height={size + 4} fill="#fff" />
       {matrix.flatMap((row, r) => row.map((dark, c) => (dark ? <rect key={`${r}-${c}`} x={c} y={r} width={1} height={1} fill="#000" /> : null)))}
     </svg>

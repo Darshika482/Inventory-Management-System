@@ -301,6 +301,8 @@ const en = {
   balanceLabel: 'Balance: {amount}',
   saleLabel: 'Sale',
   openBill: 'Open bill',
+  upiQrScan: 'Customer scans to pay',
+  upiQrNoId: 'Add your UPI ID in Shop settings to show a payment QR here.',
 };
 
 export type TranslationKey = keyof typeof en;
@@ -589,6 +591,8 @@ const hi: Record<TranslationKey, string> = {
   balanceLabel: 'बाकी: {amount}',
   saleLabel: 'बिक्री',
   openBill: 'बिल खोलें',
+  upiQrScan: 'ग्राहक स्कैन करके पैसे भेजें',
+  upiQrNoId: 'यहाँ QR दिखाने के लिए दुकान सेटिंग में अपनी UPI ID डालें।',
 };
 
 const STRINGS: Record<Language, Record<TranslationKey, string>> = { en, hi };
