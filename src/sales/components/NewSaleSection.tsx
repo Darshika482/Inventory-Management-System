@@ -4,7 +4,6 @@ import {
   CheckCircle2,
   Eraser,
   Eye,
-  FilePlus2,
   NotebookPen,
   Plus,
   Printer,
@@ -49,7 +48,7 @@ import { PrinterChip, ReceiptPreviewModal, printDetail, printMessageKey } from '
 import { printBill, receiptLinesFor } from '../print/printBill';
 import { warmUpPrinter, type PrintResult } from '../print/printer';
 import { PartyFormModal } from './ShopPartiesSection';
-import { ActionButton, ErrorState, LoadingState, PageHeader, PageShell, SearchBox, Segmented } from './ui';
+import { ActionButton, ErrorState, LoadingState, PageHeader, PageShell, SearchBox } from './ui';
 
 interface NewSaleSectionProps {
   currentUser: User;
@@ -475,6 +474,7 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
       <PageHeader
         title={t('newSaleTitle')}
         icon={<ShoppingCart className="h-5 w-5" />}
+        hideLanguage
         actions={
           <>
             <PrinterChip settings={settings} />
@@ -493,41 +493,53 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
         }
       />
 
-      <div className="max-w-3xl space-y-4">
-        {/* Customer */}
-        <section className="bg-white border border-slate-200 rounded-xl px-3 py-2 flex items-center gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
-            <UserIcon className="h-5 w-5" />
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-xs font-semibold text-slate-500 leading-tight">{t('customer')}</p>
-            <p className="text-base font-bold text-slate-900 truncate leading-snug">{party ? party.name : t('cashSale')}</p>
-            <p className="text-sm text-slate-500 truncate">
-              {party ? [party.phone, isInterstate ? t('otherStateNote') : ''].filter(Boolean).join(' · ') : t('cashSaleHint')}
-            </p>
-          </div>
-          <ActionButton
-            tone="secondary"
-            icon={<Users className="h-5 w-5" />}
-            label={t('change')}
+      <div className="max-w-3xl space-y-3">
+        {/* Customer (tap to change) and GST on/off, in one row */}
+        <section className="flex items-stretch gap-2">
+          <button
+            type="button"
             onClick={() => setPartyPickerOpen(true)}
-          />
+            className="min-w-0 flex-1 min-h-12 flex items-center gap-2.5 bg-white border border-slate-200 hover:border-amber-300 rounded-xl px-3 py-1.5 text-left cursor-pointer transition-colors"
+          >
+            <UserIcon className="h-5 w-5 shrink-0 text-slate-500" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-bold text-slate-900 truncate leading-tight">
+                {party ? party.name : t('cashSale')}
+              </span>
+              <span className="block text-xs text-slate-500 truncate">
+                {party
+                  ? [party.phone, isInterstate ? t('otherStateNote') : ''].filter(Boolean).join(' · ') || t('customer')
+                  : t('cashSaleHint')}
+              </span>
+            </span>
+            <span className="shrink-0 flex items-center gap-1 text-xs font-bold text-amber-700">
+              <Users className="h-4 w-4" />
+              {t('change')}
+            </span>
+          </button>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={isGst}
+            aria-label={t('gstBill')}
+            onClick={() => setGst(!isGst)}
+            className="shrink-0 min-h-12 flex items-center gap-2 bg-white border border-slate-200 hover:border-slate-300 rounded-xl px-3 cursor-pointer transition-colors"
+          >
+            <span className="text-sm font-bold text-slate-800">GST</span>
+            <span className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors ${isGst ? 'bg-emerald-600' : 'bg-slate-300'}`}>
+              <span
+                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                  isGst ? 'translate-x-[22px]' : 'translate-x-0.5'
+                }`}
+              />
+            </span>
+          </button>
         </section>
-
-        {/* GST or not */}
-        <Segmented<'gst' | 'plain'>
-          value={isGst ? 'gst' : 'plain'}
-          options={[
-            { value: 'gst', label: t('gstBill'), icon: <ReceiptText className="h-4 w-4" /> },
-            { value: 'plain', label: t('nonGstBill'), icon: <FilePlus2 className="h-4 w-4" /> },
-          ]}
-          onChange={(v) => setGst(v === 'gst')}
-        />
 
         {/* Lines */}
         <section className="space-y-2">
           {draft.lines.length === 0 ? (
-            <div className="p-6 text-center text-base text-slate-500 bg-white border border-dashed border-slate-300 rounded-xl">
+            <div className="px-4 py-3 text-center text-sm text-slate-500 bg-white border border-dashed border-slate-300 rounded-xl">
               {t('noLinesYet')}
             </div>
           ) : (

@@ -5,7 +5,7 @@ import { FormError, FormInput } from '../../components/FormInput';
 import { describeDbError, type FriendlyError } from '../../lib/dbErrors';
 import { fetchShopSettings, updateShopSettings } from '../db';
 import { writeCache } from '../cache';
-import { applyDefaultLanguage, useT } from '../i18n';
+import { useT } from '../i18n';
 import { getDeviceSeries, setDeviceSeries } from '../outbox';
 import { GST_STATES, isValidGstin, stateFromGstin, toPhoneDigits } from '../states';
 import { formatBillNumber, fyFor, istToday } from '../fy';
@@ -95,7 +95,6 @@ export function ShopSettingsSection({ currentUser, showToast }: ShopSettingsSect
       await updateShopSettings(settings, currentUser.id);
       setDeviceSeries(series);
       writeCache('settings', settings);
-      applyDefaultLanguage(settings.language);
       showToast(t('settingsSaved'), 'success');
     } catch (err) {
       setProblem(describeDbError(err, t('settingsSaveFailed')));

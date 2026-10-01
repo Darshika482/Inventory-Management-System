@@ -589,7 +589,7 @@ function readStored(): Language | null {
   }
 }
 
-let current: Language = readStored() ?? 'hi';
+let current: Language = readStored() ?? 'en';
 const listeners = new Set<() => void>();
 
 function emit() {

@@ -24,9 +24,11 @@ interface PageHeaderProps {
   icon: React.ReactNode;
   /** Buttons shown on the right, after the language switch. */
   actions?: React.ReactNode;
+  /** Leave out the Hindi/English switch (e.g. on the busy New Sale screen). */
+  hideLanguage?: boolean;
 }
 
-export function PageHeader({ title, icon, actions }: PageHeaderProps) {
+export function PageHeader({ title, icon, actions, hideLanguage = false }: PageHeaderProps) {
   return (
     <div className="flex flex-wrap items-center gap-1.5 @md:gap-2 @xl:gap-3">
       <div className="flex items-center gap-2 min-w-0 mr-auto">
@@ -35,7 +37,7 @@ export function PageHeader({ title, icon, actions }: PageHeaderProps) {
         </span>
         <h1 className="text-xl @xl:text-2xl font-bold tracking-tight text-slate-900 truncate">{title}</h1>
       </div>
-      <LanguageToggle />
+      {!hideLanguage && <LanguageToggle />}
       {actions}
     </div>
   );
