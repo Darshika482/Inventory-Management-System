@@ -2,15 +2,17 @@
  * Where the shop sales module plugs into the app: its sidebar menu group and
  * its pages. App.tsx and Sidebar.tsx only call these two components.
  */
-import React from 'react';
-import { Package, Settings, Users } from 'lucide-react';
+import React, { useEffect } from 'react';
+import { Package, Settings, ShoppingCart, Users } from 'lucide-react';
 import type { User } from '../types';
 import { useT, type TranslationKey } from './i18n';
+import { startOutboxSync } from './outbox';
+import { NewSaleSection } from './components/NewSaleSection';
 import { ShopItemsSection } from './components/ShopItemsSection';
 import { ShopPartiesSection } from './components/ShopPartiesSection';
 import { ShopSettingsSection } from './components/ShopSettingsSection';
 
-export type ShopSectionId = 'shop-items' | 'shop-parties' | 'shop-settings';
+export type ShopSectionId = 'shop-new-sale' | 'shop-items' | 'shop-parties' | 'shop-settings';
 
 interface ShopPage {
   id: ShopSectionId;
@@ -20,6 +22,7 @@ interface ShopPage {
 }
 
 const PAGES: ShopPage[] = [
+  { id: 'shop-new-sale', labelKey: 'menuNewSale', icon: ShoppingCart, ownerOnly: false },
   { id: 'shop-items', labelKey: 'menuItems', icon: Package, ownerOnly: true },
   { id: 'shop-parties', labelKey: 'menuParties', icon: Users, ownerOnly: false },
   { id: 'shop-settings', labelKey: 'menuSettings', icon: Settings, ownerOnly: true },
@@ -43,6 +46,8 @@ interface ShopNavGroupProps {
 /** The "Shop sales" group in the sidebar menu, styled like the other menu buttons. */
 export function ShopNavGroup({ role, activeSection, onNavigate }: ShopNavGroupProps) {
   const { t } = useT();
+  // Uploads bills saved on this phone, from whichever page is open.
+  useEffect(() => startOutboxSync(), []);
   return (
     <>
       <p className="text-sm font-semibold text-slate-500 px-6 pt-5 mb-3">{t('menuGroup')}</p>
@@ -71,8 +76,10 @@ interface ShopSectionProps {
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
-export function ShopSection({ section, currentUser, showToast }: ShopSectionProps) {
+export function ShopSection({ section, currentUser, onNavigate, showToast }: ShopSectionProps) {
   switch (section) {
+    case 'shop-new-sale':
+      return <NewSaleSection currentUser={currentUser} onNavigate={onNavigate} showToast={showToast} />;
     case 'shop-items':
       return <ShopItemsSection currentUser={currentUser} showToast={showToast} />;
     case 'shop-parties':
