@@ -3,13 +3,14 @@
  * its pages. App.tsx and Sidebar.tsx only call these two components.
  */
 import React from 'react';
-import { Package, Settings } from 'lucide-react';
+import { Package, Settings, Users } from 'lucide-react';
 import type { User } from '../types';
 import { useT, type TranslationKey } from './i18n';
 import { ShopItemsSection } from './components/ShopItemsSection';
+import { ShopPartiesSection } from './components/ShopPartiesSection';
 import { ShopSettingsSection } from './components/ShopSettingsSection';
 
-export type ShopSectionId = 'shop-items' | 'shop-settings';
+export type ShopSectionId = 'shop-items' | 'shop-parties' | 'shop-settings';
 
 interface ShopPage {
   id: ShopSectionId;
@@ -20,6 +21,7 @@ interface ShopPage {
 
 const PAGES: ShopPage[] = [
   { id: 'shop-items', labelKey: 'menuItems', icon: Package, ownerOnly: true },
+  { id: 'shop-parties', labelKey: 'menuParties', icon: Users, ownerOnly: false },
   { id: 'shop-settings', labelKey: 'menuSettings', icon: Settings, ownerOnly: true },
 ];
 
@@ -73,6 +75,8 @@ export function ShopSection({ section, currentUser, showToast }: ShopSectionProp
   switch (section) {
     case 'shop-items':
       return <ShopItemsSection currentUser={currentUser} showToast={showToast} />;
+    case 'shop-parties':
+      return <ShopPartiesSection currentUser={currentUser} showToast={showToast} />;
     case 'shop-settings':
       return <ShopSettingsSection currentUser={currentUser} showToast={showToast} />;
   }
