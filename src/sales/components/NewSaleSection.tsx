@@ -44,6 +44,9 @@ import { formatQty, formatRupees, paiseToInput, parseMilli, parsePaise, type Pai
 import { getDeviceSeries, queueSale, refreshCounter, syncOutbox } from '../outbox';
 import type { PaidMode, PaymentMode, ShopCategory, ShopInvoice, ShopItem, ShopParty, ShopSettings } from '../types';
 import { ItemPickerSheet, type PickerLine } from './ItemPickerSheet';
+import { PrinterChip, ReceiptPreviewModal, printDetail, printMessageKey } from './PrintUi';
+import { printBill, receiptLinesFor } from '../print/printBill';
+import { warmUpPrinter, type PrintResult } from '../print/printer';
 import { PartyFormModal } from './ShopPartiesSection';
 import { ActionButton, ErrorState, LoadingState, PageHeader, PageShell, SearchBox, Segmented } from './ui';
 
@@ -131,6 +134,8 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
   const [problem, setProblem] = useState<FriendlyError | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saved, setSaved] = useState<SavedBill | null>(null);
+  const [printState, setPrintState] = useState<'idle' | 'printing' | PrintResult>('idle');
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   const load = async () => {
     setIsLoading(true);
@@ -153,6 +158,7 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
         .catch(() => {});
       // Start (or catch up) this phone's bill numbers while online.
       void refreshCounter('sale', fyFor(istToday()), getDeviceSeries());
+      warmUpPrinter();
     } catch (err) {
       setLoadError(describeDbError(err, 'The bill screen could not be loaded'));
     } finally {
@@ -272,6 +278,7 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
     setDraft(EMPTY_DRAFT);
     setProblem(null);
     setSaved(null);
+    setPrintState('idle');
     setConfirmClear(false);
   };
 
@@ -403,9 +410,20 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
     const number = result.invoice.billNumber ?? t('numberOnUpload');
     playSuccessChime();
     showToast(result.uploaded ? t('billSaved', { number }) : t('billSavedOffline', { number }), result.uploaded ? 'success' : 'info');
-    if (print) showToast(t('printingLater'), 'info');
     setDraft(EMPTY_DRAFT);
     setSaved(result);
+    setPrintState('idle');
+    // Printing comes after the bill is safely saved, and never undoes it.
+    if (print) void doPrint(result.invoice);
+  };
+
+  const doPrint = async (invoice: ShopInvoice) => {
+    if (!settings) return;
+    setPreviewOpen(false);
+    setPrintState('printing');
+    const result = await printBill(invoice, settings);
+    setPrintState(result);
+    if (!result.ok) showToast(t(printMessageKey(result)), 'error');
   };
 
   if (saved) {
@@ -414,6 +432,9 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
         <PageHeader title={t('newSaleTitle')} icon={<ShoppingCart className="h-5 w-5" />} />
         <SavedPanel
           saved={saved}
+          printState={printState}
+          onPrint={() => doPrint(saved.invoice)}
+          onPreview={() => setPreviewOpen(true)}
           onNewBill={resetBill}
           onViewBill={() => {
             try {
@@ -423,6 +444,14 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
             }
             onNavigate('shop-sales');
           }}
+        />
+        <ReceiptPreviewModal
+          open={previewOpen}
+          lines={receiptLinesFor(saved.invoice, settings)}
+          widthMm={settings.printerWidthMm}
+          onClose={() => setPreviewOpen(false)}
+          onPrint={() => doPrint(saved.invoice)}
+          busy={printState === 'printing'}
         />
       </PageShell>
     );
@@ -436,14 +465,17 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
         title={t('newSaleTitle')}
         icon={<ShoppingCart className="h-5 w-5" />}
         actions={
-          draft.lines.length > 0 ? (
-            <ActionButton
-              tone="secondary"
-              icon={<Eraser className="h-5 w-5" />}
-              label={t('clearBill')}
-              onClick={() => setConfirmClear(true)}
-            />
-          ) : undefined
+          <>
+            <PrinterChip settings={settings} />
+            {draft.lines.length > 0 && (
+              <ActionButton
+                tone="secondary"
+                icon={<Eraser className="h-5 w-5" />}
+                label={t('clearBill')}
+                onClick={() => setConfirmClear(true)}
+              />
+            )}
+          </>
         }
       />
 
@@ -934,9 +966,24 @@ function TotalRow({
 
 // --- After saving ---
 
-function SavedPanel({ saved, onNewBill, onViewBill }: { saved: SavedBill; onNewBill: () => void; onViewBill: () => void }) {
+function SavedPanel({
+  saved,
+  printState,
+  onPrint,
+  onPreview,
+  onNewBill,
+  onViewBill,
+}: {
+  saved: SavedBill;
+  printState: 'idle' | 'printing' | PrintResult;
+  onPrint: () => void;
+  onPreview: () => void;
+  onNewBill: () => void;
+  onViewBill: () => void;
+}) {
   const { t } = useT();
   const { invoice, uploaded } = saved;
+  const printFailed = typeof printState === 'object' && !printState.ok;
   return (
     <div className="max-w-xl bg-white border border-emerald-200 rounded-2xl p-6 text-center space-y-4 shadow-sm">
       <CheckCircle2 className="h-14 w-14 text-emerald-600 mx-auto" />
@@ -954,10 +1001,36 @@ function SavedPanel({ saved, onNewBill, onViewBill }: { saved: SavedBill; onNewB
             {t('waitingUpload')}
           </p>
         )}
+        {printState !== 'idle' && (
+          <p
+            role="status"
+            data-testid="print-status"
+            className={`mt-3 rounded-xl px-3 py-2 text-sm font-semibold ${
+              printState === 'printing'
+                ? 'bg-slate-100 text-slate-600'
+                : printFailed
+                  ? 'bg-red-50 text-red-700'
+                  : 'bg-[#DCFCE7] text-[#166534]'
+            }`}
+          >
+            {printState === 'printing'
+              ? t('printing')
+              : [t(printMessageKey(printState)), printDetail(printState)].filter(Boolean).join(' ')}
+          </p>
+        )}
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+      <div className="grid grid-cols-2 gap-2.5">
+        <ActionButton
+          size="lg"
+          tone="success"
+          icon={<Printer className="h-5 w-5" />}
+          label={printFailed ? t('retryPrint') : printState === 'idle' ? t('print') : t('printAgain')}
+          busy={printState === 'printing'}
+          onClick={onPrint}
+        />
+        <ActionButton size="lg" tone="secondary" icon={<Eye className="h-5 w-5" />} label={t('printPreview')} onClick={onPreview} />
         <ActionButton size="lg" icon={<Plus className="h-6 w-6" />} label={t('newBill')} onClick={onNewBill} />
-        <ActionButton size="lg" tone="secondary" icon={<Eye className="h-5 w-5" />} label={t('viewBill')} onClick={onViewBill} />
+        <ActionButton size="lg" tone="secondary" icon={<ReceiptText className="h-5 w-5" />} label={t('viewBill')} onClick={onViewBill} />
       </div>
     </div>
   );

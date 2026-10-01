@@ -10,6 +10,7 @@ import { getDeviceSeries, setDeviceSeries } from '../outbox';
 import { GST_STATES, isValidGstin, stateFromGstin } from '../states';
 import { formatBillNumber, fyFor, istToday } from '../fy';
 import type { ShopSettings } from '../types';
+import { PrinterSetupPanel } from './PrintUi';
 import {
   ActionButton,
   EmptyState,
@@ -180,7 +181,6 @@ export function ShopSettingsSection({ currentUser, showToast }: ShopSettingsSect
             ]}
             onChange={(value) => update('printerWidthMm', value)}
           />
-          <p className="text-sm text-slate-500 -mt-2">{t('printerLater')}</p>
           <Segmented
             label={t('defaultLanguage')}
             value={settings.language}
@@ -217,6 +217,15 @@ export function ShopSettingsSection({ currentUser, showToast }: ShopSettingsSect
           className="w-full @xl:w-auto"
         />
       </form>
+
+      {/* Printer choices are per phone and save as soon as they change. */}
+      <section className="max-w-2xl bg-white border border-slate-200 rounded-xl p-4 sm:p-5 space-y-3">
+        <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900">
+          <Printer className="h-5 w-5 text-amber-600" />
+          {t('printerTitle')}
+        </h2>
+        <PrinterSetupPanel settings={settings} />
+      </section>
     </PageShell>
   );
 }

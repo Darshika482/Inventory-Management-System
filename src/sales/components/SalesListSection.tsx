@@ -25,6 +25,11 @@ import { listQueuedSales, onBillsSynced, syncOutbox } from '../outbox';
 import type { ShopInvoice, ShopParty } from '../types';
 import { ActionButton, ErrorState, InfoRow, LoadingState, PageHeader, PageShell, PickerField } from './ui';
 import { OPEN_BILL_KEY } from './NewSaleSection';
+import { ReceiptPreviewModal, printDetail, printMessageKey } from './PrintUi';
+import { printBill, receiptLinesFor } from '../print/printBill';
+import { fetchShopSettings } from '../db';
+import type { ShopSettings } from '../types';
+import { Eye, Printer } from 'lucide-react';
 
 interface SalesListSectionProps {
   currentUser: User;
@@ -310,6 +315,27 @@ function BillDetailModal({ bill, userNames, onClose }: BillDetailModalProps) {
   const { t } = useT();
   const [full, setFull] = useState<ShopInvoice | null>(null);
   const [problem, setProblem] = useState<FriendlyError | null>(null);
+  const [settings, setSettings] = useState<ShopSettings | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [printing, setPrinting] = useState(false);
+  const [printMessage, setPrintMessage] = useState<{ text: string; ok: boolean } | null>(null);
+
+  useEffect(() => {
+    loadWithCache('settings', fetchShopSettings)
+      .then((r) => setSettings(r.data))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => setPrintMessage(null), [bill?.clientId]);
+
+  const reprint = async () => {
+    if (!full || !settings) return;
+    setPreviewOpen(false);
+    setPrinting(true);
+    const result = await printBill(full, settings);
+    setPrinting(false);
+    setPrintMessage({ text: [t(printMessageKey(result)), printDetail(result)].filter(Boolean).join(' '), ok: result.ok });
+  };
 
   useEffect(() => {
     setFull(null);
@@ -349,7 +375,46 @@ function BillDetailModal({ bill, userNames, onClose }: BillDetailModalProps) {
           <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
         </div>
       ) : (
-        <BillDetailBody bill={full} userNames={userNames} />
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-2">
+            <ActionButton
+              tone="success"
+              icon={<Printer className="h-5 w-5" />}
+              label={t('print')}
+              busy={printing}
+              disabled={!settings}
+              onClick={reprint}
+            />
+            <ActionButton
+              tone="secondary"
+              icon={<Eye className="h-5 w-5" />}
+              label={t('printPreview')}
+              disabled={!settings}
+              onClick={() => setPreviewOpen(true)}
+            />
+          </div>
+          {printMessage && (
+            <p
+              role="status"
+              className={`rounded-xl px-3 py-2 text-sm font-semibold ${
+                printMessage.ok ? 'bg-[#DCFCE7] text-[#166534]' : 'bg-red-50 text-red-700'
+              }`}
+            >
+              {printMessage.text}
+            </p>
+          )}
+          <BillDetailBody bill={full} userNames={userNames} />
+        </div>
+      )}
+      {full && settings && (
+        <ReceiptPreviewModal
+          open={previewOpen}
+          lines={receiptLinesFor(full, settings)}
+          widthMm={settings.printerWidthMm}
+          onClose={() => setPreviewOpen(false)}
+          onPrint={reprint}
+          busy={printing}
+        />
       )}
     </AppModal>
   );
