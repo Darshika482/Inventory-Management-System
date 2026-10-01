@@ -9,7 +9,7 @@ import { loadWithCache } from '../cache';
 import { useT } from '../i18n';
 import { newId } from '../ids';
 import { formatRupees, paiseToInput, parsePaise } from '../money';
-import { GST_STATES, isValidGstin, stateFromGstin, stateName } from '../states';
+import { GST_STATES, isValidGstin, stateFromGstin, stateName, toPhoneDigits } from '../states';
 import type { PartyType, ShopParty, ShopSettings } from '../types';
 import {
   ActionButton,
@@ -264,9 +264,10 @@ export function PartyFormModal({
         <FormInput
           label={`${t('partyPhone')} ${t('optional')}`}
           type="tel"
-          inputMode="tel"
+          inputMode="numeric"
+          maxLength={10}
           value={phone}
-          onChange={(e) => setPhone(e.target.value)}
+          onChange={(e) => setPhone(toPhoneDigits(e.target.value))}
           placeholder="98XXXXXXXX"
         />
         {!quick && (

@@ -54,3 +54,14 @@ export function stateFromGstin(gstin: string): string | null {
   const code = gstin.trim().slice(0, 2);
   return GST_STATES.some((s) => s.code === code) ? code : null;
 }
+
+/**
+ * Keeps a typed phone number to the 10 digits of an Indian mobile number:
+ * drops anything that is not a digit and a leading +91 / 91 / 0.
+ */
+export function toPhoneDigits(value: string): string {
+  let digits = value.replace(/\D/g, '');
+  if (digits.length > 10 && digits.startsWith('91')) digits = digits.slice(2);
+  if (digits.length > 10 && digits.startsWith('0')) digits = digits.slice(1);
+  return digits.slice(0, 10);
+}

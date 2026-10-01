@@ -21,3 +21,14 @@ describe('financial year and bill numbers', () => {
     expect(billSequence('S-A/2026-27/0042')).toBe(42);
   });
 });
+
+import { toPhoneDigits } from './states';
+
+describe('phone numbers', () => {
+  it('keeps only the 10 digits', () => {
+    expect(toPhoneDigits('98637489239003-003')).toBe('9863748923');
+    expect(toPhoneDigits('+91 98260 12345')).toBe('9826012345');
+    expect(toPhoneDigits('09826012345')).toBe('9826012345');
+    expect(toPhoneDigits('abc98-26')).toBe('9826');
+  });
+});
