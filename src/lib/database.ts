@@ -985,3 +985,16 @@ export async function uploadBillPhoto(
     return null;
   }
 }
+
+/**
+ * Whether an app user with this name exists (names only, no passwords), so the
+ * sign-in screen can say which part is wrong. Null when it cannot be checked.
+ */
+export async function usernameExists(username: string): Promise<boolean | null> {
+  const { data, error } = await assertSupabase()
+    .from('app_user_list')
+    .select('username')
+    .ilike('username', username.trim());
+  if (error) return null;
+  return (data ?? []).length > 0;
+}

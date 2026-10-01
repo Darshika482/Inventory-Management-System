@@ -176,18 +176,15 @@ export default function App() {
     return `${datePart} at ${timePart}`;
   };
 
+  // Returns false for a wrong name or password; a technical failure is thrown
+  // so the sign-in screen can show what actually went wrong.
   const handleLogin = async (username: string, password: string): Promise<boolean> => {
-    try {
-      const user = await authenticateUser(username, password);
-      if (!user) return false;
-      setCurrentUser(user);
-      setActiveSection(homeSectionFor(user.role));
-      showToast(`Welcome back, ${user.username}!`, 'success');
-      return true;
-    } catch {
-      showToast('Could not sign in right now. Please try again.', 'error');
-      return false;
-    }
+    const user = await authenticateUser(username, password);
+    if (!user) return false;
+    setCurrentUser(user);
+    setActiveSection(homeSectionFor(user.role));
+    showToast(`Welcome back, ${user.username}!`, 'success');
+    return true;
   };
 
   const handleLogout = () => {

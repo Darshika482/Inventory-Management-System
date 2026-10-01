@@ -50,3 +50,25 @@ export function startUpdateChecks(): void {
   window.addEventListener('focus', () => void checkForNewVersion());
   window.addEventListener('online', () => void checkForNewVersion());
 }
+
+/** Short name of the running version, e.g. "CC0cOdhq" ("dev" when developing). */
+export function appVersion(): string {
+  return runningScript()?.match(/index-([\w-]+)\.js/)?.[1] ?? 'dev';
+}
+
+/**
+ * Throws away everything the phone has stored for running the app (service
+ * worker and its caches) and loads the newest version from the server.
+ * Sign-in details and unsaved bills in localStorage are kept.
+ */
+export async function reloadFresh(): Promise<void> {
+  try {
+    const registrations = (await navigator.serviceWorker?.getRegistrations()) ?? [];
+    await Promise.all(registrations.map((r) => r.unregister()));
+    const keys = (await caches?.keys()) ?? [];
+    await Promise.all(keys.map((k) => caches.delete(k)));
+  } catch {
+    // Reload anyway.
+  }
+  location.replace(`/?fresh=${Date.now()}`);
+}

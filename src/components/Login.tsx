@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { KeyRound, Shield, User as UserIcon, AlertCircle, Loader2 } from 'lucide-react';
+import { KeyRound, Shield, User as UserIcon, AlertCircle, Loader2, Eye, EyeOff, RefreshCw } from 'lucide-react';
 import { motion } from 'motion/react';
+import { usernameExists } from '../lib/database';
+import { appVersion, reloadFresh } from '../lib/appUpdate';
 
 interface LoginProps {
   onLogin: (username: string, password: string) => Promise<boolean>;
@@ -10,25 +12,43 @@ export function Login({ onLogin }: LoginProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [errorDetail, setErrorDetail] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setErrorDetail('');
 
-    if (!username.trim() || !password.trim()) {
+    // Phone keyboards and password managers like to add spaces.
+    const name = username.trim();
+    const pass = password.trim();
+    if (!name || !pass) {
       setError('Please enter both your name and password.');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      const success = await onLogin(username.trim(), password);
+      const success = await onLogin(name, pass);
       if (!success) {
-        setError('Wrong name or password. Please try again.');
+        // Say which part is wrong, so it is clear what to fix.
+        const exists = await usernameExists(name).catch(() => null);
+        if (exists === false) {
+          setError(`There is no user named "${name}". Check the spelling.`);
+        } else {
+          setError(
+            exists
+              ? `The password for "${name}" does not match. Tap the eye to see what is typed, and check the browser did not fill in an old saved password.`
+              : 'Wrong name or password. Please try again.'
+          );
+        }
       }
-    } catch {
-      setError('Could not sign in right now. Please try again.');
+    } catch (err) {
+      const detail = err as { code?: string; message?: string };
+      setError('Could not sign in because of a connection or server problem. Please try again.');
+      setErrorDetail([detail?.code, detail?.message].filter(Boolean).join(' · ') || String(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -70,7 +90,10 @@ export function Login({ onLogin }: LoginProps) {
                 className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-xl text-base flex items-start gap-3"
               >
                 <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
-                <span>{error}</span>
+                <span>
+                  {error}
+                  {errorDetail && <span className="block mt-1 text-xs text-red-600/80 break-words">{errorDetail}</span>}
+                </span>
               </motion.div>
             )}
 
@@ -85,6 +108,10 @@ export function Login({ onLogin }: LoginProps) {
                 <input
                   type="text"
                   required
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  autoComplete="username"
                   placeholder="Type your name"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
@@ -103,14 +130,26 @@ export function Login({ onLogin }: LoginProps) {
                   <KeyRound className="h-5 w-5 text-slate-400" />
                 </div>
                 <input
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   required
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  autoComplete="current-password"
                   placeholder="Type your password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={isSubmitting}
-                  className="block w-full pl-12 pr-4 py-3.5 bg-white border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 text-base focus:outline-none focus:border-[#0F172A] focus:ring-2 focus:ring-[#0F172A]/10 transition-all disabled:opacity-60"
+                  className="block w-full pl-12 pr-14 py-3.5 bg-white border border-slate-200 rounded-xl text-slate-900 placeholder-slate-400 text-base focus:outline-none focus:border-[#0F172A] focus:ring-2 focus:ring-[#0F172A]/10 transition-all disabled:opacity-60"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  className="absolute inset-y-0 right-0 w-12 flex items-center justify-center text-slate-400 hover:text-slate-700 cursor-pointer"
+                >
+                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                </button>
               </div>
             </div>
 
@@ -129,6 +168,18 @@ export function Login({ onLogin }: LoginProps) {
               )}
             </button>
           </form>
+
+          <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between gap-3 text-xs text-slate-400">
+            <span>App version {appVersion()}</span>
+            <button
+              type="button"
+              onClick={() => void reloadFresh()}
+              className="min-h-12 flex items-center gap-1.5 px-3 rounded-xl font-semibold text-slate-500 hover:text-slate-800 hover:bg-slate-50 cursor-pointer"
+            >
+              <RefreshCw className="h-4 w-4" />
+              Reload app fresh
+            </button>
+          </div>
         </div>
       </motion.div>
     </div>
