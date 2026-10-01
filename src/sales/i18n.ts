@@ -281,6 +281,19 @@ const en = {
   partyHidden: '"{name}" has bills, so they were hidden instead of deleted.',
   deleteFailed: 'It could not be deleted',
   hiddenCategoryNote: 'Hidden: these items do not show when billing. Tap Edit and turn on "Show this category when billing".',
+  shareBill: 'Share',
+  shareTitle: 'Share bill',
+  shareHint: 'Pick WhatsApp, Gmail or any app on the next screen.',
+  shareAsImage: 'Share as image',
+  shareAsPdf: 'Share as PDF',
+  shareWhatsAppText: 'WhatsApp message',
+  shareWhatsAppTextHint: 'Bill number, total and UPI ID as a text message',
+  saveImage: 'Save image',
+  savePdf: 'Save PDF',
+  shareSaved: 'This phone cannot share files directly, so the file was saved. Attach it in WhatsApp from your Downloads.',
+  shareDone: 'Bill shared.',
+  shareFailed: 'The bill file could not be made.',
+  fileSaved: 'File saved to Downloads.',
 };
 
 export type TranslationKey = keyof typeof en;
@@ -549,6 +562,19 @@ const hi: Record<TranslationKey, string> = {
   partyHidden: '"{name}" के बिल हैं, इसलिए उन्हें हटाने की जगह छुपा दिया।',
   deleteFailed: 'हटाया नहीं जा सका',
   hiddenCategoryNote: 'छुपी हुई: ये सामान बिल बनाते समय नहीं दिखते। "बदलें" दबाकर "बिल बनाते समय यह कैटेगरी दिखाएँ" चालू करें।',
+  shareBill: 'भेजें',
+  shareTitle: 'बिल भेजें',
+  shareHint: 'अगली स्क्रीन पर WhatsApp, Gmail या कोई भी ऐप चुनें।',
+  shareAsImage: 'फ़ोटो की तरह भेजें',
+  shareAsPdf: 'PDF भेजें',
+  shareWhatsAppText: 'WhatsApp मैसेज',
+  shareWhatsAppTextHint: 'बिल नंबर, कुल रकम और UPI ID मैसेज में',
+  saveImage: 'फ़ोटो सेव करें',
+  savePdf: 'PDF सेव करें',
+  shareSaved: 'यह फ़ोन फ़ाइल सीधे नहीं भेज सकता, इसलिए फ़ाइल सेव कर दी। WhatsApp में Downloads से लगा दें।',
+  shareDone: 'बिल भेज दिया।',
+  shareFailed: 'बिल की फ़ाइल नहीं बन पाई।',
+  fileSaved: 'फ़ाइल Downloads में सेव हो गई।',
 };
 
 const STRINGS: Record<Language, Record<TranslationKey, string>> = { en, hi };

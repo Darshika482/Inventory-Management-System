@@ -44,6 +44,7 @@ import { formatQty, formatRupees, paiseToInput, parseMilli, parsePaise, type Pai
 import { getDeviceSeries, queueSale, refreshCounter, syncOutbox } from '../outbox';
 import type { PaidMode, PaymentMode, ShopCategory, ShopInvoice, ShopItem, ShopParty, ShopSettings } from '../types';
 import { ItemPickerSheet, type PickerLine } from './ItemPickerSheet';
+import { ShareBillButton } from './ShareBill';
 import { PrinterChip, ReceiptPreviewModal, printDetail, printMessageKey } from './PrintUi';
 import { printBill, receiptLinesFor } from '../print/printBill';
 import { warmUpPrinter, type PrintResult } from '../print/printer';
@@ -436,6 +437,16 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
           onPrint={() => doPrint(saved.invoice)}
           onPreview={() => setPreviewOpen(true)}
           onNewBill={resetBill}
+          shareSlot={
+            <ShareBillButton
+              bill={saved.invoice}
+              settings={settings}
+              phone={parties.find((p) => p.id === saved.invoice.partyId)?.phone}
+              showToast={showToast}
+              size="lg"
+              className="w-full"
+            />
+          }
           onViewBill={() => {
             try {
               sessionStorage.setItem(OPEN_BILL_KEY, saved.invoice.clientId);
@@ -973,8 +984,10 @@ function SavedPanel({
   onPreview,
   onNewBill,
   onViewBill,
+  shareSlot,
 }: {
   saved: SavedBill;
+  shareSlot: React.ReactNode;
   printState: 'idle' | 'printing' | PrintResult;
   onPrint: () => void;
   onPreview: () => void;
@@ -1032,6 +1045,7 @@ function SavedPanel({
         <ActionButton size="lg" icon={<Plus className="h-6 w-6" />} label={t('newBill')} onClick={onNewBill} />
         <ActionButton size="lg" tone="secondary" icon={<ReceiptText className="h-5 w-5" />} label={t('viewBill')} onClick={onViewBill} />
       </div>
+      {shareSlot}
     </div>
   );
 }

@@ -26,6 +26,7 @@ import type { ShopInvoice, ShopParty } from '../types';
 import { ActionButton, ErrorState, InfoRow, LoadingState, PageHeader, PageShell, PickerField } from './ui';
 import { OPEN_BILL_KEY } from './NewSaleSection';
 import { ReceiptPreviewModal, printDetail, printMessageKey } from './PrintUi';
+import { ShareBillButton } from './ShareBill';
 import { printBill, receiptLinesFor } from '../print/printBill';
 import { fetchShopSettings } from '../db';
 import type { ShopSettings } from '../types';
@@ -268,6 +269,8 @@ export function SalesListSection({ showToast }: SalesListSectionProps) {
       <BillDetailModal
         bill={openBill}
         userNames={userNames}
+        partyPhone={openBill?.partyId ? parties.find((p) => p.id === openBill.partyId)?.phone : undefined}
+        showToast={showToast}
         onClose={() => setOpenClientId(null)}
       />
     </PageShell>
@@ -308,10 +311,13 @@ function SyncBadge({ bill }: { bill: ShopInvoice }) {
 interface BillDetailModalProps {
   bill: ShopInvoice | null;
   userNames: Record<string, string>;
+  /** Customer phone for the WhatsApp message. */
+  partyPhone?: string;
+  showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   onClose: () => void;
 }
 
-function BillDetailModal({ bill, userNames, onClose }: BillDetailModalProps) {
+function BillDetailModal({ bill, userNames, partyPhone, showToast, onClose }: BillDetailModalProps) {
   const { t } = useT();
   const [full, setFull] = useState<ShopInvoice | null>(null);
   const [problem, setProblem] = useState<FriendlyError | null>(null);
@@ -393,6 +399,13 @@ function BillDetailModal({ bill, userNames, onClose }: BillDetailModalProps) {
               onClick={() => setPreviewOpen(true)}
             />
           </div>
+          <ShareBillButton
+            bill={full}
+            settings={settings}
+            phone={partyPhone}
+            showToast={showToast}
+            className="w-full"
+          />
           {printMessage && (
             <p
               role="status"
