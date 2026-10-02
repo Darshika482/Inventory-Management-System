@@ -504,7 +504,7 @@ export default function App() {
           type="button"
           aria-label="Close navigation menu"
           onClick={() => setMobileNavOpen(false)}
-          className="fixed inset-0 z-40 bg-slate-900/50 md:hidden"
+          className="fixed inset-0 z-40 bg-slate-900/50 docked:hidden"
         />
       )}
 
@@ -519,7 +519,7 @@ export default function App() {
       />
 
       <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
-        <header className="md:hidden flex items-center gap-3 px-4 py-3 bg-[#0F172A] border-b border-slate-800 shrink-0 z-30">
+        <header className="docked:hidden flex items-center gap-3 px-4 py-3 bg-[#0F172A] border-b border-slate-800 shrink-0 z-30">
           <button
             type="button"
             onClick={() => setMobileNavOpen(true)}

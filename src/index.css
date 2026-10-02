@@ -4,6 +4,16 @@
   --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
 }
 
+/* The menu stays open beside the page only on a wide screen with a mouse
+   (laptop or desktop). Phones and tablets, upright or sideways, get the
+   slide-in menu that closes after a tap. Width alone would keep it stuck
+   open on a 1280px-wide tablet. */
+@custom-variant docked {
+  @media (min-width: 64rem) and (pointer: fine) {
+    @slot;
+  }
+}
+
 html {
   font-size: 18px;
 }

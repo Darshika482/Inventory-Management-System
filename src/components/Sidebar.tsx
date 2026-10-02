@@ -34,8 +34,8 @@ export function Sidebar({
 
   return (
     <aside
-      className={`fixed md:static inset-y-0 left-0 z-50 w-72 bg-[#0F172A] text-slate-300 flex flex-col border-r border-slate-800 shrink-0 transform transition-transform duration-300 ease-in-out ${
-        isMobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+      className={`fixed docked:static inset-y-0 left-0 z-50 w-72 max-w-[85vw] bg-[#0F172A] text-slate-300 flex flex-col border-r border-slate-800 shrink-0 transform transition-transform duration-300 ease-in-out ${
+        isMobileOpen ? 'translate-x-0 shadow-2xl docked:shadow-none' : '-translate-x-full docked:translate-x-0'
       }`}
     >
       <div className="p-6 md:p-8 md:pb-6 flex items-center justify-between gap-3">
@@ -55,7 +55,7 @@ export function Sidebar({
         <button
           type="button"
           onClick={onMobileClose}
-          className="md:hidden p-2 text-slate-400 hover:text-white transition-colors cursor-pointer shrink-0"
+          className="docked:hidden p-2 text-slate-400 hover:text-white transition-colors cursor-pointer shrink-0"
           aria-label="Close menu"
         >
           <X className="h-6 w-6" />
@@ -86,7 +86,7 @@ export function Sidebar({
         </div>
       </div>
 
-      <nav className="flex-1 space-y-1 overflow-y-auto">
+      <nav className="flex-1 space-y-1 overflow-y-auto [scrollbar-width:thin] [scrollbar-color:#334155_transparent]">
         <p className="text-sm font-semibold text-slate-500 px-6 mb-3">
           Menu
         </p>

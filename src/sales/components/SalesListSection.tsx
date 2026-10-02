@@ -28,6 +28,7 @@ import { OPEN_BILL_KEY } from './NewSaleSection';
 import { ReceiptPreviewModal, printDetail, printMessageKey } from './PrintUi';
 import { ShareBillButton } from './ShareBill';
 import { printBill, receiptLinesFor } from '../print/printBill';
+import { connectPrinter } from '../print/printer';
 import { fetchShopSettings } from '../db';
 import type { ShopSettings } from '../types';
 import { Eye, MoreVertical, Printer } from 'lucide-react';
@@ -330,7 +331,9 @@ function BillCard({ bill, settings, phone, showToast, onOpen }: BillCardProps) {
     if (!settings) return;
     setPrinting(true);
     try {
-      const result = await printBill(await withLines(bill), settings);
+      // Connect (or open the printer list) while the tap still counts, as the bill loads.
+      const [full, ready] = await Promise.all([withLines(bill), connectPrinter()]);
+      const result = ready.ok ? await printBill(full, settings) : ready;
       showToast(
         [t(printMessageKey(result)), printDetail(result)].filter(Boolean).join(' '),
         result.ok ? 'success' : 'error'

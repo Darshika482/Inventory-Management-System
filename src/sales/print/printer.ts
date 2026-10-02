@@ -190,22 +190,30 @@ export async function pairBluetoothPrinter(): Promise<{ ok: boolean; message: st
   }
 }
 
-/** Connected already, or reconnects to the saved printer within `ms`. */
-async function ensureConnected(ms: number): Promise<boolean> {
-  if (channel && device?.gatt?.connected) return true;
+/**
+ * Connected already, or reconnects to the saved printer within `ms`.
+ * 'unknown': Chrome no longer knows the printer (it forgets it when the app
+ * is reopened), so it has to be picked from the list again.
+ */
+async function ensureConnected(ms: number): Promise<'connected' | 'unknown' | 'failed'> {
+  if (channel && device?.gatt?.connected) return 'connected';
+  let target = device;
   try {
-    let target = device;
     if (!target && navigator.bluetooth?.getDevices) {
       const known = await navigator.bluetooth.getDevices();
       target = known.find((d) => d.id === getPrinterPrefs().deviceId) ?? null;
       target?.addEventListener('gattserverdisconnected', onDisconnected);
     }
-    if (!target) return false;
+  } catch {
+    target = null;
+  }
+  if (!target) return 'unknown';
+  try {
     await withTimeout(connect(target), ms);
-    return true;
+    return 'connected';
   } catch {
     setState('disconnected');
-    return false;
+    return 'failed';
   }
 }
 
@@ -245,12 +253,34 @@ export type PrintResult =
   | { ok: true }
   | { ok: false; reason: 'not_set_up' | 'not_connected' | 'failed'; detail?: string };
 
+/**
+ * Gets the printer ready. If Chrome has forgotten the Bluetooth printer, this
+ * opens the printer list, which Chrome only allows within a few seconds of a
+ * tap: call it straight from the Print tap, before anything slow. Never throws.
+ */
+export async function connectPrinter(): Promise<PrintResult> {
+  const method = getPrinterPrefs().method;
+  if (method === 'none') return { ok: false, reason: 'not_set_up' };
+  if (method === 'rawbt') return { ok: true };
+
+  const link = await ensureConnected(5000);
+  if (link === 'connected') return { ok: true };
+  // Known but switched off or out of range: the list would not help.
+  if (link === 'failed') return { ok: false, reason: 'not_connected' };
+
+  const picked = await pairBluetoothPrinter();
+  if (picked.ok) return { ok: true };
+  // Closed the list, or the tap was too long ago to open it: no detail needed.
+  const quiet = ['cancelled', 'bluetooth_unsupported'].includes(picked.message) || /gesture/i.test(picked.message);
+  return { ok: false, reason: 'not_connected', detail: quiet ? undefined : picked.message };
+}
+
 /** Sends bytes to the printer. Never throws. */
 export async function printBytes(bytes: Uint8Array): Promise<PrintResult> {
-  const prefs = getPrinterPrefs();
-  if (prefs.method === 'none') return { ok: false, reason: 'not_set_up' };
+  const ready = await connectPrinter();
+  if (!ready.ok) return ready;
 
-  if (prefs.method === 'rawbt') {
+  if (getPrinterPrefs().method === 'rawbt') {
     try {
       sendToRawBt(bytes);
       return { ok: true };
@@ -259,7 +289,6 @@ export async function printBytes(bytes: Uint8Array): Promise<PrintResult> {
     }
   }
 
-  if (!(await ensureConnected(5000))) return { ok: false, reason: 'not_connected' };
   setState('printing');
   try {
     await writeBluetooth(bytes);

@@ -365,10 +365,18 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
     };
 
     setIsSaving(true);
+    setPrintState('idle');
     let result: SavedBill;
+    let printStarted = false;
     try {
       // 1. On this phone first, so the bill is never lost.
       const queued = await queueSale(invoice, (numbered) => toSaleRpcPayload(numbered, updateRateIds));
+      // The phone gave it a number, so print now: the customer does not wait for the
+      // upload, and Chrome only opens RawBT or the printer list soon after the tap.
+      if (print && queued.billNumber) {
+        printStarted = true;
+        void doPrint(queued);
+      }
       // 2. Upload now if the internet allows, without keeping the customer waiting.
       const upload = syncOutbox().then(async (done) =>
         done.some((d) => d.clientId === invoice.clientId) ? done : syncOutbox()
@@ -409,9 +417,8 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
     showToast(result.uploaded ? t('billSaved', { number }) : t('billSavedOffline', { number }), result.uploaded ? 'success' : 'info');
     setDraft(EMPTY_DRAFT);
     setSaved(result);
-    setPrintState('idle');
     // Printing comes after the bill is safely saved, and never undoes it.
-    if (print) void doPrint(result.invoice);
+    if (print && !printStarted) void doPrint(result.invoice);
   };
 
   const doPrint = async (invoice: ShopInvoice) => {
@@ -490,292 +497,297 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
         }
       />
 
-      <div className="max-w-3xl space-y-3">
-        {/* Customer (tap to change) and GST on/off, in one row */}
-        <section className="flex items-stretch gap-2">
-          <button
-            type="button"
-            onClick={() => setPartyPickerOpen(true)}
-            className="min-w-0 flex-1 min-h-12 flex items-center gap-2.5 bg-white border border-slate-200 hover:border-amber-300 rounded-xl px-3 py-1.5 text-left cursor-pointer transition-colors"
-          >
-            <UserIcon className="h-5 w-5 shrink-0 text-slate-500" />
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-bold text-slate-900 truncate leading-tight">
-                {party ? party.name : t('cashSale')}
-              </span>
-              <span className="block text-xs text-slate-500 truncate">
-                {party
-                  ? [party.phone, isInterstate ? t('otherStateNote') : ''].filter(Boolean).join(' · ') || t('customer')
-                  : t('cashSaleHint')}
-              </span>
-            </span>
-            <span className="shrink-0 flex items-center gap-1 text-xs font-bold text-amber-700">
-              <Users className="h-4 w-4" />
-              {t('change')}
-            </span>
-          </button>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={isGst}
-            aria-label={t('gstBill')}
-            onClick={() => setGst(!isGst)}
-            className="shrink-0 min-h-12 flex items-center gap-2 bg-white border border-slate-200 hover:border-slate-300 rounded-xl px-3 cursor-pointer transition-colors"
-          >
-            <span className="text-sm font-bold text-slate-800">GST</span>
-            <span className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors ${isGst ? 'bg-emerald-600' : 'bg-slate-300'}`}>
-              <span
-                className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                  isGst ? 'translate-x-[22px]' : 'translate-x-0.5'
-                }`}
-              />
-            </span>
-          </button>
-        </section>
-
-        {/* Lines: one tidy list */}
-        <section className="space-y-2">
-          {draft.lines.length === 0 ? (
-            <div className="px-4 py-3 text-center text-sm text-slate-500 bg-white border border-dashed border-slate-300 rounded-xl">
-              {t('noLinesYet')}
-            </div>
-          ) : (
-            <ul className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-100 overflow-hidden">
-              {parsedLines.map(({ line, qty, rate }, index) => (
-                <SaleLineRow
-                  key={line.key}
-                  line={line}
-                  qtyValid={qty !== null && qty > 0}
-                  rateValid={rate !== null && rate >= 0}
-                  rateChanged={rate !== null && rate !== line.savedRate}
-                  amount={bill.lines[index]?.gross ?? 0}
-                  canUpdateRate={isOwner}
-                  onChange={(patch) => updateLine(line.key, patch)}
-                  onRemove={() => updateDraft({ lines: draft.lines.filter((l) => l.key !== line.key) })}
-                  isGst={isGst}
-                />
-              ))}
-            </ul>
-          )}
-          <ActionButton
-            tone="amber"
-            icon={<Plus className="h-5 w-5" />}
-            label={t('addItems')}
-            onClick={() => setPickerOpen(true)}
-            className="w-full"
-          />
-        </section>
-
-        {/* Discount, payment and totals in one card */}
-        <section className="bg-white border border-slate-200 rounded-2xl p-4 space-y-4">
-          <div className="grid grid-cols-1 @lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] gap-4">
-            {/* Discount: the % or ₹ toggle sits inside the field */}
-            <div className="space-y-2">
-              <p className="text-sm font-bold text-slate-700">{t('discount')}</p>
-              <div className="flex h-12 rounded-xl border border-slate-200 bg-slate-50 overflow-hidden focus-within:border-amber-500 focus-within:bg-white transition-colors">
-                <span className="pl-3.5 flex items-center text-base font-semibold text-slate-400" aria-hidden="true">
-                  {draft.discountMode === 'percent' ? '%' : '₹'}
+      {/* Sideways tablets and wider: items on the left, payment and totals on the right. */}
+      <div className="max-w-3xl space-y-3 @4xl:max-w-none @4xl:space-y-0 @4xl:grid @4xl:grid-cols-[minmax(0,1fr)_24rem] @4xl:gap-4 @4xl:items-start">
+        <div className="space-y-3">
+          {/* Customer (tap to change) and GST on/off, in one row */}
+          <section className="flex items-stretch gap-2">
+            <button
+              type="button"
+              onClick={() => setPartyPickerOpen(true)}
+              className="min-w-0 flex-1 min-h-12 flex items-center gap-2.5 bg-white border border-slate-200 hover:border-amber-300 rounded-xl px-3 py-1.5 text-left cursor-pointer transition-colors"
+            >
+              <UserIcon className="h-5 w-5 shrink-0 text-slate-500" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-bold text-slate-900 truncate leading-tight">
+                  {party ? party.name : t('cashSale')}
                 </span>
-                <input
-                  inputMode="decimal"
-                  value={draft.discountText}
-                  onChange={(e) => updateDraft({ discountText: e.target.value })}
-                  placeholder="0"
-                  aria-label={t('discount')}
-                  className="min-w-0 flex-1 bg-transparent px-2 text-base font-semibold text-slate-900 placeholder-slate-400 focus:outline-none"
+                <span className="block text-xs text-slate-500 truncate">
+                  {party
+                    ? [party.phone, isInterstate ? t('otherStateNote') : ''].filter(Boolean).join(' · ') || t('customer')
+                    : t('cashSaleHint')}
+                </span>
+              </span>
+              <span className="shrink-0 flex items-center gap-1 text-xs font-bold text-amber-700">
+                <Users className="h-4 w-4" />
+                {t('change')}
+              </span>
+            </button>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={isGst}
+              aria-label={t('gstBill')}
+              onClick={() => setGst(!isGst)}
+              className="shrink-0 min-h-12 flex items-center gap-2 bg-white border border-slate-200 hover:border-slate-300 rounded-xl px-3 cursor-pointer transition-colors"
+            >
+              <span className="text-sm font-bold text-slate-800">GST</span>
+              <span className={`relative inline-flex h-6 w-11 shrink-0 rounded-full transition-colors ${isGst ? 'bg-emerald-600' : 'bg-slate-300'}`}>
+                <span
+                  className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                    isGst ? 'translate-x-[22px]' : 'translate-x-0.5'
+                  }`}
                 />
-                <div className="flex border-l border-slate-200" role="radiogroup" aria-label={t('discount')}>
-                  {(['percent', 'amount'] as const).map((mode) => {
-                    const selected = draft.discountMode === mode;
+              </span>
+            </button>
+          </section>
+
+          {/* Lines: one tidy list */}
+          <section className="space-y-2">
+            {draft.lines.length === 0 ? (
+              <div className="px-4 py-3 text-center text-sm text-slate-500 bg-white border border-dashed border-slate-300 rounded-xl">
+                {t('noLinesYet')}
+              </div>
+            ) : (
+              <ul className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-100 overflow-hidden">
+                {parsedLines.map(({ line, qty, rate }, index) => (
+                  <SaleLineRow
+                    key={line.key}
+                    line={line}
+                    qtyValid={qty !== null && qty > 0}
+                    rateValid={rate !== null && rate >= 0}
+                    rateChanged={rate !== null && rate !== line.savedRate}
+                    amount={bill.lines[index]?.gross ?? 0}
+                    canUpdateRate={isOwner}
+                    onChange={(patch) => updateLine(line.key, patch)}
+                    onRemove={() => updateDraft({ lines: draft.lines.filter((l) => l.key !== line.key) })}
+                    isGst={isGst}
+                  />
+                ))}
+              </ul>
+            )}
+            <ActionButton
+              tone="amber"
+              icon={<Plus className="h-5 w-5" />}
+              label={t('addItems')}
+              onClick={() => setPickerOpen(true)}
+              className="w-full"
+            />
+          </section>
+        </div>
+
+        <div className="space-y-3">
+          {/* Discount, payment and totals in one card */}
+          <section className="bg-white border border-slate-200 rounded-2xl p-4 space-y-4">
+            <div className="grid grid-cols-1 @lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] @4xl:grid-cols-1 gap-4">
+              {/* Discount: the % or ₹ toggle sits inside the field */}
+              <div className="space-y-2">
+                <p className="text-sm font-bold text-slate-700">{t('discount')}</p>
+                <div className="flex h-12 rounded-xl border border-slate-200 bg-slate-50 overflow-hidden focus-within:border-amber-500 focus-within:bg-white transition-colors">
+                  <span className="pl-3.5 flex items-center text-base font-semibold text-slate-400" aria-hidden="true">
+                    {draft.discountMode === 'percent' ? '%' : '₹'}
+                  </span>
+                  <input
+                    inputMode="decimal"
+                    value={draft.discountText}
+                    onChange={(e) => updateDraft({ discountText: e.target.value })}
+                    placeholder="0"
+                    aria-label={t('discount')}
+                    className="min-w-0 flex-1 bg-transparent px-2 text-base font-semibold text-slate-900 placeholder-slate-400 focus:outline-none"
+                  />
+                  <div className="flex border-l border-slate-200" role="radiogroup" aria-label={t('discount')}>
+                    {(['percent', 'amount'] as const).map((mode) => {
+                      const selected = draft.discountMode === mode;
+                      return (
+                        <button
+                          key={mode}
+                          type="button"
+                          role="radio"
+                          aria-checked={selected}
+                          onClick={() => updateDraft({ discountMode: mode })}
+                          className={`w-12 text-sm font-bold cursor-pointer transition-colors ${
+                            selected
+                              ? 'bg-white text-emerald-700 shadow-[inset_0_-2px_0_0_rgb(16,185,129)]'
+                              : 'text-slate-500 hover:bg-slate-100'
+                          }`}
+                        >
+                          {mode === 'percent' ? t('discountInPercent') : t('discountInRupees')}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Payment mode */}
+              <div className="space-y-2">
+                <p className="text-sm font-bold text-slate-700">{t('payment')}</p>
+                <div className="grid grid-cols-4 gap-2" role="radiogroup" aria-label={t('payment')}>
+                  {(
+                    [
+                      { value: 'cash', icon: Banknote },
+                      { value: 'upi', icon: Smartphone },
+                      { value: 'credit', icon: NotebookPen },
+                      { value: 'partial', icon: SplitSquareHorizontal },
+                    ] as const
+                  ).map(({ value, icon: Icon }) => {
+                    const selected = draft.paymentMode === value;
                     return (
                       <button
-                        key={mode}
+                        key={value}
                         type="button"
                         role="radio"
                         aria-checked={selected}
-                        onClick={() => updateDraft({ discountMode: mode })}
-                        className={`w-12 text-sm font-bold cursor-pointer transition-colors ${
-                          selected
-                            ? 'bg-white text-emerald-700 shadow-[inset_0_-2px_0_0_rgb(16,185,129)]'
-                            : 'text-slate-500 hover:bg-slate-100'
-                        }`}
-                      >
-                        {mode === 'percent' ? t('discountInPercent') : t('discountInRupees')}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
-            {/* Payment mode */}
-            <div className="space-y-2">
-              <p className="text-sm font-bold text-slate-700">{t('payment')}</p>
-              <div className="grid grid-cols-4 gap-2" role="radiogroup" aria-label={t('payment')}>
-                {(
-                  [
-                    { value: 'cash', icon: Banknote },
-                    { value: 'upi', icon: Smartphone },
-                    { value: 'credit', icon: NotebookPen },
-                    { value: 'partial', icon: SplitSquareHorizontal },
-                  ] as const
-                ).map(({ value, icon: Icon }) => {
-                  const selected = draft.paymentMode === value;
-                  return (
-                    <button
-                      key={value}
-                      type="button"
-                      role="radio"
-                      aria-checked={selected}
-                      onClick={() => updateDraft({ paymentMode: value })}
-                      className={`min-h-12 px-1 flex flex-col items-center justify-center gap-0.5 rounded-xl border text-xs font-semibold leading-tight text-center whitespace-nowrap cursor-pointer transition-colors ${
-                        selected
-                          ? 'border-emerald-500 bg-emerald-50 text-emerald-800 ring-1 ring-emerald-500'
-                          : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
-                      }`}
-                    >
-                      <Icon className="h-4 w-4 shrink-0" />
-                      {t(`pay_${value}`)}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          {draft.paymentMode === 'partial' && (
-            <div className="grid grid-cols-1 @lg:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <p className="text-sm font-bold text-slate-700">{t('paidNow')}</p>
-                <input
-                  inputMode="decimal"
-                  value={draft.paidText}
-                  onChange={(e) => updateDraft({ paidText: e.target.value })}
-                  placeholder="0"
-                  className="w-full h-12 bg-slate-50 border border-slate-200 rounded-xl px-3.5 text-base font-semibold text-slate-900 focus:outline-none focus:bg-white focus:border-amber-500"
-                />
-              </div>
-              <div className="space-y-2">
-                <p className="text-sm font-bold text-slate-700">{t('paidBy')}</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {(['cash', 'upi'] as const).map((mode) => {
-                    const selected = draft.paidMode === mode;
-                    return (
-                      <button
-                        key={mode}
-                        type="button"
-                        onClick={() => updateDraft({ paidMode: mode })}
-                        className={`min-h-12 flex items-center justify-center gap-1.5 rounded-xl border text-sm font-semibold cursor-pointer ${
+                        onClick={() => updateDraft({ paymentMode: value })}
+                        className={`min-h-12 px-1 flex flex-col items-center justify-center gap-0.5 rounded-xl border text-xs font-semibold leading-tight text-center whitespace-nowrap cursor-pointer transition-colors ${
                           selected
                             ? 'border-emerald-500 bg-emerald-50 text-emerald-800 ring-1 ring-emerald-500'
-                            : 'border-slate-200 bg-white text-slate-700'
+                            : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
                         }`}
                       >
-                        {mode === 'cash' ? <Banknote className="h-4 w-4" /> : <Smartphone className="h-4 w-4" />}
-                        {t(`pay_${mode}`)}
+                        <Icon className="h-4 w-4 shrink-0" />
+                        {t(`pay_${value}`)}
                       </button>
                     );
                   })}
                 </div>
               </div>
             </div>
-          )}
 
-          {/* Customer scans this from the screen to pay by UPI. */}
-          {(draft.paymentMode === 'upi' || draft.paymentMode === 'partial') && (() => {
-            const amount = draft.paymentMode === 'upi' ? bill.total : paidPartial && paidPartial > 0 ? paidPartial : 0;
-            if (!settings.upiId) {
-              return <p className="text-sm text-slate-500">{t('upiQrNoId')}</p>;
-            }
-            if (draft.paymentMode === 'partial' && draft.paidMode !== 'upi') return null;
-            return (
-              <div className="flex items-center gap-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3" data-testid="upi-qr">
-                <div className="shrink-0 rounded-lg bg-white p-1.5 border border-slate-200">
-                  <QrSvg data={upiLink(settings.upiId, settings.shopName, amount)} className="h-36 w-36" />
+            {draft.paymentMode === 'partial' && (
+              <div className="grid grid-cols-1 @lg:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <p className="text-sm font-bold text-slate-700">{t('paidNow')}</p>
+                  <input
+                    inputMode="decimal"
+                    value={draft.paidText}
+                    onChange={(e) => updateDraft({ paidText: e.target.value })}
+                    placeholder="0"
+                    className="w-full h-12 bg-slate-50 border border-slate-200 rounded-xl px-3.5 text-base font-semibold text-slate-900 focus:outline-none focus:bg-white focus:border-amber-500"
+                  />
                 </div>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-slate-600">{t('upiQrScan')}</p>
-                  {amount > 0 && <p className="text-2xl font-extrabold text-slate-900 tabular-nums">{formatRupees(amount, true)}</p>}
-                  <p className="text-xs text-slate-500 break-all mt-1">{settings.upiId}</p>
+                <div className="space-y-2">
+                  <p className="text-sm font-bold text-slate-700">{t('paidBy')}</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['cash', 'upi'] as const).map((mode) => {
+                      const selected = draft.paidMode === mode;
+                      return (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => updateDraft({ paidMode: mode })}
+                          className={`min-h-12 flex items-center justify-center gap-1.5 rounded-xl border text-sm font-semibold cursor-pointer ${
+                            selected
+                              ? 'border-emerald-500 bg-emerald-50 text-emerald-800 ring-1 ring-emerald-500'
+                              : 'border-slate-200 bg-white text-slate-700'
+                          }`}
+                        >
+                          {mode === 'cash' ? <Banknote className="h-4 w-4" /> : <Smartphone className="h-4 w-4" />}
+                          {t(`pay_${mode}`)}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
-            );
-          })()}
-
-          {(draft.paymentMode === 'credit' || draft.paymentMode === 'partial') && (
-            <p className="text-sm font-bold text-red-700">
-              {t('udhaarLeft', {
-                amount: formatRupees(
-                  draft.paymentMode === 'credit' ? bill.total : Math.max(0, bill.total - (paidPartial ?? 0)),
-                  true
-                ),
-              })}
-            </p>
-          )}
-
-          <div className="border-t border-slate-200 pt-3 space-y-1.5">
-            <TotalRow label={t('itemsTotal')} value={formatRupees(bill.itemsTotal, true)} small />
-            {bill.discount > 0 && (
-              <TotalRow
-                label={
-                  discount?.kind === 'percent'
-                    ? `${t('discount')} (${paiseToInput(discount.basisPoints)}%)`
-                    : t('discount')
-                }
-                value={`− ${formatRupees(bill.discount, true)}`}
-                tone="emerald"
-                small
-              />
             )}
-            {showTaxOnTop && (
-              <>
-                <TotalRow label={t('taxableValue')} value={formatRupees(bill.subtotal, true)} muted small />
-                {isInterstate ? (
-                  <TotalRow label={`+ ${t('igst')}`} value={formatRupees(bill.igst, true)} small />
-                ) : (
-                  <>
-                    <TotalRow label={`+ ${t('cgst')}`} value={formatRupees(bill.cgst, true)} small />
-                    <TotalRow label={`+ ${t('sgst')}`} value={formatRupees(bill.sgst, true)} small />
-                  </>
-                )}
-              </>
-            )}
-            {bill.roundOff !== 0 && (
-              <TotalRow
-                label={t('roundOff')}
-                value={`${bill.roundOff > 0 ? '+' : '−'} ${formatRupees(Math.abs(bill.roundOff), true)}`}
-                muted
-                small
-              />
-            )}
-          </div>
 
-          <div className="border-t border-slate-200 pt-3 flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-xs font-bold uppercase tracking-widest text-slate-600">{t('grandTotal')}</p>
-              {isGst && ratesIncludeGst && bill.tax > 0 && (
-                <p className="text-xs text-slate-400 mt-0.5">
-                  {t('inclTax', {
-                    taxes: isInterstate
-                      ? `IGST ${formatRupees(bill.igst, true)}`
-                      : `CGST ${formatRupees(bill.cgst, true)} + SGST ${formatRupees(bill.sgst, true)}`,
-                  })}
-                </p>
+            {/* Customer scans this from the screen to pay by UPI. */}
+            {(draft.paymentMode === 'upi' || draft.paymentMode === 'partial') && (() => {
+              const amount = draft.paymentMode === 'upi' ? bill.total : paidPartial && paidPartial > 0 ? paidPartial : 0;
+              if (!settings.upiId) {
+                return <p className="text-sm text-slate-500">{t('upiQrNoId')}</p>;
+              }
+              if (draft.paymentMode === 'partial' && draft.paidMode !== 'upi') return null;
+              return (
+                <div className="flex items-center gap-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3" data-testid="upi-qr">
+                  <div className="shrink-0 rounded-lg bg-white p-1.5 border border-slate-200">
+                    <QrSvg data={upiLink(settings.upiId, settings.shopName, amount)} className="h-36 w-36" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-slate-600">{t('upiQrScan')}</p>
+                    {amount > 0 && <p className="text-2xl font-extrabold text-slate-900 tabular-nums">{formatRupees(amount, true)}</p>}
+                    <p className="text-xs text-slate-500 break-all mt-1">{settings.upiId}</p>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {(draft.paymentMode === 'credit' || draft.paymentMode === 'partial') && (
+              <p className="text-sm font-bold text-red-700">
+                {t('udhaarLeft', {
+                  amount: formatRupees(
+                    draft.paymentMode === 'credit' ? bill.total : Math.max(0, bill.total - (paidPartial ?? 0)),
+                    true
+                  ),
+                })}
+              </p>
+            )}
+
+            <div className="border-t border-slate-200 pt-3 space-y-1.5">
+              <TotalRow label={t('itemsTotal')} value={formatRupees(bill.itemsTotal, true)} small />
+              {bill.discount > 0 && (
+                <TotalRow
+                  label={
+                    discount?.kind === 'percent'
+                      ? `${t('discount')} (${paiseToInput(discount.basisPoints)}%)`
+                      : t('discount')
+                  }
+                  value={`− ${formatRupees(bill.discount, true)}`}
+                  tone="emerald"
+                  small
+                />
+              )}
+              {showTaxOnTop && (
+                <>
+                  <TotalRow label={t('taxableValue')} value={formatRupees(bill.subtotal, true)} muted small />
+                  {isInterstate ? (
+                    <TotalRow label={`+ ${t('igst')}`} value={formatRupees(bill.igst, true)} small />
+                  ) : (
+                    <>
+                      <TotalRow label={`+ ${t('cgst')}`} value={formatRupees(bill.cgst, true)} small />
+                      <TotalRow label={`+ ${t('sgst')}`} value={formatRupees(bill.sgst, true)} small />
+                    </>
+                  )}
+                </>
+              )}
+              {bill.roundOff !== 0 && (
+                <TotalRow
+                  label={t('roundOff')}
+                  value={`${bill.roundOff > 0 ? '+' : '−'} ${formatRupees(Math.abs(bill.roundOff), true)}`}
+                  muted
+                  small
+                />
               )}
             </div>
-            <p className="shrink-0 text-3xl font-extrabold text-slate-900 tabular-nums tracking-tight">
-              {formatRupees(bill.total, true)}
-            </p>
-          </div>
-        </section>
 
-        {problem && <FormError message={problem.message} detail={problem.detail} />}
+            <div className="border-t border-slate-200 pt-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-xs font-bold uppercase tracking-widest text-slate-600">{t('grandTotal')}</p>
+                {isGst && ratesIncludeGst && bill.tax > 0 && (
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    {t('inclTax', {
+                      taxes: isInterstate
+                        ? `IGST ${formatRupees(bill.igst, true)}`
+                        : `CGST ${formatRupees(bill.cgst, true)} + SGST ${formatRupees(bill.sgst, true)}`,
+                    })}
+                  </p>
+                )}
+              </div>
+              <p className="shrink-0 text-3xl font-extrabold text-slate-900 tabular-nums tracking-tight">
+                {formatRupees(bill.total, true)}
+              </p>
+            </div>
+          </section>
+
+          {problem && <FormError message={problem.message} detail={problem.detail} />}
+        </div>
       </div>
 
       {/* Always-visible total and save buttons */}
       {/* Phones: total on one line, buttons below. Wider screens: all in one row. */}
       <div className={`${keyboardOpen ? 'hidden' : ''} sticky bottom-0 mt-auto shrink-0 -mx-3 sm:-mx-6 md:-mx-8 px-3 sm:px-6 md:px-8 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] bg-white/95 backdrop-blur border-t border-slate-200 shadow-[0_-8px_24px_-12px_rgba(15,23,42,0.25)]`}>
-        <div className="max-w-3xl flex flex-col gap-1.5 @lg:flex-row @lg:items-center @lg:gap-3">
+        <div className="max-w-3xl @4xl:max-w-none flex flex-col gap-1.5 @lg:flex-row @lg:items-center @lg:gap-3">
           <div className="flex items-baseline justify-between gap-3 @lg:mr-auto @lg:justify-start">
             <span className="text-base font-bold text-slate-600">{t('total')}</span>
             <span className="text-3xl leading-none font-extrabold text-slate-900 tabular-nums tracking-tight" data-testid="bill-total">
