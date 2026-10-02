@@ -820,10 +820,6 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
           const line = lineForItem(itemId);
           if (line) updateLine(line.key, patch);
         }}
-        onStep={(itemId, direction) => {
-          const line = lineForItem(itemId);
-          if (line) stepQty(line, direction);
-        }}
         onRemove={removeItem}
       />
 

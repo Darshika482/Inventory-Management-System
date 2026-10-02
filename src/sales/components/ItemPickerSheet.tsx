@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { Check, Minus, PackageSearch, Plus, Star, Trash2 } from 'lucide-react';
+import { Check, PackageSearch, Plus, Star, Trash2 } from 'lucide-react';
 import { AppModal } from '../../components/AppModal';
 import { useT } from '../i18n';
 import { displayName, matchesSearch, secondaryName, unitLabel } from '../labels';
-import { formatRupees, parseMilli, type Paise } from '../money';
+import { formatRupees, type Paise } from '../money';
 import type { ShopCategory, ShopItem } from '../types';
 import { ActionButton, SearchBox } from './ui';
 
@@ -31,7 +31,6 @@ interface ItemPickerSheetProps {
   billTotal: Paise;
   onPick: (item: ShopItem) => void;
   onChangeLine: (itemId: string, patch: { qtyText?: string; rateText?: string }) => void;
-  onStep: (itemId: string, direction: 1 | -1) => void;
   onRemove: (itemId: string) => void;
 }
 
@@ -53,7 +52,6 @@ export function ItemPickerSheet({
   billTotal,
   onPick,
   onChangeLine,
-  onStep,
   onRemove,
 }: ItemPickerSheetProps) {
   const { t, language } = useT();
@@ -124,7 +122,6 @@ export function ItemPickerSheet({
                 line={lines[item.id]}
                 onPick={() => onPick(item)}
                 onChange={(patch) => onChangeLine(item.id, patch)}
-                onStep={(direction) => onStep(item.id, direction)}
                 onRemove={() => onRemove(item.id)}
               />
             ))}
@@ -153,11 +150,10 @@ interface PickerRowProps {
   line: PickerLine | undefined;
   onPick: () => void;
   onChange: (patch: { qtyText?: string; rateText?: string }) => void;
-  onStep: (direction: 1 | -1) => void;
   onRemove: () => void;
 }
 
-function PickerRow({ item, line, onPick, onChange, onStep, onRemove }: PickerRowProps) {
+function PickerRow({ item, line, onPick, onChange, onRemove }: PickerRowProps) {
   const { t, language } = useT();
   const subtitle = [secondaryName(item, language), unitLabel(t, item.unit)].filter(Boolean).join(' · ');
 
@@ -184,8 +180,6 @@ function PickerRow({ item, line, onPick, onChange, onStep, onRemove }: PickerRow
   }
 
   // On the bill: quantity and rate can be changed right here.
-  const qty = parseMilli(line.qtyText) ?? 0;
-  const atOne = qty <= 1000;
   return (
     <li className="bg-emerald-50/60 px-3 py-2 space-y-1.5">
       <div className="flex items-center gap-2">
@@ -195,38 +189,18 @@ function PickerRow({ item, line, onPick, onChange, onStep, onRemove }: PickerRow
         </div>
         <p className="shrink-0 text-sm font-bold text-emerald-800 tabular-nums">{formatRupees(line.amount, true)}</p>
       </div>
-      {/* Small − qty +  ×  ₹ rate, on one line */}
+      {/* qty  ×  ₹ rate, with delete at the right end */}
       <div className="flex items-center gap-1.5">
-        <div className="flex items-center rounded-lg border border-slate-200 bg-white overflow-hidden">
-          <button
-            type="button"
-            onClick={atOne ? onRemove : () => onStep(-1)}
-            aria-label={atOne ? t('remove') : t('decrease')}
-            className={`h-8 w-8 flex items-center justify-center cursor-pointer transition-colors ${
-              atOne ? 'text-red-600 hover:bg-red-50' : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            {atOne ? <Trash2 className="h-3.5 w-3.5" /> : <Minus className="h-3.5 w-3.5" />}
-          </button>
-          <input
-            inputMode="decimal"
-            value={line.qtyText}
-            onChange={(e) => onChange({ qtyText: e.target.value })}
-            onFocus={(e) => e.target.select()}
-            aria-label={t('qty')}
-            className={`h-8 w-10 text-center text-sm font-bold text-slate-900 border-x focus:outline-none ${
-              line.qtyValid ? 'border-slate-200' : 'border-red-300 bg-red-50'
-            }`}
-          />
-          <button
-            type="button"
-            onClick={() => onStep(1)}
-            aria-label={t('increase')}
-            className="h-8 w-8 flex items-center justify-center text-slate-600 hover:bg-slate-100 cursor-pointer transition-colors"
-          >
-            <Plus className="h-3.5 w-3.5" />
-          </button>
-        </div>
+        <input
+          inputMode="decimal"
+          value={line.qtyText}
+          onChange={(e) => onChange({ qtyText: e.target.value })}
+          onFocus={(e) => e.target.select()}
+          aria-label={t('qty')}
+          className={`h-8 w-14 rounded-lg border bg-white text-center text-sm font-bold text-slate-900 focus:outline-none focus:border-amber-500 ${
+            line.qtyValid ? 'border-slate-200' : 'border-red-300 bg-red-50'
+          }`}
+        />
         <span className="text-xs text-slate-400" aria-hidden="true">
           ×
         </span>
@@ -247,6 +221,15 @@ function PickerRow({ item, line, onPick, onChange, onStep, onRemove }: PickerRow
             className="h-full min-w-0 flex-1 bg-transparent px-1 text-sm font-bold text-slate-900 focus:outline-none"
           />
         </div>
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label={t('remove')}
+          title={t('remove')}
+          className="ml-auto h-8 w-8 flex items-center justify-center rounded-lg text-red-600 hover:bg-red-50 cursor-pointer transition-colors"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
       </div>
     </li>
   );
