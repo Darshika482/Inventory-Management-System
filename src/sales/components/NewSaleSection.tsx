@@ -43,6 +43,7 @@ import { formatQty, formatRupees, paiseToInput, parseMilli, parsePaise, type Pai
 import { getDeviceSeries, queueSale, refreshCounter, syncOutbox } from '../outbox';
 import type { PaidMode, PaymentMode, ShopCategory, ShopInvoice, ShopItem, ShopParty, ShopSettings } from '../types';
 import { ItemPickerSheet, type PickerLine } from './ItemPickerSheet';
+import { usePhoneKeyboardOpen } from '../keyboard';
 import { ShareBillButton } from './ShareBill';
 import { PrinterChip, QrSvg, ReceiptPreviewModal, printDetail, printMessageKey } from './PrintUi';
 import { upiLink } from '../print/receipt';
@@ -137,6 +138,8 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
   const [saved, setSaved] = useState<SavedBill | null>(null);
   const [printState, setPrintState] = useState<'idle' | 'printing' | PrintResult>('idle');
   const [previewOpen, setPreviewOpen] = useState(false);
+  // The Save bar steps aside while the phone keyboard is up, so it never covers a box.
+  const keyboardOpen = usePhoneKeyboardOpen();
 
   const load = async () => {
     setIsLoading(true);
@@ -778,7 +781,7 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
 
       {/* Always-visible total and save buttons */}
       {/* Phones: total on one line, buttons below. Wider screens: all in one row. */}
-      <div className="sticky bottom-0 -mx-3 sm:-mx-6 md:-mx-8 px-3 sm:px-6 md:px-8 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] bg-white/95 backdrop-blur border-t border-slate-200 shadow-[0_-8px_24px_-12px_rgba(15,23,42,0.25)]">
+      <div className={`${keyboardOpen ? 'hidden' : ''} sticky bottom-0 -mx-3 sm:-mx-6 md:-mx-8 px-3 sm:px-6 md:px-8 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] bg-white/95 backdrop-blur border-t border-slate-200 shadow-[0_-8px_24px_-12px_rgba(15,23,42,0.25)]`}>
         <div className="max-w-3xl flex flex-col gap-1.5 @lg:flex-row @lg:items-center @lg:gap-3">
           <div className="flex items-baseline justify-between gap-3 @lg:mr-auto @lg:justify-start">
             <span className="text-base font-bold text-slate-600">{t('total')}</span>

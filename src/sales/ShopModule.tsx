@@ -7,6 +7,7 @@ import { AlertTriangle, CloudOff, Package, ReceiptText, Settings, ShoppingCart, 
 import type { User } from '../types';
 import { useT, type TranslationKey } from './i18n';
 import { startOutboxSync, useOutboxCounts } from './outbox';
+import { installKeyboardDone } from './keyboard';
 import { NewSaleSection } from './components/NewSaleSection';
 import { ShopItemsSection } from './components/ShopItemsSection';
 import { SalesListSection } from './components/SalesListSection';
@@ -50,6 +51,8 @@ export function ShopNavGroup({ role, activeSection, onNavigate }: ShopNavGroupPr
   const { t } = useT();
   // Uploads bills saved on this phone, from whichever page is open.
   useEffect(() => startOutboxSync(), []);
+  // Number keyboards: the ✓ / Done key closes the keyboard.
+  useEffect(() => installKeyboardDone(), []);
   return (
     <>
       <p className="text-sm font-semibold text-slate-500 px-6 pt-5 mb-3">{t('menuGroup')}</p>
