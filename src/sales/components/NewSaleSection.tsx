@@ -38,7 +38,7 @@ import { computeBill, type BillDiscount } from '../gst';
 import { fyFor, istToday } from '../fy';
 import { useT } from '../i18n';
 import { newId } from '../ids';
-import { displayName, secondaryName, unitLabel } from '../labels';
+import { displayName, unitLabel } from '../labels';
 import { formatQty, formatRupees, paiseToInput, parseMilli, parsePaise, type Paise } from '../money';
 import { getDeviceSeries, queueSale, refreshCounter, syncOutbox } from '../outbox';
 import type { PaidMode, PaymentMode, ShopCategory, ShopInvoice, ShopItem, ShopParty, ShopSettings } from '../types';
@@ -256,13 +256,6 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
       };
       return { ...prev, lines: [...prev.lines, line] };
     });
-  };
-
-  const stepQty = (line: DraftLine, direction: 1 | -1) => {
-    const qty = parseMilli(line.qtyText) ?? 0;
-    const next = direction === 1 ? Math.max(qty, 0) + 1000 : qty - 1000;
-    if (next <= 0) return;
-    updateLine(line.key, { qtyText: formatQty(next) });
   };
 
   const lineForItem = (itemId: string) => draft.lines.find((l) => l.itemId === itemId);
@@ -540,33 +533,33 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
           </button>
         </section>
 
-        {/* Lines */}
+        {/* Lines: one tidy list */}
         <section className="space-y-2">
           {draft.lines.length === 0 ? (
             <div className="px-4 py-3 text-center text-sm text-slate-500 bg-white border border-dashed border-slate-300 rounded-xl">
               {t('noLinesYet')}
             </div>
           ) : (
-            parsedLines.map(({ line, qty, rate }, index) => (
-              <SaleLineRow
-                key={line.key}
-                line={line}
-                qtyValid={qty !== null && qty > 0}
-                rateValid={rate !== null && rate >= 0}
-                rateChanged={rate !== null && rate !== line.savedRate}
-                amount={bill.lines[index]?.gross ?? 0}
-                canUpdateRate={isOwner}
-                onChange={(patch) => updateLine(line.key, patch)}
-                onStep={(direction) => stepQty(line, direction)}
-                onRemove={() => updateDraft({ lines: draft.lines.filter((l) => l.key !== line.key) })}
-                isGst={isGst}
-              />
-            ))
+            <ul className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-100 overflow-hidden">
+              {parsedLines.map(({ line, qty, rate }, index) => (
+                <SaleLineRow
+                  key={line.key}
+                  line={line}
+                  qtyValid={qty !== null && qty > 0}
+                  rateValid={rate !== null && rate >= 0}
+                  rateChanged={rate !== null && rate !== line.savedRate}
+                  amount={bill.lines[index]?.gross ?? 0}
+                  canUpdateRate={isOwner}
+                  onChange={(patch) => updateLine(line.key, patch)}
+                  onRemove={() => updateDraft({ lines: draft.lines.filter((l) => l.key !== line.key) })}
+                  isGst={isGst}
+                />
+              ))}
+            </ul>
           )}
           <ActionButton
             tone="amber"
-            size="lg"
-            icon={<Plus className="h-6 w-6" />}
+            icon={<Plus className="h-5 w-5" />}
             label={t('addItems')}
             onClick={() => setPickerOpen(true)}
             className="w-full"
@@ -878,7 +871,6 @@ function SaleLineRow({
   amount,
   canUpdateRate,
   onChange,
-  onStep,
   onRemove,
   isGst,
 }: {
@@ -889,70 +881,35 @@ function SaleLineRow({
   amount: Paise;
   canUpdateRate: boolean;
   onChange: (patch: Partial<DraftLine>) => void;
-  onStep: (direction: 1 | -1) => void;
   onRemove: () => void;
   isGst: boolean;
 }) {
   const { t, language } = useT();
   const asItem = { name: line.name, nameHi: line.nameHi } as ShopItem;
-  const subtitle = [secondaryName(asItem, language), unitLabel(t, line.unit), isGst ? `GST ${line.gstRate}%` : '']
-    .filter(Boolean)
-    .join(' · ');
+  const subtitle = [unitLabel(t, line.unit), isGst ? `GST ${line.gstRate}%` : ''].filter(Boolean).join(' · ');
   return (
-    <div className="bg-white border border-slate-200 rounded-xl px-3 py-2 space-y-1.5">
-      {/* Name, amount, delete */}
-      <div className="flex items-center gap-2">
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-bold text-slate-900 leading-tight truncate">{displayName(asItem, language)}</p>
-          {subtitle && <p className="text-xs text-slate-500 truncate">{subtitle}</p>}
+    <li className="px-3 py-2 space-y-1">
+      {/* Wide screens: one row. Phones: name on top, boxes below. */}
+      <div className="flex flex-wrap @lg:flex-nowrap items-center gap-x-2 gap-y-1">
+        <div className="min-w-0 flex-1 basis-full @lg:basis-auto">
+          <p className="text-sm font-semibold text-slate-900 leading-tight truncate">{displayName(asItem, language)}</p>
+          {subtitle && <p className="text-[11px] text-slate-500 truncate">{subtitle}</p>}
         </div>
-        <p className="shrink-0 text-base font-extrabold text-slate-900 tabular-nums">{formatRupees(amount, true)}</p>
-        <button
-          type="button"
-          onClick={onRemove}
-          aria-label={t('remove')}
-          title={t('remove')}
-          className="h-9 w-9 shrink-0 flex items-center justify-center rounded-lg text-red-600 hover:bg-red-50 cursor-pointer"
-        >
-          <Trash2 className="h-4 w-4" />
-        </button>
-      </div>
-
-      {/* − qty +   ×   ₹ rate */}
-      <div className="flex items-center gap-1.5">
-        <div className="flex items-center rounded-lg border border-slate-200 overflow-hidden">
-          <button
-            type="button"
-            onClick={() => onStep(-1)}
-            aria-label={t('decrease')}
-            className="h-9 w-9 flex items-center justify-center bg-slate-50 hover:bg-slate-100 text-lg font-bold text-slate-700 cursor-pointer"
-          >
-            −
-          </button>
-          <input
-            inputMode="decimal"
-            value={line.qtyText}
-            onChange={(e) => onChange({ qtyText: e.target.value })}
-            onFocus={(e) => e.target.select()}
-            aria-label={t('qty')}
-            className={`h-9 w-12 text-center border-x text-sm font-bold text-slate-900 focus:outline-none ${
-              qtyValid ? 'border-slate-200 bg-white' : 'border-red-300 bg-red-50'
-            }`}
-          />
-          <button
-            type="button"
-            onClick={() => onStep(1)}
-            aria-label={t('increase')}
-            className="h-9 w-9 flex items-center justify-center bg-[#0F172A] hover:bg-slate-800 text-lg font-bold text-white cursor-pointer"
-          >
-            +
-          </button>
-        </div>
+        <input
+          inputMode="decimal"
+          value={line.qtyText}
+          onChange={(e) => onChange({ qtyText: e.target.value })}
+          onFocus={(e) => e.target.select()}
+          aria-label={t('qty')}
+          className={`h-8 w-14 rounded-lg border text-center text-sm font-bold text-slate-900 focus:outline-none focus:border-amber-500 ${
+            qtyValid ? 'border-slate-200 bg-white' : 'border-red-300 bg-red-50'
+          }`}
+        />
         <span className="text-xs text-slate-400" aria-hidden="true">
           ×
         </span>
         <div
-          className={`flex h-9 w-24 items-center rounded-lg border focus-within:border-amber-500 ${
+          className={`flex h-8 w-24 items-center rounded-lg border focus-within:border-amber-500 ${
             rateValid ? (rateChanged ? 'border-amber-400 bg-amber-50' : 'border-slate-200 bg-white') : 'border-red-300 bg-red-50'
           }`}
         >
@@ -968,10 +925,22 @@ function SaleLineRow({
             className="h-full min-w-0 flex-1 bg-transparent px-1 text-sm font-bold text-slate-900 focus:outline-none"
           />
         </div>
+        <p className="ml-auto @lg:ml-0 @lg:w-28 shrink-0 text-right text-sm font-bold text-slate-900 tabular-nums">
+          {formatRupees(amount, true)}
+        </p>
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label={t('remove')}
+          title={t('remove')}
+          className="h-8 w-8 shrink-0 flex items-center justify-center rounded-lg text-red-600 hover:bg-red-50 cursor-pointer"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
       </div>
 
       {rateChanged && rateValid && canUpdateRate && (
-        <label className="flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-1.5 cursor-pointer">
+        <label className="flex items-center gap-2 rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-1 cursor-pointer">
           <input
             type="checkbox"
             checked={line.updateRate}
@@ -983,7 +952,7 @@ function SaleLineRow({
           </span>
         </label>
       )}
-    </div>
+    </li>
   );
 }
 
