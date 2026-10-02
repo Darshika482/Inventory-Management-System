@@ -11,9 +11,20 @@ import { setLanguage, useT } from '../i18n';
 
 // --- Page frame ---
 
-export function PageShell({ children }: { children: React.ReactNode }) {
+/**
+ * `fill`: the page is a column that always reaches the bottom of the screen and
+ * has no bottom padding, so a last `mt-auto` bar (New Sale's Save bar) sits on
+ * the bottom edge instead of floating above empty space.
+ */
+export function PageShell({ children, fill = false }: { children: React.ReactNode; fill?: boolean }) {
   return (
-    <div className="@container flex-1 overflow-y-auto bg-[#F8FAFC] p-3 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:p-6 md:p-8 space-y-4 sm:space-y-5 font-sans text-slate-900 selection:bg-amber-500 selection:text-white">
+    <div
+      className={`@container flex-1 overflow-y-auto bg-[#F8FAFC] space-y-4 sm:space-y-5 font-sans text-slate-900 selection:bg-amber-500 selection:text-white ${
+        fill
+          ? 'flex flex-col px-3 pt-3 sm:px-6 sm:pt-6 md:px-8 md:pt-8'
+          : 'p-3 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:p-6 md:p-8'
+      }`}
+    >
       {children}
     </div>
   );
