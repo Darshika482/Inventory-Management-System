@@ -187,25 +187,26 @@ function PickerRow({ item, line, onPick, onChange, onStep, onRemove }: PickerRow
   const qty = parseMilli(line.qtyText) ?? 0;
   const atOne = qty <= 1000;
   return (
-    <li className="bg-emerald-50/60 px-3.5 py-2.5 space-y-2">
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="text-base font-semibold text-slate-900 truncate">{displayName(item, language)}</p>
-          <p className="text-sm text-slate-500 truncate">{subtitle}</p>
-        </div>
-        <p className="shrink-0 text-base font-bold text-emerald-800 tabular-nums">{formatRupees(line.amount, true)}</p>
-      </div>
+    <li className="bg-emerald-50/60 px-3 py-2 space-y-1.5">
       <div className="flex items-center gap-2">
-        <div className="flex items-center rounded-xl border border-slate-200 bg-white overflow-hidden">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-slate-900 truncate leading-tight">{displayName(item, language)}</p>
+          <p className="text-xs text-slate-500 truncate">{subtitle}</p>
+        </div>
+        <p className="shrink-0 text-sm font-bold text-emerald-800 tabular-nums">{formatRupees(line.amount, true)}</p>
+      </div>
+      {/* Small − qty +  ×  ₹ rate, on one line */}
+      <div className="flex items-center gap-1.5">
+        <div className="flex items-center rounded-lg border border-slate-200 bg-white overflow-hidden">
           <button
             type="button"
             onClick={atOne ? onRemove : () => onStep(-1)}
             aria-label={atOne ? t('remove') : t('decrease')}
-            className={`h-12 w-12 flex items-center justify-center cursor-pointer transition-colors ${
-              atOne ? 'text-red-600 hover:bg-red-50' : 'text-slate-700 hover:bg-slate-100'
+            className={`h-8 w-8 flex items-center justify-center cursor-pointer transition-colors ${
+              atOne ? 'text-red-600 hover:bg-red-50' : 'text-slate-600 hover:bg-slate-100'
             }`}
           >
-            {atOne ? <Trash2 className="h-4 w-4" /> : <Minus className="h-4 w-4" />}
+            {atOne ? <Trash2 className="h-3.5 w-3.5" /> : <Minus className="h-3.5 w-3.5" />}
           </button>
           <input
             inputMode="decimal"
@@ -213,7 +214,7 @@ function PickerRow({ item, line, onPick, onChange, onStep, onRemove }: PickerRow
             onChange={(e) => onChange({ qtyText: e.target.value })}
             onFocus={(e) => e.target.select()}
             aria-label={t('qty')}
-            className={`h-12 w-14 text-center text-base font-bold text-slate-900 border-x focus:outline-none ${
+            className={`h-8 w-10 text-center text-sm font-bold text-slate-900 border-x focus:outline-none ${
               line.qtyValid ? 'border-slate-200' : 'border-red-300 bg-red-50'
             }`}
           />
@@ -221,20 +222,20 @@ function PickerRow({ item, line, onPick, onChange, onStep, onRemove }: PickerRow
             type="button"
             onClick={() => onStep(1)}
             aria-label={t('increase')}
-            className="h-12 w-12 flex items-center justify-center text-slate-700 hover:bg-slate-100 cursor-pointer transition-colors"
+            className="h-8 w-8 flex items-center justify-center text-slate-600 hover:bg-slate-100 cursor-pointer transition-colors"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-3.5 w-3.5" />
           </button>
         </div>
-        <span className="text-sm text-slate-400" aria-hidden="true">
+        <span className="text-xs text-slate-400" aria-hidden="true">
           ×
         </span>
         <div
-          className={`flex h-12 min-w-0 flex-1 items-center rounded-xl border bg-white focus-within:border-amber-500 ${
+          className={`flex h-8 w-24 items-center rounded-lg border bg-white focus-within:border-amber-500 ${
             !line.rateValid ? 'border-red-300 bg-red-50' : line.rateChanged ? 'border-amber-400' : 'border-slate-200'
           }`}
         >
-          <span className="pl-3 text-sm font-semibold text-slate-400" aria-hidden="true">
+          <span className="pl-2 text-xs font-semibold text-slate-400" aria-hidden="true">
             ₹
           </span>
           <input
@@ -243,7 +244,7 @@ function PickerRow({ item, line, onPick, onChange, onStep, onRemove }: PickerRow
             onChange={(e) => onChange({ rateText: e.target.value })}
             onFocus={(e) => e.target.select()}
             aria-label={t('rate')}
-            className="h-full min-w-0 flex-1 bg-transparent px-1.5 text-base font-bold text-slate-900 focus:outline-none"
+            className="h-full min-w-0 flex-1 bg-transparent px-1 text-sm font-bold text-slate-900 focus:outline-none"
           />
         </div>
       </div>
