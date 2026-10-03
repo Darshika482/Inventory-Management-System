@@ -11,10 +11,20 @@
     <link rel="apple-touch-icon" href="/pwa-icon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Loaded alongside the app, not before it: a slow fonts server must not
+         hold up the first screen (the phone's own font shows until it arrives). -->
     <link
       href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&display=swap"
       rel="stylesheet"
+      media="print"
+      onload="this.media='all'"
     />
+    <noscript>
+      <link
+        href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&display=swap"
+        rel="stylesheet"
+      />
+    </noscript>
     <title>Akshay Traders Portal</title>
   </head>
   <body>

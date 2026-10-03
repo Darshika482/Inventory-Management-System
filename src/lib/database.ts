@@ -32,6 +32,7 @@ import {
   supabase,
 } from './supabase';
 import { isTransientError, RequestTimeoutError } from './dbErrors';
+import { noteDbWrite } from './localFirst';
 
 export function assertSupabase() {
   if (!supabase) {
@@ -93,13 +94,37 @@ interface RunDbOptions {
    * the attempt before it did land and only its reply was lost.
    */
   duplicateMeansSaved?: boolean;
+  /** A database function that only reads (it is still sent as a POST). */
+  readOnly?: boolean;
 }
 
 /** Retries the failures that are worth retrying, and only those. */
 export async function runDb<T>(request: DbRequest<T>, options: RunDbOptions = {}): Promise<T | null> {
-  const { duplicateMeansSaved = false } = options;
+  const { duplicateMeansSaved = false, readOnly = false } = options;
   const startedAt = Date.now();
+  // Inserts, updates, deletes and function calls: the query builder carries
+  // the HTTP method it will use, and reads are GET (or HEAD for a count).
+  let isWrite = false;
+  const tracked: DbRequest<T> = (signal) => {
+    const builder = request(signal);
+    const method = (builder as { method?: unknown }).method;
+    isWrite = !readOnly && method !== 'GET' && method !== 'HEAD';
+    return builder;
+  };
 
+  try {
+    return await runWithRetries(tracked, duplicateMeansSaved, startedAt);
+  } finally {
+    // A page showing its saved copy refetches when a save lands mid-download.
+    if (isWrite) noteDbWrite();
+  }
+}
+
+async function runWithRetries<T>(
+  request: DbRequest<T>,
+  duplicateMeansSaved: boolean,
+  startedAt: number
+): Promise<T | null> {
   for (let attempt = 0; ; attempt++) {
     try {
       return await runOnce(request, DB_TIMEOUT_MS);
@@ -114,6 +139,79 @@ export async function runDb<T>(request: DbRequest<T>, options: RunDbOptions = {}
       await wait(RETRY_DELAYS_MS[attempt]);
     }
   }
+}
+
+/** Rows the server sends per request at most (Supabase's default max-rows). */
+const PAGE_SIZE = 1000;
+
+type PageResponse<Row> = {
+  data: Row[] | null;
+  error: DbResponse<unknown>['error'];
+  count?: number | null;
+};
+
+interface PageQuery<Row> {
+  range(from: number, to: number): { abortSignal(signal: AbortSignal): PromiseLike<PageResponse<Row>> };
+}
+
+/**
+ * Every row of a list, however long. The server cuts each answer off at 1000
+ * rows, so longer lists come in pages: the first page also says how many rows
+ * there are, then all the other pages are fetched at the same time.
+ *
+ * `query(withCount)` builds the select with a stable order (end with a unique
+ * column, e.g. id, so no row lands on two pages); pass `{ count: 'exact' }`
+ * to select() when `withCount` is true.
+ */
+export async function fetchAllRows<Row>(query: (withCount: boolean) => PageQuery<Row>): Promise<Row[]> {
+  const first = await runDb<{ rows: Row[]; count: number | null }>(
+    (signal) =>
+      query(true)
+        .range(0, PAGE_SIZE - 1)
+        .abortSignal(signal)
+        .then((res) => ({
+          data: res.error ? null : { rows: res.data ?? [], count: res.count ?? null },
+          error: res.error,
+        })),
+    { readOnly: true }
+  );
+  const rows = first?.rows ?? [];
+  const total = first?.count ?? null;
+  // The server's page may be smaller than asked for, if its limit is lower.
+  const step = rows.length;
+  if (step === 0) return rows;
+
+  const fetchPage = (from: number) =>
+    runDb<Row[]>((signal) => query(false).range(from, from + step - 1).abortSignal(signal));
+
+  let pages: (Row[] | null)[];
+  if (total !== null) {
+    if (total <= step) return rows;
+    const offsets: number[] = [];
+    for (let from = step; from < total; from += step) offsets.push(from);
+    pages = await Promise.all(offsets.map(fetchPage));
+  } else {
+    // No count came back: walk the pages one by one until a short one.
+    pages = [];
+    for (let from = step, last = rows.length; last === step; from += step) {
+      const page = await fetchPage(from);
+      pages.push(page);
+      last = page?.length ?? 0;
+    }
+  }
+
+  // A row added while paging shifts the pages by one; drop the repeat.
+  const seen = new Set<unknown>();
+  const all: Row[] = [];
+  for (const row of rows.concat(...pages.map((page) => page ?? []))) {
+    const id = (row as { id?: unknown }).id;
+    if (id !== undefined) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+    }
+    all.push(row);
+  }
+  return all;
 }
 
 function mapCategory(row: DbCategory): Category {
@@ -165,23 +263,25 @@ function toLogRow(log: WithdrawalLog): DbWithdrawalLog {
 }
 
 export async function fetchCategories(): Promise<Category[]> {
-  const { data, error } = await assertSupabase()
-    .from('categories')
-    .select('*')
-    .order('name');
-
-  if (error) throw error;
-  return (data as DbCategory[]).map(mapCategory);
+  const rows = await fetchAllRows<DbCategory>((withCount) =>
+    assertSupabase()
+      .from('categories')
+      .select('*', withCount ? { count: 'exact' } : undefined)
+      .order('name')
+      .order('id')
+  );
+  return rows.map(mapCategory);
 }
 
 export async function fetchWithdrawalLogs(): Promise<WithdrawalLog[]> {
-  const { data, error } = await assertSupabase()
-    .from('withdrawal_logs')
-    .select('*')
-    .order('created_at', { ascending: false });
-
-  if (error) throw error;
-  return (data as DbWithdrawalLog[]).map(mapLog);
+  const rows = await fetchAllRows<DbWithdrawalLog>((withCount) =>
+    assertSupabase()
+      .from('withdrawal_logs')
+      .select('*', withCount ? { count: 'exact' } : undefined)
+      .order('created_at', { ascending: false })
+      .order('id')
+  );
+  return rows.map(mapLog);
 }
 
 type AppUserListRow = Pick<DbAppUser, 'id' | 'username' | 'role'>;
@@ -377,17 +477,16 @@ function toStockAdditionRow(entry: StockAddition): DbStockAddition {
 
 export async function fetchStockAdditions(): Promise<StockAddition[]> {
   try {
-    const { data, error } = await assertSupabase()
-      .from('stock_additions')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      if (error.code === '42P01' || error.message?.includes('404')) return [];
-      throw error;
-    }
-    return (data as DbStockAddition[]).map(mapStockAddition);
+    const rows = await fetchAllRows<DbStockAddition>((withCount) =>
+      assertSupabase()
+        .from('stock_additions')
+        .select('*', withCount ? { count: 'exact' } : undefined)
+        .order('created_at', { ascending: false })
+        .order('id')
+    );
+    return rows.map(mapStockAddition);
   } catch {
+    // Table may not exist yet.
     return [];
   }
 }
@@ -498,25 +597,25 @@ function toBillPaymentRow(payment: BillPayment): DbBillPayment {
 }
 
 export async function fetchPurchaseBills(): Promise<PurchaseBill[]> {
-  const data = await runDb<DbPurchaseBill[]>((signal) =>
+  const rows = await fetchAllRows<DbPurchaseBill>((withCount) =>
     assertSupabase()
       .from('purchase_bills')
-      .select('*')
+      .select('*', withCount ? { count: 'exact' } : undefined)
       .order('created_at', { ascending: false })
-      .abortSignal(signal)
+      .order('id')
   );
-  return (data ?? []).map(mapPurchaseBill);
+  return rows.map(mapPurchaseBill);
 }
 
 export async function fetchBillPayments(): Promise<BillPayment[]> {
-  const data = await runDb<DbBillPayment[]>((signal) =>
+  const rows = await fetchAllRows<DbBillPayment>((withCount) =>
     assertSupabase()
       .from('bill_payments')
-      .select('*')
+      .select('*', withCount ? { count: 'exact' } : undefined)
       .order('created_at', { ascending: false })
-      .abortSignal(signal)
+      .order('id')
   );
-  return (data ?? []).map(mapBillPayment);
+  return rows.map(mapBillPayment);
 }
 
 export async function insertPurchaseBill(bill: PurchaseBill): Promise<void> {
@@ -556,18 +655,16 @@ function mapItemGroup(row: DbItemGroup): ItemGroup {
 
 export async function fetchItemGroups(): Promise<ItemGroup[]> {
   try {
-    const { data, error } = await assertSupabase()
-      .from('item_groups')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      // Table not created yet — the analysis simply runs without groups.
-      if (error.code === '42P01' || error.message?.includes('404')) return [];
-      throw error;
-    }
-    return (data as DbItemGroup[]).map(mapItemGroup);
+    const rows = await fetchAllRows<DbItemGroup>((withCount) =>
+      assertSupabase()
+        .from('item_groups')
+        .select('*', withCount ? { count: 'exact' } : undefined)
+        .order('created_at', { ascending: false })
+        .order('id')
+    );
+    return rows.map(mapItemGroup);
   } catch {
+    // Table not created yet — the analysis simply runs without groups.
     return [];
   }
 }
@@ -658,25 +755,25 @@ function toTransportBillRow(bill: TransportBill): DbTransportBill {
 }
 
 export async function fetchTransportBills(): Promise<TransportBill[]> {
-  const data = await runDb<DbTransportBill[]>((signal) =>
+  const rows = await fetchAllRows<DbTransportBill>((withCount) =>
     assertSupabase()
       .from('transport_bills')
-      .select('*')
+      .select('*', withCount ? { count: 'exact' } : undefined)
       .order('created_at', { ascending: false })
-      .abortSignal(signal)
+      .order('id')
   );
-  return (data ?? []).map(mapTransportBill);
+  return rows.map(mapTransportBill);
 }
 
 export async function fetchTransportPayments(): Promise<BillPayment[]> {
-  const data = await runDb<DbBillPayment[]>((signal) =>
+  const rows = await fetchAllRows<DbBillPayment>((withCount) =>
     assertSupabase()
       .from('transport_payments')
-      .select('*')
+      .select('*', withCount ? { count: 'exact' } : undefined)
       .order('created_at', { ascending: false })
-      .abortSignal(signal)
+      .order('id')
   );
-  return (data ?? []).map(mapBillPayment);
+  return rows.map(mapBillPayment);
 }
 
 export async function insertTransportBill(bill: TransportBill): Promise<void> {
@@ -850,43 +947,47 @@ function toWorkerPaymentRow(payment: WorkerPayment): DbWorkerPayment {
 }
 
 export async function fetchWorkers(): Promise<Worker[]> {
-  const data = await runDb<DbWorker[]>((signal) =>
-    assertSupabase().from('workers').select('*').order('name').abortSignal(signal)
+  const rows = await fetchAllRows<DbWorker>((withCount) =>
+    assertSupabase()
+      .from('workers')
+      .select('*', withCount ? { count: 'exact' } : undefined)
+      .order('name')
+      .order('id')
   );
-  return (data ?? []).map(mapWorker);
+  return rows.map(mapWorker);
 }
 
 export async function fetchGoodsIssues(): Promise<GoodsIssue[]> {
-  const data = await runDb<DbGoodsIssue[]>((signal) =>
+  const rows = await fetchAllRows<DbGoodsIssue>((withCount) =>
     assertSupabase()
       .from('worker_goods_issues')
-      .select('*')
+      .select('*', withCount ? { count: 'exact' } : undefined)
       .order('created_at', { ascending: false })
-      .abortSignal(signal)
+      .order('id')
   );
-  return (data ?? []).map(mapGoodsIssue);
+  return rows.map(mapGoodsIssue);
 }
 
 export async function fetchGoodsReturns(): Promise<GoodsReturn[]> {
-  const data = await runDb<DbGoodsReturn[]>((signal) =>
+  const rows = await fetchAllRows<DbGoodsReturn>((withCount) =>
     assertSupabase()
       .from('worker_goods_returns')
-      .select('*')
+      .select('*', withCount ? { count: 'exact' } : undefined)
       .order('created_at', { ascending: false })
-      .abortSignal(signal)
+      .order('id')
   );
-  return (data ?? []).map(mapGoodsReturn);
+  return rows.map(mapGoodsReturn);
 }
 
 export async function fetchWorkerPayments(): Promise<WorkerPayment[]> {
-  const data = await runDb<DbWorkerPayment[]>((signal) =>
+  const rows = await fetchAllRows<DbWorkerPayment>((withCount) =>
     assertSupabase()
       .from('worker_payments')
-      .select('*')
+      .select('*', withCount ? { count: 'exact' } : undefined)
       .order('created_at', { ascending: false })
-      .abortSignal(signal)
+      .order('id')
   );
-  return (data ?? []).map(mapWorkerPayment);
+  return rows.map(mapWorkerPayment);
 }
 
 export async function insertWorker(worker: Worker): Promise<void> {

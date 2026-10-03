@@ -20,11 +20,11 @@ function runningScript(): string | null {
   return new URL(script.src, location.origin).pathname;
 }
 
-async function checkForNewVersion() {
+async function checkForNewVersion(force = false) {
   const current = runningScript();
   if (!current || !navigator.onLine) return;
   const now = Date.now();
-  if (now - lastCheck < CHECK_GAP_MS) return;
+  if (!force && now - lastCheck < CHECK_GAP_MS) return;
   lastCheck = now;
 
   try {
@@ -40,6 +40,15 @@ async function checkForNewVersion() {
   } catch {
     // Offline or the server did not answer: keep running this version.
   }
+}
+
+/**
+ * A page's code could not be downloaded. Usually that is a lost signal, but
+ * right after an update the old files are gone from the server: then the
+ * reload onto the new version is what fixes it.
+ */
+export function checkForNewVersionNow(): void {
+  if (import.meta.env.PROD) void checkForNewVersion(true);
 }
 
 export function startUpdateChecks(): void {

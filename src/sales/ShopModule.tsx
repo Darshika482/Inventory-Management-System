@@ -8,12 +8,25 @@ import type { User } from '../types';
 import { useT, type TranslationKey } from './i18n';
 import { startOutboxSync, useOutboxCounts } from './outbox';
 import { installKeyboardDone } from './keyboard';
-import { NewSaleSection } from './components/NewSaleSection';
-import { ShopItemsSection } from './components/ShopItemsSection';
-import { SalesListSection } from './components/SalesListSection';
-import { ShopPartiesSection } from './components/ShopPartiesSection';
-import { ShopSettingsSection } from './components/ShopSettingsSection';
-import { PrinterHelpHost } from './components/PrintUi';
+import { lazyPage, preloadInBackground } from '../lib/lazyPage';
+import { PageFrame } from '../components/PageFrame';
+
+// Each page's code is downloaded when it is first opened (and in the
+// background once the app is idle), not all at once when the app starts.
+const NewSaleSection = lazyPage(() => import('./components/NewSaleSection'), (m) => m.NewSaleSection);
+const SalesListSection = lazyPage(() => import('./components/SalesListSection'), (m) => m.SalesListSection);
+const ShopItemsSection = lazyPage(() => import('./components/ShopItemsSection'), (m) => m.ShopItemsSection);
+const ShopPartiesSection = lazyPage(() => import('./components/ShopPartiesSection'), (m) => m.ShopPartiesSection);
+const ShopSettingsSection = lazyPage(() => import('./components/ShopSettingsSection'), (m) => m.ShopSettingsSection);
+const PrinterHelpHost = lazyPage(() => import('./components/PrintUi'), (m) => m.PrinterHelpHost);
+
+const PAGE_CODE: Record<ShopSectionId, { preload: () => Promise<unknown> }> = {
+  'shop-new-sale': NewSaleSection,
+  'shop-sales': SalesListSection,
+  'shop-items': ShopItemsSection,
+  'shop-parties': ShopPartiesSection,
+  'shop-settings': ShopSettingsSection,
+};
 
 export type ShopSectionId = 'shop-new-sale' | 'shop-sales' | 'shop-items' | 'shop-parties' | 'shop-settings';
 
@@ -34,6 +47,15 @@ const PAGES: ShopPage[] = [
 
 function pagesFor(role: User['role']): ShopPage[] {
   return PAGES.filter((page) => role === 'Admin' || !page.ownerOnly);
+}
+
+/** Downloads the code of every shop page this person can open, while the phone is idle. */
+export function preloadShopPages(role: User['role']): void {
+  preloadInBackground([
+    PAGE_CODE['shop-new-sale'],
+    PrinterHelpHost,
+    ...pagesFor(role).map((page) => PAGE_CODE[page.id]),
+  ]);
 }
 
 /** True for any page of this module that the person is allowed to open. */
@@ -119,10 +141,17 @@ interface ShopSectionProps {
 }
 
 export function ShopSection(props: ShopSectionProps) {
+  const { t } = useT();
+  const labels = { title: t('loadFailed'), hint: t('needsInternet'), retry: t('tryAgain') };
   return (
     <>
-      <ShopPage {...props} />
-      <PrinterHelpHost canEdit={props.currentUser.role === 'Admin'} />
+      <PageFrame loadingLabel={t('loading')} labels={labels}>
+        <ShopPage {...props} />
+      </PageFrame>
+      {/* Its own frame: a missing printer sheet must never hide the bill screen. */}
+      <PageFrame quiet>
+        <PrinterHelpHost canEdit={props.currentUser.role === 'Admin'} />
+      </PageFrame>
     </>
   );
 }

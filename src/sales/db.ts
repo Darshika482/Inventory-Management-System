@@ -2,7 +2,7 @@
  * Supabase access for the shop sales module. Only `shop_*` tables are used
  * here — never the godown stock tables.
  */
-import { assertSupabase, runDb } from '../lib/database';
+import { assertSupabase, fetchAllRows, runDb } from '../lib/database';
 import { dbToMilli, dbToPaise, milliToDecimal, paiseToDecimal } from './money';
 import type { BillType } from './fy';
 import type {
@@ -175,15 +175,15 @@ function mapCategory(row: DbShopCategory): ShopCategory {
 }
 
 export async function fetchShopCategories(): Promise<ShopCategory[]> {
-  const data = await runDb<DbShopCategory[]>((signal) =>
+  const rows = await fetchAllRows<DbShopCategory>((withCount) =>
     assertSupabase()
       .from('shop_categories')
-      .select('*')
+      .select('*', withCount ? { count: 'exact' } : undefined)
       .order('sort_order')
       .order('name')
-      .abortSignal(signal)
+      .order('id')
   );
-  return (data ?? []).map(mapCategory);
+  return rows.map(mapCategory);
 }
 
 export async function insertShopCategory(category: ShopCategory): Promise<void> {
@@ -266,10 +266,14 @@ function toItemRow(item: ShopItem, userId: string | null) {
 }
 
 export async function fetchShopItems(): Promise<ShopItem[]> {
-  const data = await runDb<DbShopItem[]>((signal) =>
-    assertSupabase().from('shop_items').select('*').order('name').abortSignal(signal)
+  const rows = await fetchAllRows<DbShopItem>((withCount) =>
+    assertSupabase()
+      .from('shop_items')
+      .select('*', withCount ? { count: 'exact' } : undefined)
+      .order('name')
+      .order('id')
   );
-  return (data ?? []).map(mapItem);
+  return rows.map(mapItem);
 }
 
 export async function insertShopItem(item: ShopItem, userId: string | null): Promise<void> {
@@ -292,7 +296,8 @@ export async function updateShopItem(item: ShopItem, userId: string | null): Pro
 /** item id -> times sold in the last 90 days. */
 export async function fetchItemSaleCounts(): Promise<Record<string, number>> {
   const data = await runDb<{ item_id: string; times_sold: number }[]>((signal) =>
-    assertSupabase().rpc('shop_item_sale_counts').abortSignal(signal)
+    assertSupabase().rpc('shop_item_sale_counts').abortSignal(signal),
+    { readOnly: true }
   );
   return Object.fromEntries((data ?? []).map((row) => [row.item_id, row.times_sold]));
 }
@@ -327,10 +332,14 @@ function toPartyRow(party: ShopParty) {
 }
 
 export async function fetchShopParties(): Promise<ShopParty[]> {
-  const data = await runDb<DbShopParty[]>((signal) =>
-    assertSupabase().from('shop_parties').select('*').order('name').abortSignal(signal)
+  const rows = await fetchAllRows<DbShopParty>((withCount) =>
+    assertSupabase()
+      .from('shop_parties')
+      .select('*', withCount ? { count: 'exact' } : undefined)
+      .order('name')
+      .order('id')
   );
-  return (data ?? []).map(mapParty);
+  return rows.map(mapParty);
 }
 
 export async function insertShopParty(party: ShopParty): Promise<void> {
@@ -500,10 +509,10 @@ export interface SalesFilter {
 
 /** Sale bills in a date range, newest first, without their lines. */
 export async function fetchSales(filter: SalesFilter): Promise<ShopInvoice[]> {
-  const data = await runDb<DbShopInvoice[]>((signal) => {
+  const rows = await fetchAllRows<DbShopInvoice>((withCount) => {
     let query = assertSupabase()
       .from('shop_invoices')
-      .select('*')
+      .select('*', withCount ? { count: 'exact' } : undefined)
       .eq('bill_type', 'sale')
       .gte('bill_date', filter.from)
       .lte('bill_date', filter.to);
@@ -511,9 +520,9 @@ export async function fetchSales(filter: SalesFilter): Promise<ShopInvoice[]> {
     return query
       .order('bill_date', { ascending: false })
       .order('created_at', { ascending: false })
-      .abortSignal(signal);
+      .order('id');
   });
-  return (data ?? []).map(mapInvoice);
+  return rows.map(mapInvoice);
 }
 
 /**
@@ -521,17 +530,17 @@ export async function fetchSales(filter: SalesFilter): Promise<ShopInvoice[]> {
  * oldest first: the ones waiting longest are at the top.
  */
 export async function fetchDueSales(partyId: string | null): Promise<ShopInvoice[]> {
-  const data = await runDb<DbShopInvoice[]>((signal) => {
+  const rows = await fetchAllRows<DbShopInvoice>((withCount) => {
     let query = assertSupabase()
       .from('shop_invoices')
-      .select('*')
+      .select('*', withCount ? { count: 'exact' } : undefined)
       .eq('bill_type', 'sale')
       .eq('status', 'active')
       .in('payment_mode', ['credit', 'partial']);
     if (partyId) query = query.eq('party_id', partyId);
-    return query.order('bill_date', { ascending: true }).order('created_at', { ascending: true }).abortSignal(signal);
+    return query.order('bill_date', { ascending: true }).order('created_at', { ascending: true }).order('id');
   });
-  return (data ?? []).map(mapInvoice).filter((b) => b.total > b.paidAmount);
+  return rows.map(mapInvoice).filter((b) => b.total > b.paidAmount);
 }
 
 /** Money received later against one bill. */

@@ -31,8 +31,9 @@ import {
   saveSaleRpc,
   toSaleRpcPayload,
 } from '../db';
-import { loadWithCache, readCache, writeCache } from '../cache';
-import { computeBill, type BillDiscount } from '../gst';
+import { loadWithCache, readCache, shopListsCache, writeCache, type ShopLists } from '../cache';
+import { loadLocalFirst } from '../../lib/localFirst';
+import { computeBill, GST_RATES, type BillDiscount } from '../gst';
 import { billLabel, fyFor, istToday } from '../fy';
 import { useT } from '../i18n';
 import { newId } from '../ids';
@@ -81,6 +82,11 @@ interface Draft {
   paidText: string;
   /** How it was received. */
   paidMode: PaidMode;
+  /**
+   * One GST rate for the whole bill on a GST bill, added on top of the
+   * amounts. Null (or missing in older drafts): each item's own rate.
+   */
+  billGstRate?: number | null;
 }
 
 const EMPTY_DRAFT: Draft = {
@@ -90,7 +96,11 @@ const EMPTY_DRAFT: Draft = {
   discountText: '',
   paidText: '',
   paidMode: 'cash',
+  billGstRate: null,
 };
+
+/** Rates offered for "GST on whole bill". */
+const WHOLE_BILL_GST_RATES = GST_RATES.filter((rate) => rate > 0);
 
 const DRAFT_KEY = 'sale_draft';
 const LAST_GST_KEY = 'shop_last_is_gst';
@@ -110,6 +120,46 @@ function wait(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Lines added from the saved item list follow the fresh one: a rate that was
+ * not typed over by hand becomes the item's current rate, and GST, HSN, unit
+ * and names follow the item too. Quantities are never touched.
+ */
+function refreshDraftLines(draft: Draft, items: ShopItem[]): Draft {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  let changed = false;
+  const lines = draft.lines.map((line) => {
+    const item = byId.get(line.itemId);
+    if (!item) return line;
+    const rateUntouched = parsePaise(line.rateText) === line.savedRate;
+    const next: DraftLine = {
+      ...line,
+      name: item.name,
+      nameHi: item.nameHi,
+      hsn: item.hsn,
+      unit: item.unit,
+      gstRate: item.gstRate,
+      savedRate: item.saleRate,
+      rateText: rateUntouched ? paiseToInput(item.saleRate) : line.rateText,
+    };
+    const same = (Object.keys(next) as (keyof DraftLine)[]).every((key) => next[key] === line[key]);
+    if (same) return line;
+    changed = true;
+    return next;
+  });
+  return changed ? { ...draft, lines } : draft;
+}
+
+async function fetchShopLists(): Promise<ShopLists> {
+  const [settings, items, categories, parties] = await Promise.all([
+    fetchShopSettings(),
+    fetchShopItems(),
+    fetchShopCategories(),
+    fetchShopParties(),
+  ]);
+  return { settings, items, categories, parties };
+}
+
 interface SavedBill {
   invoice: ShopInvoice;
   uploaded: boolean;
@@ -122,16 +172,21 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
   const { t, language } = useT();
   const isOwner = currentUser.role === 'Admin';
 
-  const [settings, setSettings] = useState<ShopSettings | null>(null);
-  const [items, setItems] = useState<ShopItem[]>([]);
-  const [categories, setCategories] = useState<ShopCategory[]>([]);
-  const [parties, setParties] = useState<ShopParty[]>([]);
-  const [saleCounts, setSaleCounts] = useState<Record<string, number>>({});
-  const [isLoading, setIsLoading] = useState(true);
+  // The lists saved on this phone show on the very first frame; the fresh
+  // ones replace them a moment later (see load below).
+  const [savedLists] = useState(() => shopListsCache.read() as ShopLists | null);
+  const [settings, setSettings] = useState<ShopSettings | null>(savedLists?.settings ?? null);
+  const [items, setItems] = useState<ShopItem[]>(savedLists?.items ?? []);
+  const [categories, setCategories] = useState<ShopCategory[]>(savedLists?.categories ?? []);
+  const [parties, setParties] = useState<ShopParty[]>(savedLists?.parties ?? []);
+  const [saleCounts, setSaleCounts] = useState<Record<string, number>>(
+    () => readCache<Record<string, number>>('sale_counts') ?? {}
+  );
+  const [isLoading, setIsLoading] = useState(!savedLists);
   const [loadError, setLoadError] = useState<FriendlyError | null>(null);
 
   const [draft, setDraft] = useState<Draft>(() => readCache<Draft>(DRAFT_KEY) ?? EMPTY_DRAFT);
-  const [isGst, setIsGst] = useState(true);
+  const [isGst, setIsGst] = useState(() => readLastIsGst(Boolean(savedLists?.settings.gstin ?? true)));
   const [pickerOpen, setPickerOpen] = useState(false);
   const [partyPickerOpen, setPartyPickerOpen] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -145,27 +200,23 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
   const keyboardOpen = usePhoneKeyboardOpen();
 
   const load = async () => {
-    setIsLoading(true);
+    // With no saved lists yet (first use on this phone), wait for them.
+    if (!settings) setIsLoading(true);
     setLoadError(null);
+    let firstShow = !settings;
     try {
-      const [s, i, c, p] = await Promise.all([
-        loadWithCache('settings', fetchShopSettings),
-        loadWithCache('items', fetchShopItems),
-        loadWithCache('categories', fetchShopCategories),
-        loadWithCache('parties', fetchShopParties),
-      ]);
-      setSettings(s.data);
-      setItems(i.data);
-      setCategories(c.data);
-      setParties(p.data);
-      setIsGst(readLastIsGst(Boolean(s.data.gstin)));
-      // Not needed to bill, so a failure here never blocks the screen.
-      loadWithCache('sale_counts', fetchItemSaleCounts)
-        .then((r) => setSaleCounts(r.data))
-        .catch(() => {});
-      // Start (or catch up) this phone's bill numbers while online.
-      void refreshCounter('sale', fyFor(istToday()), getDeviceSeries());
-      warmUpPrinter();
+      await loadLocalFirst(shopListsCache, fetchShopLists, (lists, fresh) => {
+        setSettings(lists.settings);
+        setItems(lists.items);
+        if (fresh) setDraft((prev) => refreshDraftLines(prev, lists.items));
+        setCategories(lists.categories);
+        setParties(lists.parties);
+        if (firstShow) {
+          firstShow = false;
+          setIsGst(readLastIsGst(Boolean(lists.settings.gstin)));
+          setIsLoading(false);
+        }
+      });
     } catch (err) {
       setLoadError(describeDbError(err, 'The bill screen could not be loaded'));
     } finally {
@@ -175,6 +226,13 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
 
   useEffect(() => {
     void load();
+    // Not needed to bill, so a failure here never blocks the screen.
+    loadWithCache('sale_counts', fetchItemSaleCounts)
+      .then((r) => setSaleCounts(r.data))
+      .catch(() => {});
+    // Start (or catch up) this phone's bill numbers while online.
+    void refreshCounter('sale', fyFor(istToday()), getDeviceSeries());
+    warmUpPrinter();
   }, []);
 
   // Keep the unsaved bill if the page is left by mistake.
@@ -184,7 +242,10 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
 
   const party = draft.partyId ? parties.find((p) => p.id === draft.partyId) ?? null : null;
   const isInterstate = Boolean(isGst && party && settings && party.stateCode !== settings.stateCode);
-  const ratesIncludeGst = settings?.ratesIncludeGst ?? true;
+  // "GST on whole bill": one rate for every line, added on top of the amounts.
+  const wholeBillGst = isGst ? (draft.billGstRate ?? null) : null;
+  const ratesIncludeGst = wholeBillGst !== null ? false : (settings?.ratesIncludeGst ?? true);
+  const lineGstRate = (line: DraftLine) => wholeBillGst ?? line.gstRate;
 
   const parsedLines = draft.lines.map((line) => ({
     line,
@@ -202,7 +263,7 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
     lines: parsedLines.map(({ line, qty, rate }) => ({
       qty: qty !== null && qty > 0 ? qty : 0,
       rate: rate !== null && rate >= 0 ? rate : 0,
-      gstRate: line.gstRate,
+      gstRate: lineGstRate(line),
     })),
     isGst,
     isInterstate,
@@ -497,7 +558,7 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
     padView = {
       target: `line:${line.key}`,
       title: displayName({ name: line.name, nameHi: line.nameHi } as ShopItem, language),
-      subtitle: isGst ? `GST ${line.gstRate}%` : undefined,
+      subtitle: isGst ? `GST ${lineGstRate(line)}%` : undefined,
       fields: [
         {
           id: 'qty',
@@ -681,7 +742,7 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
                 {parsedLines.map(({ line, qty, rate }, index) => (
                   <SaleLineRow
                     key={line.key}
-                    line={line}
+                    line={wholeBillGst !== null ? { ...line, gstRate: wholeBillGst } : line}
                     qtyValid={qty !== null && qty > 0}
                     rateValid={rate !== null && rate >= 0}
                     rateChanged={rate !== null && rate !== line.savedRate}
@@ -786,6 +847,37 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
                 </div>
               </div>
             </div>
+
+            {/* GST bill: one rate for the whole bill, added on top, or each item's own. */}
+            {isGst && (
+              <div className="space-y-2">
+                <p className="text-sm font-bold text-slate-700">{t('gstWholeBill')}</p>
+                <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={t('gstWholeBill')}>
+                  {[null, ...WHOLE_BILL_GST_RATES].map((rate) => {
+                    const selected = wholeBillGst === rate;
+                    return (
+                      <button
+                        key={rate ?? 'items'}
+                        type="button"
+                        role="radio"
+                        aria-checked={selected}
+                        onClick={() => updateDraft({ billGstRate: rate })}
+                        className={`min-h-12 px-3.5 rounded-xl border text-sm font-semibold cursor-pointer transition-colors ${
+                          selected
+                            ? 'border-emerald-500 bg-emerald-50 text-emerald-800 ring-1 ring-emerald-500'
+                            : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                        }`}
+                      >
+                        {rate === null ? t('gstItemRates') : `${rate}%`}
+                      </button>
+                    );
+                  })}
+                </div>
+                {wholeBillGst !== null && (
+                  <p className="text-xs text-slate-500">{t('gstWholeBillHint', { rate: wholeBillGst })}</p>
+                )}
+              </div>
+            )}
 
             <div className="border-t border-slate-200 pt-3 space-y-1.5">
               <TotalRow label={t('itemsTotal')} value={formatRupees(bill.itemsTotal, true)} small />

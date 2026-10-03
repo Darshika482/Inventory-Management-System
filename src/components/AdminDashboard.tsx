@@ -28,8 +28,8 @@ import { FLOOR_OPTIONS, getFloorBadgeClass, getFloorShortLabel } from '../lib/fl
 import { groupCategoriesByNameAndFloor, sortGroupedCategories, getWorstVariant } from '../lib/groupCategories';
 import { QuantityCalculation } from './QuantityCalculation';
 import { formatTotalQuantity, calculateTotalQuantity } from '../lib/unitQuantity';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import { loadPdfTools } from '../lib/pdfTools';
+import { ShowMoreButton, useShowMore } from './ShowMore';
 import { PremiumSelect } from './PremiumSelect';
 import { AppModal } from './AppModal';
 import { FormInput, FormError, ModalActions } from './FormInput';
@@ -523,6 +523,16 @@ export function AdminDashboard({
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [stockAdditions, stockAddedDateRange, stockAddedSearch]);
 
+  // Long lists draw their first rows only; totals and PDFs still use them all.
+  const shownLogs = useShowMore(
+    filteredAndSortedLogs,
+    `${logSearch}|${logStatusFilter}|${logSortField}|${logSortDirection}`
+  );
+  const shownStockAdded = useShowMore(
+    stockAddedFiltered,
+    `${stockAddedPreset}|${customDateFrom}|${customDateTo}|${stockAddedSearch}`
+  );
+
   const stockAddedTotalPieces = useMemo(
     () => stockAddedFiltered.reduce((sum, entry) => sum + entry.quantity, 0),
     [stockAddedFiltered]
@@ -550,8 +560,9 @@ export function AdminDashboard({
   };
 
   // Download full/filtered inventory PDF
-  const downloadInventoryPDF = () => {
+  const downloadInventoryPDF = async () => {
     try {
+      const { jsPDF, autoTable } = await loadPdfTools();
       const doc = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
@@ -675,8 +686,9 @@ export function AdminDashboard({
   };
 
   // Download complete/filtered withdrawal transaction logs PDF
-  const downloadLogsPDF = () => {
+  const downloadLogsPDF = async () => {
     try {
+      const { jsPDF, autoTable } = await loadPdfTools();
       const doc = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
@@ -1181,7 +1193,7 @@ export function AdminDashboard({
                     Nothing found.
                   </div>
                 ) : (
-                  filteredAndSortedLogs.map((log) => (
+                  shownLogs.visible.map((log) => (
                     <div
                       key={log.id}
                       className={`bg-white border border-slate-200 rounded-xl p-4 shadow-xs ${
@@ -1285,7 +1297,7 @@ export function AdminDashboard({
                           </td>
                         </tr>
                       ) : (
-                        filteredAndSortedLogs.map((log) => (
+                        shownLogs.visible.map((log) => (
                           <motion.tr 
                             key={log.id}
                             initial={{ opacity: 0 }}
@@ -1344,6 +1356,11 @@ export function AdminDashboard({
                   </tbody>
                 </table>
               </div>
+              {shownLogs.hidden > 0 && (
+                <div className="p-3 border-t border-slate-100">
+                  <ShowMoreButton hidden={shownLogs.hidden} onMore={shownLogs.showMore} />
+                </div>
+              )}
             </div>
           </motion.div>
         )}
@@ -1468,7 +1485,7 @@ export function AdminDashboard({
                     <p className="mt-1">No stock was added in this date range.</p>
                   </div>
                 ) : (
-                  stockAddedFiltered.map((entry) => {
+                  shownStockAdded.visible.map((entry) => {
                     const addedDate = new Date(entry.createdAt);
                     return (
                       <div key={entry.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs">
@@ -1530,7 +1547,7 @@ export function AdminDashboard({
                           </td>
                         </tr>
                       ) : (
-                        stockAddedFiltered.map((entry) => {
+                        shownStockAdded.visible.map((entry) => {
                           const addedDate = new Date(entry.createdAt);
                           return (
                             <motion.tr
@@ -1572,6 +1589,11 @@ export function AdminDashboard({
                   </tbody>
                 </table>
               </div>
+              {shownStockAdded.hidden > 0 && (
+                <div className="p-3 border-t border-slate-100">
+                  <ShowMoreButton hidden={shownStockAdded.hidden} onMore={shownStockAdded.showMore} />
+                </div>
+              )}
             </div>
           </motion.div>
         )}

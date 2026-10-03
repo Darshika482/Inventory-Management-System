@@ -3,6 +3,8 @@
  * the phone, so the New Sale screen still opens when the internet drops.
  * Full offline support (Phase 5) builds on this.
  */
+import type { LocalStore } from '../lib/localFirst';
+import type { ShopCategory, ShopItem, ShopParty, ShopSettings } from './types';
 
 const PREFIX = 'shop_cache_';
 
@@ -38,3 +40,34 @@ export async function loadWithCache<T>(key: string, fetcher: () => Promise<T>): 
     throw err;
   }
 }
+
+/**
+ * Several saved lists read and written as one copy (null until every one of
+ * them has been saved). Each list keeps its own key, so pages share them.
+ */
+export function shopCacheStore<T extends object>(keys: (keyof T & string)[]): LocalStore<T> {
+  return {
+    read: () => {
+      const value: Record<string, unknown> = {};
+      for (const key of keys) {
+        const saved = readCache<unknown>(key);
+        if (saved === null) return null;
+        value[key] = saved;
+      }
+      return value as T;
+    },
+    write: (value) => {
+      for (const key of keys) writeCache(key, (value as Record<string, unknown>)[key]);
+    },
+  };
+}
+
+/** What the bill screen needs, saved on the phone under the keys above. */
+export interface ShopLists {
+  settings: ShopSettings;
+  items: ShopItem[];
+  categories: ShopCategory[];
+  parties: ShopParty[];
+}
+
+export const shopListsCache = shopCacheStore<ShopLists>(['settings', 'items', 'categories', 'parties']);

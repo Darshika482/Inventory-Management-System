@@ -50,6 +50,7 @@ import {
 } from '../lib/database';
 import { extractPaymentFromImage, PhotoReadError } from '../lib/extractBill';
 import { describeDbError, FriendlyError } from '../lib/dbErrors';
+import { loadLocalFirst, localCopy, SAVED_COPY_NOTE } from '../lib/localFirst';
 import { playSuccessChime, unlockSound } from '../lib/sounds';
 import { AppModal } from './AppModal';
 import { FormError, FormInput, ModalActions } from './FormInput';
@@ -165,6 +166,28 @@ function referenceLabel(method: PaymentMethod): string {
   return 'Note (optional)';
 }
 
+/** Kept on this phone, so the page opens at once with the last copy. */
+const workersCopy = localCopy<{
+  workers: Worker[];
+  issues: GoodsIssue[];
+  returns: GoodsReturn[];
+  payments: WorkerPayment[];
+  stockItems: Category[];
+}>('workers');
+
+async function fetchWorkersData() {
+  const [workers, issues, returns, payments, stockItems] = await Promise.all([
+    fetchWorkers(),
+    fetchGoodsIssues(),
+    fetchGoodsReturns(),
+    fetchWorkerPayments(),
+    // Stock names only feed the item suggestions — the page must still
+    // open even if this list cannot be loaded.
+    fetchCategories().catch(() => [] as Category[]),
+  ]);
+  return { workers, issues, returns, payments, stockItems };
+}
+
 export function WorkersSection({ showToast }: WorkersSectionProps) {
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [issues, setIssues] = useState<GoodsIssue[]>([]);
@@ -191,24 +214,23 @@ export function WorkersSection({ showToast }: WorkersSectionProps) {
   const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
   const [viewingPhoto, setViewingPhoto] = useState<PhotoToView | null>(null);
 
+  const [isFresh, setIsFresh] = useState(false);
+
   const loadData = async () => {
-    setIsLoading(true);
+    // "Try again" after a failure: there is nothing to show meanwhile.
+    if (loadError) setIsLoading(true);
     setLoadError(null);
     try {
-      const [workersData, issuesData, returnsData, paymentsData, stockData] = await Promise.all([
-        fetchWorkers(),
-        fetchGoodsIssues(),
-        fetchGoodsReturns(),
-        fetchWorkerPayments(),
-        // Stock names only feed the item suggestions — the page must still
-        // open even if this list cannot be loaded.
-        fetchCategories().catch(() => [] as Category[]),
-      ]);
-      setWorkers(workersData);
-      setIssues(issuesData);
-      setReturns(returnsData);
-      setPayments(paymentsData);
-      setStockItems(stockData);
+      const result = await loadLocalFirst(workersCopy, fetchWorkersData, (data, fresh) => {
+        setWorkers(data.workers);
+        setIssues(data.issues);
+        setReturns(data.returns);
+        setPayments(data.payments);
+        setStockItems(data.stockItems);
+        setIsLoading(false);
+        if (fresh) setIsFresh(true);
+      });
+      if (result === 'copy') showToast(SAVED_COPY_NOTE, 'info');
     } catch (err) {
       console.error('Loading the workers failed:', err);
       setLoadError(describeDbError(err, 'Your workers could not be loaded'));
@@ -221,6 +243,11 @@ export function WorkersSection({ showToast }: WorkersSectionProps) {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Changes made on this page go into the saved copy too.
+  useEffect(() => {
+    if (isFresh) workersCopy.write({ workers, issues, returns, payments, stockItems });
+  }, [isFresh, workers, issues, returns, payments, stockItems]);
 
   const paidByWorker = useMemo(() => {
     const map = new Map<string, number>();

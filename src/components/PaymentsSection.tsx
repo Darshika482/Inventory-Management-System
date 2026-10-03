@@ -17,6 +17,8 @@ import {
   fetchTransportPayments,
 } from '../lib/database';
 import { describeDbError, FriendlyError } from '../lib/dbErrors';
+import { loadLocalFirst, localCopy, SAVED_COPY_NOTE } from '../lib/localFirst';
+import { ShowMoreButton, useShowMore } from './ShowMore';
 import { DateRangePicker, DateRangeValue } from './DateRangePicker';
 import { ImageViewer } from './ImageViewer';
 
@@ -164,6 +166,35 @@ function buildRecords(
   );
 }
 
+interface PaymentsData {
+  records: PaymentRecord[];
+  /** False when the transport lists could not be loaded (only party payments shown). */
+  transportOk: boolean;
+}
+
+/** Kept on this phone, so the page opens at once with the last copy. */
+const paymentsCopy = localCopy<PaymentsData>('payments');
+
+async function fetchPaymentsData(): Promise<PaymentsData> {
+  // All four at once. Transport payments are extra: if that table is missing
+  // or fails, the party payments are still worth showing.
+  const [[bills, payments], [transportBills, transportPayments]] = await Promise.all([
+    Promise.all([fetchPurchaseBills(), fetchBillPayments()]),
+    Promise.allSettled([fetchTransportBills(), fetchTransportPayments()]),
+  ]);
+  const transportOk =
+    transportBills.status === 'fulfilled' && transportPayments.status === 'fulfilled';
+  return {
+    records: buildRecords(
+      bills,
+      payments,
+      transportOk ? transportBills.value : [],
+      transportOk ? transportPayments.value : []
+    ),
+    transportOk,
+  };
+}
+
 export function PaymentsSection({ showToast }: PaymentsSectionProps) {
   const [records, setRecords] = useState<PaymentRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -176,29 +207,18 @@ export function PaymentsSection({ showToast }: PaymentsSectionProps) {
   const [viewingPhoto, setViewingPhoto] = useState<PhotoToView | null>(null);
 
   const loadData = async () => {
-    setIsLoading(true);
+    // "Try again" after a failure: there is nothing to show meanwhile.
+    if (loadError) setIsLoading(true);
     setLoadError(null);
     try {
-      const [bills, payments] = await Promise.all([fetchPurchaseBills(), fetchBillPayments()]);
-      // Transport payments are extra: if that table is missing or fails, the
-      // party payments are still worth showing.
-      const [transportBills, transportPayments] = await Promise.allSettled([
-        fetchTransportBills(),
-        fetchTransportPayments(),
-      ]);
-      const transportOk =
-        transportBills.status === 'fulfilled' && transportPayments.status === 'fulfilled';
-      if (!transportOk) {
-        showToast('Transport payments could not be loaded, so only party payments are shown.', 'info');
-      }
-      setRecords(
-        buildRecords(
-          bills,
-          payments,
-          transportOk ? transportBills.value : [],
-          transportOk ? transportPayments.value : []
-        )
-      );
+      const result = await loadLocalFirst(paymentsCopy, fetchPaymentsData, (data, fresh) => {
+        setRecords(data.records);
+        setIsLoading(false);
+        if (fresh && !data.transportOk) {
+          showToast('Transport payments could not be loaded, so only party payments are shown.', 'info');
+        }
+      });
+      if (result === 'copy') showToast(SAVED_COPY_NOTE, 'info');
     } catch (err) {
       console.error('Loading the payments failed:', err);
       setLoadError(describeDbError(err, 'The payments could not be loaded'));
@@ -257,6 +277,19 @@ export function PaymentsSection({ showToast }: PaymentsSectionProps) {
     }
     return list;
   }, [filtered]);
+
+  // Long ledgers draw their first payments only; month totals still count them all.
+  const shown = useShowMore(filtered, `${search}|${kindFilter}|${shapeFilter}|${range.from}|${range.to}`);
+  const shownMonths = useMemo(() => {
+    let left = shown.visible.length;
+    const list: typeof months = [];
+    for (const month of months) {
+      if (left <= 0) break;
+      list.push(left >= month.records.length ? month : { ...month, records: month.records.slice(0, left) });
+      left -= month.records.length;
+    }
+    return list;
+  }, [months, shown.visible.length]);
 
   const hasFilters =
     Boolean(search.trim()) ||
@@ -380,32 +413,35 @@ export function PaymentsSection({ showToast }: PaymentsSectionProps) {
           </p>
         </div>
       ) : (
-        months.map((month) => (
-          <section key={month.label} className="space-y-2">
-            <div className="flex items-baseline justify-between gap-3 px-1">
-              <h3 className="text-sm font-bold text-slate-700">{month.label}</h3>
-              <p className="text-sm font-bold text-slate-900 tabular-nums">{formatMoney(month.total)}</p>
-            </div>
-            <div className="space-y-2 @4xl:grid @4xl:grid-cols-2 @4xl:gap-3 @4xl:space-y-0">
-              {month.records.map((record) => (
-                <PaymentCard
-                  key={record.key}
-                  record={record}
-                  onViewProof={() =>
-                    setViewingPhoto({
-                      url: record.photoUrl as string,
-                      title: `${formatMoney(record.total)} · ${record.method}`,
-                      subtitle: `${record.party} · ${
-                        record.bills.length > 1 ? 'Bills' : record.kind === 'transport' ? 'Bilty' : 'Bill'
-                      } ${record.bills.map((b) => b.billNo).join(', ')} · ${formatDate(record.paidOn)}`,
-                      downloadName: `${record.party} payment ${formatDate(record.paidOn)}`,
-                    })
-                  }
-                />
-              ))}
-            </div>
-          </section>
-        ))
+        <>
+          {shownMonths.map((month) => (
+            <section key={month.label} className="space-y-2">
+              <div className="flex items-baseline justify-between gap-3 px-1">
+                <h3 className="text-sm font-bold text-slate-700">{month.label}</h3>
+                <p className="text-sm font-bold text-slate-900 tabular-nums">{formatMoney(month.total)}</p>
+              </div>
+              <div className="space-y-2 @4xl:grid @4xl:grid-cols-2 @4xl:gap-3 @4xl:space-y-0">
+                {month.records.map((record) => (
+                  <PaymentCard
+                    key={record.key}
+                    record={record}
+                    onViewProof={() =>
+                      setViewingPhoto({
+                        url: record.photoUrl as string,
+                        title: `${formatMoney(record.total)} · ${record.method}`,
+                        subtitle: `${record.party} · ${
+                          record.bills.length > 1 ? 'Bills' : record.kind === 'transport' ? 'Bilty' : 'Bill'
+                        } ${record.bills.map((b) => b.billNo).join(', ')} · ${formatDate(record.paidOn)}`,
+                        downloadName: `${record.party} payment ${formatDate(record.paidOn)}`,
+                      })
+                    }
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
+          <ShowMoreButton hidden={shown.hidden} onMore={shown.showMore} />
+        </>
       )}
 
       <ImageViewer

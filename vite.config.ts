@@ -11,6 +11,21 @@ export default defineConfig(() => {
         '@': path.resolve(__dirname, '.'),
       },
     },
+    build: {
+      rollupOptions: {
+        output: {
+          // Libraries change far less often than the app: in their own files
+          // they stay saved on the phone across app updates.
+          manualChunks(id) {
+            if (!id.includes('node_modules')) return undefined;
+            if (/\/node_modules\/(react|react-dom|scheduler)\//.test(id)) return 'react';
+            if (id.includes('@supabase')) return 'supabase';
+            if (/\/node_modules\/(motion|framer-motion|motion-dom|motion-utils)\//.test(id)) return 'motion';
+            return undefined;
+          },
+        },
+      },
+    },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.

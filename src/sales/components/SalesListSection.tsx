@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   CalendarDays,
@@ -27,6 +27,7 @@ import {
 } from '../db';
 import { ReceivePaymentModal } from './ReceivePayment';
 import { loadWithCache } from '../cache';
+import { loadLocalFirst, localCopy } from '../../lib/localFirst';
 import { billLabel, formatBillDate, formatIstTime, istToday } from '../fy';
 import { useT } from '../i18n';
 import { unitLabel } from '../labels';
@@ -34,6 +35,7 @@ import { formatQty, formatRupees, mulDivRound, paiseToInput } from '../money';
 import { listQueuedSales, onBillsSynced, syncOutbox } from '../outbox';
 import type { ShopInvoice, ShopParty } from '../types';
 import { ActionButton, ErrorState, InfoRow, LoadingState, PageHeader, PageShell, PickerField } from './ui';
+import { ShowMoreButton, useShowMore } from '../../components/ShowMore';
 import { OPEN_BILL_KEY } from './NewSaleSection';
 import { ReceiptPreviewModal, openPrinterHelp, printDetail, printMessageKey } from './PrintUi';
 import { ShareBillButton } from './ShareBill';
@@ -73,6 +75,12 @@ function presetRange(preset: Exclude<Preset, 'custom' | 'due'>): DateRangeValue 
 
 const ALL_PARTIES = '';
 
+/**
+ * The bills of the last list looked at, kept on this phone so opening the
+ * page shows them at once. One list only, so the saved copies never pile up.
+ */
+const savedList = localCopy<{ view: string; bills: ShopInvoice[] }>('shop-sales-list');
+
 /** Staff see only this many of the newest bills. */
 const STAFF_BILL_LIMIT = 5;
 
@@ -102,27 +110,59 @@ export function SalesListSection({ currentUser, showToast }: SalesListSectionPro
 
   const showDue = !isStaff && preset === 'due';
 
+  // Which list is on screen; a saved copy is only shown for the same list.
+  const view = isStaff ? 'staff' : `${showDue ? 'due' : `${range.from}|${range.to}`}|${partyId}`;
+  const [freshView, setFreshView] = useState<string | null>(null);
+  // Only the newest load may change the list (filters can change mid-load).
+  const loadSeq = useRef(0);
+
   const loadBills = async () => {
+    const seq = ++loadSeq.current;
+    const current = () => seq === loadSeq.current;
+    const loadingView = view;
     setIsLoading(true);
     setLoadError(null);
+    setFreshView(null);
     const queued = await listQueuedSales();
+    if (!current()) return;
     setQueuedBills(queued);
     try {
-      setServerBills(
-        isStaff
-          ? await fetchRecentSales(STAFF_BILL_LIMIT)
-          : showDue
-            ? await fetchDueSales(partyId || null)
-            : await fetchSales({ from: range.from, to: range.to, partyId: partyId || null })
+      const store = {
+        read: async () => {
+          const saved = await savedList.read();
+          return saved && saved.view === loadingView ? saved.bills : null;
+        },
+        write: (bills: ShopInvoice[]) => savedList.write({ view: loadingView, bills }),
+      };
+      await loadLocalFirst(
+        store,
+        () =>
+          isStaff
+            ? fetchRecentSales(STAFF_BILL_LIMIT)
+            : showDue
+              ? fetchDueSales(partyId || null)
+              : fetchSales({ from: range.from, to: range.to, partyId: partyId || null }),
+        (bills, fresh) => {
+          if (!current()) return;
+          setServerBills(bills);
+          setIsLoading(false);
+          if (fresh) setFreshView(loadingView);
+        }
       );
     } catch (err) {
+      if (!current()) return;
       // Bills waiting on this phone can still be shown without the internet.
       if (queued.length === 0) setLoadError(describeDbError(err, 'Sale bills could not be loaded'));
       setServerBills([]);
     } finally {
-      setIsLoading(false);
+      if (current()) setIsLoading(false);
     }
   };
+
+  // A payment received here goes into the saved copy too.
+  useEffect(() => {
+    if (freshView === view) savedList.write({ view, bills: serverBills });
+  }, [freshView, view, serverBills]);
 
   useEffect(() => {
     loadWithCache('settings', fetchShopSettings)
@@ -159,6 +199,9 @@ export function SalesListSection({ currentUser, showToast }: SalesListSectionPro
     const all = [...waiting, ...serverBills].filter((b) => !showDue || b.total > b.paidAmount);
     return isStaff ? all.slice(0, STAFF_BILL_LIMIT) : all;
   }, [serverBills, queuedBills, range, partyId, isStaff, showDue]);
+
+  // Long lists draw their first bills only; totals still use them all.
+  const shownBills = useShowMore(bills, view);
 
   const activeBills = bills.filter((b) => b.status === 'active');
   const total = activeBills.reduce((sum, b) => sum + b.total, 0);
@@ -326,18 +369,21 @@ export function SalesListSection({ currentUser, showToast }: SalesListSectionPro
           {showDue ? t('noDueBills') : t('noBills')}
         </div>
       ) : (
-        <ul className="space-y-2 @3xl:grid @3xl:grid-cols-2 @3xl:gap-3 @3xl:space-y-0">
-          {bills.map((bill) => (
-            <BillCard
-              key={bill.clientId}
-              bill={bill}
-              settings={settings}
-              phone={bill.partyId ? parties.find((p) => p.id === bill.partyId)?.phone : undefined}
-              showToast={showToast}
-              onOpen={() => setOpenClientId(bill.clientId)}
-            />
-          ))}
-        </ul>
+        <>
+            <ul className="space-y-2 @3xl:grid @3xl:grid-cols-2 @3xl:gap-3 @3xl:space-y-0">
+            {shownBills.visible.map((bill) => (
+              <BillCard
+                key={bill.clientId}
+                bill={bill}
+                settings={settings}
+                phone={bill.partyId ? parties.find((p) => p.id === bill.partyId)?.phone : undefined}
+                showToast={showToast}
+                onOpen={() => setOpenClientId(bill.clientId)}
+              />
+            ))}
+          </ul>
+          <ShowMoreButton hidden={shownBills.hidden} onMore={shownBills.showMore} label={t('showMore', { n: shownBills.hidden })} />
+        </>
       )}
 
       <BillDetailModal

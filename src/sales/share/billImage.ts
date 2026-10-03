@@ -2,7 +2,6 @@
  * A branded Akshay Traders bill, drawn on a canvas so it can be shared as an
  * image or wrapped into a PDF. Browser only.
  */
-import { jsPDF } from 'jspdf';
 import { billLabel, formatBillDate, formatIstTime } from '../fy';
 import { formatQty, formatRupees, mulDivRound } from '../money';
 import { qrMatrix } from '../print/qr';
@@ -269,6 +268,8 @@ export async function billPdfFile(bill: ShopInvoice, settings: ShopSettings): Pr
   // A4 width; the page is as long as the bill.
   const pageW = 595;
   const pageH = Math.round((canvas.height * pageW) / canvas.width);
+  // Downloaded only when a PDF is shared, not with every app start.
+  const { jsPDF } = await import('jspdf');
   const pdf = new jsPDF({ unit: 'pt', format: [pageW, pageH], orientation: 'portrait', compress: true });
   pdf.setProperties({ title: `${settings.shopName || 'Akshay Traders'} ${billLabel(bill.billNumber) ?? ''}`.trim(), author: settings.shopName });
   // JPEG keeps the file small enough to send on WhatsApp (a PNG page is several MB).

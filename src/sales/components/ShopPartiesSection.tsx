@@ -5,7 +5,9 @@ import { AppModal } from '../../components/AppModal';
 import { FormError, FormInput } from '../../components/FormInput';
 import { describeDbError, type FriendlyError } from '../../lib/dbErrors';
 import { deleteShopParty, fetchShopParties, fetchShopSettings, insertShopParty, updateShopParty } from '../db';
-import { loadWithCache } from '../cache';
+import { shopCacheStore, writeCache } from '../cache';
+import { ShowMoreButton, useShowMore } from '../../components/ShowMore';
+import { loadLocalFirst } from '../../lib/localFirst';
 import { useT } from '../i18n';
 import { newId } from '../ids';
 import { formatRupees, paiseToInput, parsePaise } from '../money';
@@ -24,6 +26,14 @@ import {
   Segmented,
 } from './ui';
 
+/** The customer list is shared with the bill screen, settings only lend the shop's state. */
+const partiesCache = shopCacheStore<{ parties: ShopParty[]; settings: ShopSettings }>(['parties', 'settings']);
+
+async function fetchPartiesPage() {
+  const [parties, settings] = await Promise.all([fetchShopParties(), fetchShopSettings()]);
+  return { parties, settings };
+}
+
 interface ShopPartiesSectionProps {
   currentUser: User;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
@@ -31,24 +41,29 @@ interface ShopPartiesSectionProps {
 
 export function ShopPartiesSection({ currentUser, showToast }: ShopPartiesSectionProps) {
   const { t } = useT();
-  const [parties, setParties] = useState<ShopParty[]>([]);
-  const [shopState, setShopState] = useState('23');
-  const [isLoading, setIsLoading] = useState(true);
+  // Every customer, hidden ones too (old bills still show their names); the
+  // list on screen leaves the hidden ones out. Opens with the copy saved on
+  // this phone, then the fresh one.
+  const [savedCopy] = useState(() => partiesCache.read() as { parties: ShopParty[]; settings: ShopSettings } | null);
+  const [allParties, setAllParties] = useState<ShopParty[]>(savedCopy?.parties ?? []);
+  const [shopState, setShopState] = useState(savedCopy?.settings.stateCode ?? '23');
+  const [isLoading, setIsLoading] = useState(!savedCopy);
+  const [isFresh, setIsFresh] = useState(false);
   const [loadError, setLoadError] = useState<FriendlyError | null>(null);
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<ShopParty | 'new' | null>(null);
 
   const load = async () => {
-    setIsLoading(true);
+    // "Try again" after a failure: there is nothing to show meanwhile.
+    if (loadError) setIsLoading(true);
     setLoadError(null);
     try {
-      const [partyData, settings] = await Promise.all([
-        fetchShopParties(),
-        loadWithCache<ShopSettings>('settings', fetchShopSettings),
-      ]);
-      // Hidden customers (deleted but with old bills) are not listed.
-      setParties(partyData.filter((p) => p.isActive));
-      setShopState(settings.data.stateCode);
+      await loadLocalFirst(partiesCache, fetchPartiesPage, (data, fresh) => {
+        setAllParties(data.parties);
+        setShopState(data.settings.stateCode);
+        setIsLoading(false);
+        if (fresh) setIsFresh(true);
+      });
     } catch (err) {
       setLoadError(describeDbError(err, 'Customers could not be loaded'));
     } finally {
@@ -60,6 +75,13 @@ export function ShopPartiesSection({ currentUser, showToast }: ShopPartiesSectio
     void load();
   }, []);
 
+  // Changes made here reach the bill screen's saved list straight away.
+  useEffect(() => {
+    if (isFresh) writeCache('parties', allParties);
+  }, [isFresh, allParties]);
+
+  const parties = useMemo(() => allParties.filter((p) => p.isActive), [allParties]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return parties;
@@ -69,11 +91,14 @@ export function ShopPartiesSection({ currentUser, showToast }: ShopPartiesSectio
     );
   }, [parties, search]);
 
+  // A long customer list draws its first rows only.
+  const shownParties = useShowMore(filtered, search);
+
   if (isLoading) return <LoadingState />;
   if (loadError) return <ErrorState error={loadError} onRetry={load} />;
 
   const handleSaved = (party: ShopParty, isNew: boolean) => {
-    setParties((prev) =>
+    setAllParties((prev) =>
       (isNew ? [...prev, party] : prev.map((p) => (p.id === party.id ? party : p))).sort((a, b) =>
         a.name.localeCompare(b.name)
       )
@@ -104,47 +129,50 @@ export function ShopPartiesSection({ currentUser, showToast }: ShopPartiesSectio
           {t('noMatch')}
         </div>
       ) : (
-        <ul className="space-y-2 @3xl:grid @3xl:grid-cols-2 @3xl:gap-3 @3xl:space-y-0">
-          {filtered.map((party) => (
-            <li key={party.id}>
-              <button
-                type="button"
-                onClick={() => setEditing(party)}
-                className="w-full min-h-14 flex items-center gap-3 bg-white border border-slate-200 rounded-xl px-4 py-3 text-left hover:border-amber-300 cursor-pointer transition-colors"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="text-base font-bold text-slate-900 truncate">{party.name}</p>
-                  <p className="text-sm text-slate-500 truncate flex items-center gap-1.5">
-                    {party.phone && (
-                      <>
-                        <Phone className="h-3.5 w-3.5 shrink-0" />
-                        {party.phone}
-                      </>
-                    )}
-                    {party.stateCode !== shopState && (
-                      <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-amber-50 text-amber-800 border border-amber-200">
-                        {t('otherStateNote')}
-                      </span>
-                    )}
-                  </p>
-                  {party.openingBalance !== 0 && (
-                    <p
-                      className={`text-sm font-semibold mt-0.5 ${
-                        party.openingBalance > 0 ? 'text-red-700' : 'text-emerald-700'
-                      }`}
-                    >
-                      {t('oldBalance', { amount: formatRupees(party.openingBalance) })}
+        <>
+            <ul className="space-y-2 @3xl:grid @3xl:grid-cols-2 @3xl:gap-3 @3xl:space-y-0">
+            {shownParties.visible.map((party) => (
+              <li key={party.id}>
+                <button
+                  type="button"
+                  onClick={() => setEditing(party)}
+                  className="w-full min-h-14 flex items-center gap-3 bg-white border border-slate-200 rounded-xl px-4 py-3 text-left hover:border-amber-300 cursor-pointer transition-colors"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-base font-bold text-slate-900 truncate">{party.name}</p>
+                    <p className="text-sm text-slate-500 truncate flex items-center gap-1.5">
+                      {party.phone && (
+                        <>
+                          <Phone className="h-3.5 w-3.5 shrink-0" />
+                          {party.phone}
+                        </>
+                      )}
+                      {party.stateCode !== shopState && (
+                        <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                          {t('otherStateNote')}
+                        </span>
+                      )}
                     </p>
-                  )}
-                </div>
-                <span className="shrink-0 px-2.5 py-1 text-xs font-bold rounded-full bg-slate-100 text-slate-600">
-                  {t(`type_${party.partyType}`)}
-                </span>
-                <Pencil className="h-4 w-4 text-slate-400 shrink-0" />
-              </button>
-            </li>
-          ))}
-        </ul>
+                    {party.openingBalance !== 0 && (
+                      <p
+                        className={`text-sm font-semibold mt-0.5 ${
+                          party.openingBalance > 0 ? 'text-red-700' : 'text-emerald-700'
+                        }`}
+                      >
+                        {t('oldBalance', { amount: formatRupees(party.openingBalance) })}
+                      </p>
+                    )}
+                  </div>
+                  <span className="shrink-0 px-2.5 py-1 text-xs font-bold rounded-full bg-slate-100 text-slate-600">
+                    {t(`type_${party.partyType}`)}
+                  </span>
+                  <Pencil className="h-4 w-4 text-slate-400 shrink-0" />
+                </button>
+              </li>
+            ))}
+          </ul>
+          <ShowMoreButton hidden={shownParties.hidden} onMore={shownParties.showMore} label={t('showMore', { n: shownParties.hidden })} />
+        </>
       )}
 
       <PartyFormModal
@@ -155,7 +183,11 @@ export function ShopPartiesSection({ currentUser, showToast }: ShopPartiesSectio
         onClose={() => setEditing(null)}
         onSaved={handleSaved}
         onDeleted={(deleted, result) => {
-          setParties((prev) => prev.filter((p) => p.id !== deleted.id));
+          setAllParties((prev) =>
+            result === 'hidden'
+              ? prev.map((p) => (p.id === deleted.id ? { ...p, isActive: false } : p))
+              : prev.filter((p) => p.id !== deleted.id)
+          );
           setEditing(null);
           showToast(t(result === 'hidden' ? 'partyHidden' : 'partyDeleted', { name: deleted.name }), 'info');
         }}

@@ -39,6 +39,8 @@ import {
   PhotoReadError,
 } from '../lib/extractBill';
 import { describeDbError, FriendlyError } from '../lib/dbErrors';
+import { loadLocalFirst, localCopy, SAVED_COPY_NOTE } from '../lib/localFirst';
+import { ShowMoreButton, useShowMore } from './ShowMore';
 import { playSuccessChime, unlockSound } from '../lib/sounds';
 import { AppModal } from './AppModal';
 import { FormError, FormInput, ModalActions } from './FormInput';
@@ -154,6 +156,17 @@ function referenceLabel(method: PaymentMethod): string {
   return 'Note (optional)';
 }
 
+/** Kept on this phone, so the page opens at once with the last copy. */
+const firmBillsCopy = localCopy<{ bills: PurchaseBill[]; payments: BillPayment[] }>('firm-bills');
+
+async function fetchFirmBills() {
+  const [bills, payments] = await Promise.all([
+    fetchPurchaseBills(),
+    fetchBillPayments(),
+  ]);
+  return { bills, payments };
+}
+
 export function BillsSection({ showToast }: BillsSectionProps) {
   const [bills, setBills] = useState<PurchaseBill[]>([]);
   const [payments, setPayments] = useState<BillPayment[]>([]);
@@ -177,16 +190,20 @@ export function BillsSection({ showToast }: BillsSectionProps) {
   const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
   const [viewingPhoto, setViewingPhoto] = useState<PhotoToView | null>(null);
 
+  const [isFresh, setIsFresh] = useState(false);
+
   const loadData = async () => {
-    setIsLoading(true);
+    // "Try again" after a failure: there is nothing to show meanwhile.
+    if (loadError) setIsLoading(true);
     setLoadError(null);
     try {
-      const [billsData, paymentsData] = await Promise.all([
-        fetchPurchaseBills(),
-        fetchBillPayments(),
-      ]);
-      setBills(billsData);
-      setPayments(paymentsData);
+      const result = await loadLocalFirst(firmBillsCopy, fetchFirmBills, (data, fresh) => {
+        setBills(data.bills);
+        setPayments(data.payments);
+        setIsLoading(false);
+        if (fresh) setIsFresh(true);
+      });
+      if (result === 'copy') showToast(SAVED_COPY_NOTE, 'info');
     } catch (err) {
       console.error('Loading the bills failed:', err);
       setLoadError(describeDbError(err, 'Your party bills could not be loaded'));
@@ -199,6 +216,11 @@ export function BillsSection({ showToast }: BillsSectionProps) {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Changes made on this page go into the saved copy too.
+  useEffect(() => {
+    if (isFresh) firmBillsCopy.write({ bills, payments });
+  }, [isFresh, bills, payments]);
 
   const paidByBill = useMemo(() => {
     const map = new Map<string, number>();
@@ -253,6 +275,9 @@ export function BillsSection({ showToast }: BillsSectionProps) {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bills, search, statusFilter, firmFilter, paidByBill]);
+
+  // Long lists draw their first bills only; totals still use them all.
+  const shownBills = useShowMore(filteredBills, `${search}|${statusFilter}|${firmFilter}`);
 
   const detailBill = detailBillId ? bills.find((b) => b.id === detailBillId) ?? null : null;
   const paymentBill = paymentBillId ? bills.find((b) => b.id === paymentBillId) ?? null : null;
@@ -561,93 +586,96 @@ export function BillsSection({ showToast }: BillsSectionProps) {
 
       {/* Bills view */}
       {view === 'bills' && (
-        <div className="space-y-3 @3xl:grid @3xl:grid-cols-2 @6xl:grid-cols-3 @3xl:gap-4 @3xl:space-y-0">
-          {filteredBills.length === 0 ? (
-            <div className="@3xl:col-span-2 @6xl:col-span-3">
-              {bills.length === 0 ? (
-                <EmptyState onAdd={() => setIsAddBillOpen(true)} />
-              ) : (
-                <div className="p-8 text-center text-slate-400 text-sm bg-white border border-slate-200 rounded-xl">
-                  No bills match your search or filter.
-                </div>
-              )}
-            </div>
-          ) : (
-            filteredBills.map((bill) => {
-              const paid = getPaid(bill.id);
-              const balance = getBalance(bill);
-              return (
-                <motion.div
-                  key={bill.id}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden flex flex-col"
-                >
-                  <button
-                    type="button"
-                    onClick={() => setDetailBillId(bill.id)}
-                    className="text-left p-4 flex-1 cursor-pointer hover:bg-slate-50/60 transition-colors"
+        <>
+          <div className="space-y-3 @3xl:grid @3xl:grid-cols-2 @6xl:grid-cols-3 @3xl:gap-4 @3xl:space-y-0">
+            {filteredBills.length === 0 ? (
+              <div className="@3xl:col-span-2 @6xl:col-span-3">
+                {bills.length === 0 ? (
+                  <EmptyState onAdd={() => setIsAddBillOpen(true)} />
+                ) : (
+                  <div className="p-8 text-center text-slate-400 text-sm bg-white border border-slate-200 rounded-xl">
+                    No bills match your search or filter.
+                  </div>
+                )}
+              </div>
+            ) : (
+              shownBills.visible.map((bill) => {
+                const paid = getPaid(bill.id);
+                const balance = getBalance(bill);
+                return (
+                  <motion.div
+                    key={bill.id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden flex flex-col"
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-base font-bold text-slate-900 truncate">{bill.firmName}</p>
-                        <p className="text-sm text-slate-500 mt-0.5 truncate">
-                          Bill {bill.billNo || '—'} · {formatDate(bill.billDate)}
-                        </p>
-                      </div>
-                      {balance > 0 ? (
-                        <span className="shrink-0 px-2.5 py-1 text-xs font-bold rounded-full bg-red-50 text-red-700 border border-red-200">
-                          Left: {formatMoney(balance)}
-                        </span>
-                      ) : (
-                        <span className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-full bg-[#DCFCE7] text-[#166534] border border-[#BBF7D0]">
-                          <CheckCircle2 className="h-3 w-3" />
-                          Fully paid
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-3 pt-3 border-t border-slate-100 text-sm">
-                      <div className="grid grid-cols-2 gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setDetailBillId(bill.id)}
+                      className="text-left p-4 flex-1 cursor-pointer hover:bg-slate-50/60 transition-colors"
+                    >
+                      <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <p className="text-xs text-slate-500">Bill amount</p>
-                          <p className="font-bold text-slate-900 tabular-nums truncate">
-                            {formatMoney(bill.netAmount)}
+                          <p className="text-base font-bold text-slate-900 truncate">{bill.firmName}</p>
+                          <p className="text-sm text-slate-500 mt-0.5 truncate">
+                            Bill {bill.billNo || '—'} · {formatDate(bill.billDate)}
                           </p>
                         </div>
-                        <div className="min-w-0">
-                          <p className="text-xs text-slate-500">Paid</p>
-                          <p className="font-bold text-emerald-700 tabular-nums truncate">
-                            {formatMoney(paid)}
-                          </p>
-                        </div>
-                      </div>
-                      {bill.transportName && (
-                        <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500 min-w-0">
-                          <Truck className="h-3.5 w-3.5 shrink-0" />
-                          <span className="font-semibold text-slate-700 truncate">
-                            {bill.transportName}
+                        {balance > 0 ? (
+                          <span className="shrink-0 px-2.5 py-1 text-xs font-bold rounded-full bg-red-50 text-red-700 border border-red-200">
+                            Left: {formatMoney(balance)}
                           </span>
-                        </p>
-                      )}
-                    </div>
-                  </button>
-                  {balance > 0 && (
-                    <div className="px-4 pb-4">
-                      <button
-                        type="button"
-                        onClick={() => setPaymentBillId(bill.id)}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold cursor-pointer transition-colors"
-                      >
-                        <Wallet className="h-4 w-4" />
-                        Add payment
-                      </button>
-                    </div>
-                  )}
-                </motion.div>
-              );
-            })
-          )}
-        </div>
+                        ) : (
+                          <span className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-full bg-[#DCFCE7] text-[#166534] border border-[#BBF7D0]">
+                            <CheckCircle2 className="h-3 w-3" />
+                            Fully paid
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-3 pt-3 border-t border-slate-100 text-sm">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="min-w-0">
+                            <p className="text-xs text-slate-500">Bill amount</p>
+                            <p className="font-bold text-slate-900 tabular-nums truncate">
+                              {formatMoney(bill.netAmount)}
+                            </p>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs text-slate-500">Paid</p>
+                            <p className="font-bold text-emerald-700 tabular-nums truncate">
+                              {formatMoney(paid)}
+                            </p>
+                          </div>
+                        </div>
+                        {bill.transportName && (
+                          <p className="mt-2 flex items-center gap-1.5 text-xs text-slate-500 min-w-0">
+                            <Truck className="h-3.5 w-3.5 shrink-0" />
+                            <span className="font-semibold text-slate-700 truncate">
+                              {bill.transportName}
+                            </span>
+                          </p>
+                        )}
+                      </div>
+                    </button>
+                    {balance > 0 && (
+                      <div className="px-4 pb-4">
+                        <button
+                          type="button"
+                          onClick={() => setPaymentBillId(bill.id)}
+                          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-bold cursor-pointer transition-colors"
+                        >
+                          <Wallet className="h-4 w-4" />
+                          Add payment
+                        </button>
+                      </div>
+                    )}
+                  </motion.div>
+                );
+              })
+            )}
+          </div>
+          <ShowMoreButton hidden={shownBills.hidden} onMore={shownBills.showMore} />
+        </>
       )}
 
       {/* Add / edit bill modal */}

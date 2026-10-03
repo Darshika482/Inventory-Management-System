@@ -1,7 +1,15 @@
-import { GoogleGenAI, Type } from '@google/genai';
 import { BillDiscount, BillLineItem, PaymentMethod } from '../types';
 
 const apiKey = import.meta.env.VITE_GEMINI_API_KEY ?? '';
+
+// Same values as the SDK's `Type` enum. Kept here so the SDK itself is only
+// downloaded when a photo is actually read, not with every app start.
+const Type = {
+  STRING: 'STRING',
+  NUMBER: 'NUMBER',
+  ARRAY: 'ARRAY',
+  OBJECT: 'OBJECT',
+} as const;
 
 /** True when a Gemini API key is configured and "fill from photo" can work. */
 export const isPhotoFillAvailable = Boolean(apiKey);
@@ -76,6 +84,7 @@ function isBusyError(err: unknown): boolean {
 }
 
 async function askGemini(file: File, prompt: string, schema: object): Promise<unknown> {
+  const { GoogleGenAI } = await import('@google/genai');
   const ai = new GoogleGenAI({ apiKey });
   const base64 = await fileToBase64(file);
 

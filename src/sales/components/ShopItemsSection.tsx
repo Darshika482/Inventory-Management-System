@@ -29,6 +29,8 @@ import {
   updateShopItem,
 } from '../db';
 import { GST_RATES } from '../gst';
+import { shopCacheStore } from '../cache';
+import { loadLocalFirst } from '../../lib/localFirst';
 import { useT } from '../i18n';
 import { newId, UNITS } from '../ids';
 import { displayName, matchesSearch, secondaryName, unitLabel } from '../labels';
@@ -55,12 +57,28 @@ interface ShopItemsSectionProps {
 
 const NO_CATEGORY = '__none__';
 
+interface ItemLists {
+  categories: ShopCategory[];
+  items: ShopItem[];
+}
+
+const itemsCache = shopCacheStore<ItemLists>(['categories', 'items']);
+
+async function fetchItemLists(): Promise<ItemLists> {
+  const [categories, items] = await Promise.all([fetchShopCategories(), fetchShopItems()]);
+  return { categories, items };
+}
+
 export function ShopItemsSection({ currentUser, showToast }: ShopItemsSectionProps) {
   const { t, language } = useT();
   const isOwner = currentUser.role === 'Admin';
-  const [categories, setCategories] = useState<ShopCategory[]>([]);
-  const [items, setItems] = useState<ShopItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // Opens with the lists saved on this phone (shared with the bill screen),
+  // then the fresh ones.
+  const [savedCopy] = useState(() => itemsCache.read() as ItemLists | null);
+  const [categories, setCategories] = useState<ShopCategory[]>(savedCopy?.categories ?? []);
+  const [items, setItems] = useState<ShopItem[]>(savedCopy?.items ?? []);
+  const [isLoading, setIsLoading] = useState(!savedCopy);
+  const [isFresh, setIsFresh] = useState(false);
   const [loadError, setLoadError] = useState<FriendlyError | null>(null);
   const [search, setSearch] = useState('');
   const [reordering, setReordering] = useState(false);
@@ -68,12 +86,16 @@ export function ShopItemsSection({ currentUser, showToast }: ShopItemsSectionPro
   const [editingCategory, setEditingCategory] = useState<ShopCategory | 'new' | null>(null);
 
   const load = async () => {
-    setIsLoading(true);
+    // "Try again" after a failure: there is nothing to show meanwhile.
+    if (loadError) setIsLoading(true);
     setLoadError(null);
     try {
-      const [categoryData, itemData] = await Promise.all([fetchShopCategories(), fetchShopItems()]);
-      setCategories(categoryData);
-      setItems(itemData);
+      await loadLocalFirst(itemsCache, fetchItemLists, (data, fresh) => {
+        setCategories(data.categories);
+        setItems(data.items);
+        setIsLoading(false);
+        if (fresh) setIsFresh(true);
+      });
     } catch (err) {
       setLoadError(describeDbError(err, 'Items could not be loaded'));
     } finally {
@@ -84,6 +106,11 @@ export function ShopItemsSection({ currentUser, showToast }: ShopItemsSectionPro
   useEffect(() => {
     void load();
   }, []);
+
+  // New rates reach the bill screen's saved list straight away.
+  useEffect(() => {
+    if (isFresh) itemsCache.write({ categories, items });
+  }, [isFresh, categories, items]);
 
   const groups = useMemo(() => {
     const visible = items.filter((item) => matchesSearch(item, search));

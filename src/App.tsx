@@ -1,25 +1,19 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ShieldCheck,
-  LogOut,
   CheckCircle,
   AlertOctagon,
   X,
   Menu,
-  Loader2,
-  Warehouse,
 } from 'lucide-react';
 import { User, Category, WithdrawalLog, StockAddition, Floor } from './types';
 import { getAppSession } from './lib/supabase';
 import { Login } from './components/Login';
 import { Sidebar } from './components/Sidebar';
-import { AdminDashboard } from './components/AdminDashboard';
-import { BillsSection } from './components/BillsSection';
-import { PaymentsSection } from './components/PaymentsSection';
-import { AnalysisSection } from './components/AnalysisSection';
-import { TransportSection } from './components/TransportSection';
-import { WorkersSection } from './components/WorkersSection';
+import { PageFrame, PageLoading } from './components/PageFrame';
+import { lazyPage, preloadInBackground } from './lib/lazyPage';
+import { clearLocalCopies, loadLocalFirst, localCopy } from './lib/localFirst';
 import {
   authenticateUser,
   deleteCategoryFromDb,
@@ -37,7 +31,47 @@ import {
 } from './lib/database';
 import { createCategoryId } from './lib/floors';
 import { useBackDismiss } from './lib/backGuard';
-import { isShopSection, NewSaleShortcut, ShopSection } from './sales/ShopModule';
+import { isShopSection, NewSaleShortcut, preloadShopPages, ShopSection } from './sales/ShopModule';
+
+// Each page's code is downloaded when it is first opened (and in the
+// background once the app is idle), so the app itself starts small and fast.
+const AdminDashboard = lazyPage(() => import('./components/AdminDashboard'), (m) => m.AdminDashboard);
+const BillsSection = lazyPage(() => import('./components/BillsSection'), (m) => m.BillsSection);
+const PaymentsSection = lazyPage(() => import('./components/PaymentsSection'), (m) => m.PaymentsSection);
+const AnalysisSection = lazyPage(() => import('./components/AnalysisSection'), (m) => m.AnalysisSection);
+const TransportSection = lazyPage(() => import('./components/TransportSection'), (m) => m.TransportSection);
+const WorkersSection = lazyPage(() => import('./components/WorkersSection'), (m) => m.WorkersSection);
+const OWNER_PAGES = [AdminDashboard, BillsSection, PaymentsSection, AnalysisSection, TransportSection, WorkersSection];
+
+/** Owner pages with their own data; every other owner page is the godown stock dashboard. */
+const OWN_DATA_PAGES = ['bills', 'payments', 'analysis', 'transport', 'workers'];
+
+/** The godown stock lists, kept on this phone so the dashboard opens at once. */
+interface GodownData {
+  categories: Category[];
+  logs: WithdrawalLog[];
+  stockAdditions: StockAddition[];
+  staffMembers: User[];
+}
+
+const godownCopy = localCopy<GodownData>('godown');
+
+async function fetchGodownData(): Promise<GodownData> {
+  const [categories, logs, stockAdditions, staffMembers] = await Promise.all([
+    fetchCategories(),
+    fetchWithdrawalLogs(),
+    fetchStockAdditions(),
+    fetchStaffUsers().catch(() => [] as User[]),
+  ]);
+  return { categories, logs, stockAdditions, staffMembers };
+}
+
+/**
+ * 'copy': only the copy saved on this phone could be shown (no internet).
+ * Stock changes wait for 'fresh': they write whole quantities, so they must
+ * start from the latest numbers.
+ */
+type GodownStatus = 'idle' | 'loading' | 'copy' | 'fresh';
 
 interface Toast {
   id: string;
@@ -85,7 +119,8 @@ export default function App() {
   const [logs, setLogs] = useState<WithdrawalLog[]>([]);
   const [stockAdditions, setStockAdditions] = useState<StockAddition[]>([]);
   const [staffMembers, setStaffMembers] = useState<User[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [godownShown, setGodownShown] = useState(false);
+  const [godownStatus, setGodownStatus] = useState<GodownStatus>('idle');
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [activeSection, setActiveSection] = useState<string>(() =>
@@ -105,32 +140,78 @@ export default function App() {
     setActiveSection(homeSection)
   );
 
-  const loadData = useCallback(async () => {
-    setIsLoading(true);
+  // The godown stock is only for the owner's pages: shop staff never wait for
+  // it, and the owner sees the copy saved on this phone while it refreshes.
+  // Bumped on sign-out, so a download still running then is thrown away.
+  const godownSession = useRef(0);
+
+  const loadGodown = useCallback(async () => {
+    const session = godownSession.current;
+    const current = () => session === godownSession.current;
+    setGodownStatus('loading');
     setLoadError(null);
     try {
-      const [categoriesData, logsData, stockAdditionsData, staffData] = await Promise.all([
-        fetchCategories(),
-        fetchWithdrawalLogs(),
-        fetchStockAdditions(),
-        fetchStaffUsers().catch(() => [] as User[]),
-      ]);
-      setCategories(categoriesData);
-      setLogs(logsData);
-      setStockAdditions(stockAdditionsData);
-      setStaffMembers(staffData);
+      const store = {
+        read: godownCopy.read,
+        write: (data: GodownData) => {
+          if (current()) godownCopy.write(data);
+        },
+      };
+      const result = await loadLocalFirst(store, fetchGodownData, (data) => {
+        if (!current()) return;
+        setCategories(data.categories);
+        setLogs(data.logs);
+        setStockAdditions(data.stockAdditions);
+        setStaffMembers(data.staffMembers);
+        setGodownShown(true);
+      });
+      if (!current()) return;
+      setGodownStatus(result);
+      if (result === 'copy') {
+        showToast('No internet. Showing the stock saved on this phone.', 'info');
+      }
     } catch (err) {
+      if (!current()) return;
       const message =
-        err instanceof Error ? err.message : 'Could not load your stock. Please try again.';
+        err instanceof Error && err.message
+          ? err.message
+          : 'Could not load your stock. Please try again.';
       setLoadError(message);
-    } finally {
-      setIsLoading(false);
+      setGodownStatus('idle');
     }
   }, []);
 
+  const isOwner = currentUser?.role === 'Admin';
+  // The stock dashboard's pages; the others never wait on its downloads.
+  const onGodownPage =
+    isOwner && !isShopSection(activeSection, 'Admin') && !OWN_DATA_PAGES.includes(activeSection);
+
+  // Each time the stock pages are opened: the copy at once, then the latest.
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (onGodownPage) void loadGodown();
+  }, [onGodownPage, loadGodown]);
+
+  // Back online after showing the saved copy: fetch the latest stock.
+  useEffect(() => {
+    if (!onGodownPage || godownStatus === 'fresh' || godownStatus === 'loading') return;
+    const onOnline = () => void loadGodown();
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, [onGodownPage, godownStatus, loadGodown]);
+
+  // Stock changes made here go into the saved copy too, so the next open shows them.
+  useEffect(() => {
+    if (godownStatus === 'fresh') {
+      godownCopy.write({ categories, logs, stockAdditions, staffMembers });
+    }
+  }, [godownStatus, categories, logs, stockAdditions, staffMembers]);
+
+  // Once the first page is up, fetch the other pages' code while the phone is idle.
+  useEffect(() => {
+    if (!currentUser) return;
+    preloadShopPages(currentUser.role);
+    if (currentUser.role === 'Admin') preloadInBackground(OWNER_PAGES);
+  }, [currentUser?.role]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (currentUser) {
@@ -188,8 +269,32 @@ export default function App() {
 
   const handleLogout = () => {
     void logoutUser();
+    // The next person on this phone must not see the owner's lists.
+    godownSession.current++;
+    clearLocalCopies();
+    setCategories([]);
+    setLogs([]);
+    setStockAdditions([]);
+    setStaffMembers([]);
+    setGodownShown(false);
+    setGodownStatus('idle');
     setCurrentUser(null);
     showToast('You have signed out.', 'info');
+  };
+
+  /**
+   * Stock changes write whole quantities, so they wait until the latest stock
+   * has arrived (a moment after opening, or once the internet is back).
+   */
+  const stockIsFresh = (): boolean => {
+    if (godownStatus === 'fresh') return true;
+    if (godownStatus === 'loading') {
+      showToast('Getting the latest stock first. Please try again in a moment.', 'info');
+    } else {
+      void loadGodown();
+      showToast('No internet: this is the stock saved on this phone. Changes need the internet, so please try again once connected.', 'error');
+    }
+    return false;
   };
 
   const handleAddNewCategory = async (
@@ -198,6 +303,7 @@ export default function App() {
     initialStock: number,
     floor: Floor
   ) => {
+    if (!stockIsFresh()) return;
     const newCategory: Category = {
       id: createCategoryId(name, floor, unit),
       name,
@@ -232,6 +338,7 @@ export default function App() {
   };
 
   const handleAddStock = async (categoryId: string, quantity: number) => {
+    if (!stockIsFresh()) return;
     const category = categories.find((c) => c.id === categoryId);
     if (!category) return;
 
@@ -271,6 +378,7 @@ export default function App() {
     categoryId: string,
     updates: { name: string; unit: string; floor: Floor; initialStock: number; currentQuantity: number }
   ) => {
+    if (!stockIsFresh()) return;
     const category = categories.find((c) => c.id === categoryId);
     if (!category) return;
 
@@ -292,6 +400,7 @@ export default function App() {
   };
 
   const handleDeleteCategory = async (categoryId: string) => {
+    if (!stockIsFresh()) return;
     const category = categories.find((c) => c.id === categoryId);
     if (!category) return;
 
@@ -309,6 +418,9 @@ export default function App() {
     quantity: number,
     staffUsername?: string
   ): Promise<{ success: boolean; message: string }> => {
+    if (!stockIsFresh()) {
+      return { success: false, message: 'Getting the latest stock first. Please try again in a moment.' };
+    }
     const category = categories.find((c) => c.id === categoryId);
 
     if (!category) {
@@ -365,6 +477,7 @@ export default function App() {
   };
 
   const handleToggleLogStatus = async (logId: string) => {
+    if (!stockIsFresh()) return;
     const log = logs.find((l) => l.id === logId);
     if (!log) return;
 
@@ -435,58 +548,6 @@ export default function App() {
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-4">
-        <div className="flex flex-col items-center gap-5 text-center">
-          <div className="relative">
-            <div className="h-20 w-20 rounded-2xl bg-[#0F172A] shadow-xl flex items-center justify-center">
-              <div className="h-11 w-11 rounded-xl bg-amber-500 flex items-center justify-center text-[#0F172A]">
-                <Warehouse className="h-6 w-6" />
-              </div>
-            </div>
-            <Loader2 className="absolute -right-2 -bottom-2 h-7 w-7 animate-spin rounded-full bg-white p-1 text-amber-600 shadow-md" />
-          </div>
-
-          <div className="space-y-1">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-              Akshay Traders
-            </h1>
-            <p className="text-sm text-slate-500">
-              Stock manager
-            </p>
-          </div>
-
-          <p className="text-base font-medium text-slate-500">
-            Loading your stock...
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (loadError) {
-    return (
-      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-4">
-        <div className="max-w-md w-full bg-white border border-red-200 rounded-xl p-6 shadow-lg text-center space-y-4">
-          <AlertOctagon className="h-10 w-10 text-red-500 mx-auto" />
-          <h2 className="text-xl font-bold text-slate-900">Could not load your stock</h2>
-          <p className="text-base text-slate-600">{loadError}</p>
-          <p className="text-sm text-slate-500 leading-relaxed">
-            Check your internet connection and try again. If the problem continues, contact your manager.
-          </p>
-          <button
-            type="button"
-            onClick={loadData}
-            className="px-5 py-3 bg-[#0F172A] text-white rounded-xl text-base font-semibold cursor-pointer"
-          >
-            Try again
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   if (!currentUser) {
     return (
       <>
@@ -546,32 +607,41 @@ export default function App() {
             onNavigate={setActiveSection}
             showToast={showToast}
           />
-        ) : currentUser.role === 'Admin' && activeSection === 'bills' ? (
-          <BillsSection showToast={showToast} />
-        ) : currentUser.role === 'Admin' && activeSection === 'payments' ? (
-          <PaymentsSection showToast={showToast} />
-        ) : currentUser.role === 'Admin' && activeSection === 'analysis' ? (
-          <AnalysisSection showToast={showToast} />
-        ) : currentUser.role === 'Admin' && activeSection === 'transport' ? (
-          <TransportSection showToast={showToast} />
-        ) : currentUser.role === 'Admin' && activeSection === 'workers' ? (
-          <WorkersSection showToast={showToast} />
         ) : currentUser.role === 'Admin' ? (
-          <AdminDashboard
-            categories={categories}
-            logs={logs}
-            stockAdditions={stockAdditions}
-            staffMembers={staffMembers}
-            onAddStock={handleAddStock}
-            onAddNewCategory={handleAddNewCategory}
-            onUpdateCategory={handleUpdateCategory}
-            onDeleteCategory={handleDeleteCategory}
-            onToggleLogStatus={handleToggleLogStatus}
-            onRecordWithdrawal={(categoryId, quantity, staffUsername) =>
-              handleWithdraw(categoryId, quantity, staffUsername)
-            }
-            activeSection={activeSection}
-          />
+          // The stock dashboard's pages share one frame, so its filters survive a page switch.
+          <PageFrame key={OWN_DATA_PAGES.includes(activeSection) ? activeSection : 'godown'}>
+            {activeSection === 'bills' ? (
+              <BillsSection showToast={showToast} />
+            ) : activeSection === 'payments' ? (
+              <PaymentsSection showToast={showToast} />
+            ) : activeSection === 'analysis' ? (
+              <AnalysisSection showToast={showToast} />
+            ) : activeSection === 'transport' ? (
+              <TransportSection showToast={showToast} />
+            ) : activeSection === 'workers' ? (
+              <WorkersSection showToast={showToast} />
+            ) : !godownShown && loadError ? (
+              <GodownLoadError message={loadError} onRetry={loadGodown} />
+            ) : !godownShown ? (
+              <PageLoading label="Loading your stock..." />
+            ) : (
+              <AdminDashboard
+                categories={categories}
+                logs={logs}
+                stockAdditions={stockAdditions}
+                staffMembers={staffMembers}
+                onAddStock={handleAddStock}
+                onAddNewCategory={handleAddNewCategory}
+                onUpdateCategory={handleUpdateCategory}
+                onDeleteCategory={handleDeleteCategory}
+                onToggleLogStatus={handleToggleLogStatus}
+                onRecordWithdrawal={(categoryId, quantity, staffUsername) =>
+                  handleWithdraw(categoryId, quantity, staffUsername)
+                }
+                activeSection={activeSection}
+              />
+            )}
+          </PageFrame>
         ) : (
           <ShopSection
             key="shop-new-sale"
@@ -584,6 +654,28 @@ export default function App() {
       </div>
 
       <ToastTray toasts={toasts} onRemove={removeToast} />
+    </div>
+  );
+}
+
+function GodownLoadError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="flex-1 flex items-center justify-center bg-[#F8FAFC] p-4">
+      <div className="max-w-md w-full bg-white border border-red-200 rounded-xl p-6 shadow-lg text-center space-y-4">
+        <AlertOctagon className="h-10 w-10 text-red-500 mx-auto" />
+        <h2 className="text-xl font-bold text-slate-900">Could not load your stock</h2>
+        <p className="text-base text-slate-600">{message}</p>
+        <p className="text-sm text-slate-500 leading-relaxed">
+          Check your internet connection and try again. If the problem continues, contact your manager.
+        </p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="px-5 py-3 bg-[#0F172A] text-white rounded-xl text-base font-semibold cursor-pointer"
+        >
+          Try again
+        </button>
+      </div>
     </div>
   );
 }

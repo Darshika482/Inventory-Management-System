@@ -25,6 +25,7 @@ import {
   insertItemGroup,
 } from '../lib/database';
 import { describeDbError, FriendlyError } from '../lib/dbErrors';
+import { loadLocalFirst, localCopy, SAVED_COPY_NOTE } from '../lib/localFirst';
 import { AppModal } from './AppModal';
 import { DateRangePicker, DateRangeValue } from './DateRangePicker';
 
@@ -267,6 +268,17 @@ function buildItemStats(entries: PurchaseEntry[], groups: ItemGroup[]): ItemStat
   return items;
 }
 
+/** Kept on this phone, so the page opens at once with the last copy. */
+const analysisCopy = localCopy<{ bills: PurchaseBill[]; groups: ItemGroup[] }>('rate-analysis');
+
+async function fetchAnalysisData() {
+  const [bills, groups] = await Promise.all([
+    fetchPurchaseBills(),
+    fetchItemGroups(),
+  ]);
+  return { bills, groups };
+}
+
 export function AnalysisSection({ showToast }: AnalysisSectionProps) {
   const [bills, setBills] = useState<PurchaseBill[]>([]);
   const [groups, setGroups] = useState<ItemGroup[]>([]);
@@ -280,16 +292,20 @@ export function AnalysisSection({ showToast }: AnalysisSectionProps) {
   const [detailKey, setDetailKey] = useState<string | null>(null);
   const [isCombineOpen, setIsCombineOpen] = useState(false);
 
+  const [isFresh, setIsFresh] = useState(false);
+
   const loadData = async () => {
-    setIsLoading(true);
+    // "Try again" after a failure: there is nothing to show meanwhile.
+    if (loadError) setIsLoading(true);
     setLoadError(null);
     try {
-      const [billsData, groupsData] = await Promise.all([
-        fetchPurchaseBills(),
-        fetchItemGroups(),
-      ]);
-      setBills(billsData);
-      setGroups(groupsData);
+      const result = await loadLocalFirst(analysisCopy, fetchAnalysisData, (data, fresh) => {
+        setBills(data.bills);
+        setGroups(data.groups);
+        setIsLoading(false);
+        if (fresh) setIsFresh(true);
+      });
+      if (result === 'copy') showToast(SAVED_COPY_NOTE, 'info');
     } catch (err) {
       console.error('Loading bills for analysis failed:', err);
       setLoadError(describeDbError(err, 'The rate analysis could not be loaded'));
@@ -302,6 +318,11 @@ export function AnalysisSection({ showToast }: AnalysisSectionProps) {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Changes made on this page go into the saved copy too.
+  useEffect(() => {
+    if (isFresh) analysisCopy.write({ bills, groups });
+  }, [isFresh, bills, groups]);
 
   const items = useMemo(
     () => buildItemStats(flattenBills(bills, range), groups),
