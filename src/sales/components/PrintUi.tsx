@@ -255,7 +255,13 @@ export function PrinterSetupPanel({ settings }: { settings: ShopSettings | null 
             <input
               value={prefs.billName}
               onChange={(e) => update({ billName: e.target.value })}
-              placeholder="Fall Wholesale"
+              placeholder="Surbhi Fall"
+              className="w-full min-h-12 bg-slate-50 border border-slate-200 rounded-xl px-4 text-base text-slate-900 focus:outline-none focus:bg-white focus:border-amber-500"
+            />
+            <input
+              value={prefs.billSubtitle}
+              onChange={(e) => update({ billSubtitle: e.target.value })}
+              placeholder="wholesale"
               className="w-full min-h-12 bg-slate-50 border border-slate-200 rounded-xl px-4 text-base text-slate-900 focus:outline-none focus:bg-white focus:border-amber-500"
             />
           </label>

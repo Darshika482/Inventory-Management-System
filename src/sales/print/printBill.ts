@@ -20,6 +20,7 @@ export function receiptLinesFor(bill: ShopInvoice, settings: ShopSettings): Rece
     showUpiQr: prefs.showUpiQr,
     widthMm: settings.printerWidthMm,
     billName: prefs.billName,
+    billSubtitle: prefs.billSubtitle,
   });
 }
 

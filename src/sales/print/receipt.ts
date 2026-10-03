@@ -30,8 +30,10 @@ export interface ReceiptOptions {
   showUpiQr: boolean;
   /** Paper width, for the item columns. Default 58. */
   widthMm?: 58 | 80;
-  /** Name at the top of the printout (e.g. "Fall Wholesale"); defaults to the shop name. */
+  /** Name at the top of the printout (e.g. "Surbhi Fall"); defaults to the shop name. */
   billName?: string;
+  /** Small line under the name (e.g. "wholesale"). */
+  billSubtitle?: string;
 }
 
 /** Characters per line in the printer's normal font. */
@@ -113,6 +115,7 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
 
   // Shop: only the name is large
   lines.push({ kind: 'text', text: options.billName?.trim() || settings.shopName, align: 'center', bold: true, big: true });
+  if (options.billSubtitle?.trim()) lines.push({ kind: 'text', text: options.billSubtitle.trim(), align: 'center' });
   if (settings.address) lines.push({ kind: 'text', text: settings.address, align: 'center' });
   if (settings.phone) lines.push({ kind: 'text', text: `Ph.No.: ${settings.phone}`, align: 'center' });
   if (bill.isGst && settings.gstin) lines.push({ kind: 'text', text: `GSTIN: ${settings.gstin}`, align: 'center' });

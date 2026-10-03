@@ -26,6 +26,8 @@ export interface PrinterPrefs {
   showUpiQr: boolean;
   /** Name printed at the top of the bill. */
   billName: string;
+  /** Small line under the name. */
+  billSubtitle: string;
   /** Version of these choices; older saved choices are brought up to date on reading. */
   version?: number;
 }
@@ -41,8 +43,9 @@ const DEFAULT_PREFS: PrinterPrefs = {
   nativeQr: false,
   hindi: false,
   showUpiQr: true,
-  billName: 'Fall Wholesale',
-  version: 2,
+  billName: 'Surbhi Fall',
+  billSubtitle: 'wholesale',
+  version: 3,
 };
 
 export function getPrinterPrefs(): PrinterPrefs {
@@ -55,6 +58,12 @@ export function getPrinterPrefs(): PrinterPrefs {
     if ((saved.version ?? 1) < 2) {
       saved.nativeQr = false;
       saved.version = 2;
+    }
+    // Version 3: heading became "Surbhi Fall" with "wholesale" underneath.
+    if (saved.version < 3) {
+      if (!saved.billName || saved.billName === 'Fall Wholesale') saved.billName = DEFAULT_PREFS.billName;
+      saved.billSubtitle = DEFAULT_PREFS.billSubtitle;
+      saved.version = 3;
     }
     return { ...DEFAULT_PREFS, ...saved };
   } catch {
