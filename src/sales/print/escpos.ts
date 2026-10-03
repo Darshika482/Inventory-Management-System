@@ -2,7 +2,7 @@
  * ESC/POS byte builder for 58mm and 80mm thermal printers.
  * Pure (no browser APIs) so it is snapshot tested.
  */
-import { charsPerLine, pairToRows, printedUpiLink, wrapText, type ReceiptLine } from './receipt';
+import { charsPerLine, pairToRows, printedUpiLink, wrapText, type ReceiptLine, type SideItem } from './receipt';
 import { qrMatrix } from './qr';
 
 const ESC = 0x1b;
@@ -24,6 +24,12 @@ export interface EscPosOptions {
   qrStyle: QrStyle;
   /** Small font (9x17 dots) in bold: more per line and still easy to read. */
   smallFont?: boolean;
+  /**
+   * Draws the Received/Balance text that sits beside a picture QR, as dots
+   * `height` tall and at most `maxWidth` wide (browser only: needs a canvas).
+   * Without it the text is printed under the QR instead.
+   */
+  renderSide?: (side: SideItem[], maxWidth: number, height: number) => boolean[][];
 }
 
 /** Printable dots across the paper. */
@@ -118,6 +124,11 @@ function rasterBand(pixels: boolean[][]): number[] {
 
 /** QR code as an image, `scale` dots per module, centred on the paper. */
 export function qrRaster(data: string, widthMm: 58 | 80, scale = 4): number[] {
+  return rasterBytes(qrPixels(data, widthMm, scale));
+}
+
+/** Dots of a QR with a one-square white border, `scale` dots per square. */
+export function qrPixels(data: string, widthMm: 58 | 80, scale = 4): boolean[][] {
   const matrix = qrMatrix(data);
   const size = matrix.length;
   const quiet = 1;
@@ -136,7 +147,27 @@ export function qrRaster(data: string, widthMm: 58 | 80, scale = 4): number[] {
     }
     pixels.push(row);
   }
-  return rasterBytes(pixels);
+  return pixels;
+}
+
+/** Gap between the QR and the text beside it, in dots. */
+const SIDE_GAP = 16;
+
+/**
+ * The QR with the Received/Balance text beside it, as one picture (text drawn
+ * by `renderSide`). Rows stop where the text ends, to keep it small.
+ */
+function qrWithSide(
+  data: string,
+  widthMm: 58 | 80,
+  side: SideItem[],
+  renderSide: NonNullable<EscPosOptions['renderSide']>
+): boolean[][] {
+  const qr = qrPixels(data, widthMm);
+  const qrWidth = qr[0]?.length ?? 0;
+  const text = renderSide(side, dotsPerLine(widthMm) - qrWidth - SIDE_GAP, qr.length);
+  const textWidth = text[0]?.length ?? 0;
+  return qr.map((row, y) => [...row, ...new Array<boolean>(SIDE_GAP).fill(false), ...(text[y] ?? new Array(textWidth).fill(false))]);
 }
 
 /**
@@ -147,7 +178,7 @@ export function qrRaster(data: string, widthMm: 58 | 80, scale = 4): number[] {
  * payment QR fits; a half block is then about 9x8.5 dots, close to square.
  * null when the QR is too big for the paper.
  */
-export function blockQr(data: string, widthMm: 58 | 80): number[] | null {
+export function blockQr(data: string, widthMm: 58 | 80, side: string[] = []): number[] | null {
   const small = widthMm === 58;
   const cols = small ? 42 : 48;
   const lineHeight = small ? 17 : 24;
@@ -165,15 +196,24 @@ export function blockQr(data: string, widthMm: 58 | 80): number[] | null {
     return y >= 0 && y < size && x >= 0 && x < size && matrix[y][x];
   };
 
+  // Text beside the QR (one short line per row), when it fits; then the QR
+  // sits on the left. Otherwise the QR is centred and the caller prints the text below.
+  const rows = Math.ceil(total / 2);
+  const sideWidth = Math.max(0, ...side.map((s) => s.length));
+  const withSide = side.length > 0 && side.length <= rows && total + 2 + sideWidth <= cols;
+  const firstSideRow = Math.floor((rows - side.length) / 2);
+
   // Code page 437, small font on 58mm, and line spacing equal to the letter
   // height so the rows touch with no white gaps.
-  const out = [ESC, 0x74, 0, ...(small ? [ESC, 0x4d, 1] : []), ESC, 0x33, lineHeight, ...align('center')];
+  const out = [ESC, 0x74, 0, ...(small ? [ESC, 0x4d, 1] : []), ESC, 0x33, lineHeight, ...align(withSide ? 'left' : 'center')];
   for (let r = 0; r < total; r += 2) {
     for (let c = 0; c < total; c++) {
       const top = dark(r, c);
       const bottom = r + 1 < total && dark(r + 1, c);
       out.push(top && bottom ? 0xdb : top ? 0xdf : bottom ? 0xdc : 0x20);
     }
+    const text = withSide ? side[r / 2 - firstSideRow] : undefined;
+    if (text) for (const ch of `  ${text}`) out.push(ch.charCodeAt(0) < 127 ? ch.charCodeAt(0) : 63);
     out.push(LF);
   }
   // Back to normal spacing and font.
@@ -192,13 +232,24 @@ export function encodeReceipt(lines: ReceiptLine[], options: EscPosOptions): Uin
   const body = () => (small ? [...font(true), ...bold(true), ...spacing(SMALL_LINE)] : []);
   out.push(...body());
 
-  /** Starts a line: big lines in the normal font; in small mode bold lines are made taller. */
-  const start = (line: { bold?: boolean; big?: boolean }) => {
-    if (line.big) return [...font(false), ...spacing(), ...bold(Boolean(line.bold)), ...big(true)];
+  /** Starts a line: big and tall lines in the normal font; in small mode bold lines are made taller. */
+  const start = (line: { bold?: boolean; big?: boolean; tall?: boolean }) => {
+    if (line.big || line.tall)
+      return [...font(false), ...spacing(), ...bold(Boolean(line.bold)), ...(line.big ? big(true) : tall(true))];
     if (small) return [...bold(true), ...tall(Boolean(line.bold))];
     return [...bold(Boolean(line.bold)), ...big(false)];
   };
-  const end = (line: { big?: boolean }) => (line.big ? [...big(false), ...body(), ...bold(small)] : [...tall(false), ...bold(small)]);
+  const end = (line: { big?: boolean; tall?: boolean }) =>
+    line.big || line.tall ? [...big(false), ...body(), ...bold(small)] : [...tall(false), ...bold(small)];
+  /** Received/Balance under the QR, when they cannot go beside it. */
+  const sideBelow = (side: SideItem[]) => {
+    out.push(...align('left'));
+    for (const item of side) {
+      out.push(...bold(small || Boolean(item.strong)));
+      for (const row of pairToRows(`  ${item.label}`, `${item.value}  `, width)) out.line(row);
+    }
+    out.push(...bold(small));
+  };
 
   for (const line of lines) {
     switch (line.kind) {
@@ -209,7 +260,7 @@ export function encodeReceipt(lines: ReceiptLine[], options: EscPosOptions): Uin
         out.push(...feed(line.lines));
         break;
       case 'text': {
-        const w = line.big ? bigWidth : width;
+        const w = line.big ? bigWidth : line.tall ? charsPerLine(options.widthMm) : width;
         out.push(...align(line.align ?? 'left'), ...start(line));
         if (line.mono) out.line(line.text.slice(0, width));
         else for (const row of wrapText(line.text, w)) out.line(row);
@@ -223,24 +274,36 @@ export function encodeReceipt(lines: ReceiptLine[], options: EscPosOptions): Uin
         out.push(...end(line));
         break;
       }
-      case 'qr':
+      case 'qr': {
+        const side = line.side ?? [];
+        let sideDone = false;
         out.push(...align('center'));
         if (options.qrStyle === 'native') out.push(...nativeQr(line.data, options.widthMm === 80 ? 7 : 6), LF);
-        else if (options.qrStyle === 'picture') out.push(...qrRaster(line.data, options.widthMm), LF);
-        else {
-          const blocks = blockQr(line.data, options.widthMm);
+        else if (options.qrStyle === 'picture') {
+          if (side.length && options.renderSide) {
+            out.push(...rasterBytes(qrWithSide(line.data, options.widthMm, side, options.renderSide)), LF);
+            sideDone = true;
+          } else out.push(...qrRaster(line.data, options.widthMm), LF);
+        } else {
+          // Two rows each: the label, then the amount.
+          const sideRows = side.flatMap((item, i) => [...(i ? [''] : []), item.label, item.value]);
+          const blocks = blockQr(line.data, options.widthMm, sideRows) ?? blockQr(line.data, options.widthMm);
           if (!blocks) {
             // Too long to draw: print the UPI ID so the customer can type it in.
             out.line(`UPI: ${new URLSearchParams(line.data.split('?')[1] ?? '').get('pa') ?? ''}`);
-            out.push(...align('left'));
-            break;
+          } else {
+            // blockQr left-aligns (ESC a 0) only when the text fitted beside it.
+            sideDone = side.length > 0 && blocks[blocks.indexOf(0x61) + 1] === 0;
+            // The block QR sets its own font and spacing; put the bill's back.
+            out.push(...blocks, ...body());
           }
-          // The block QR sets its own font and spacing; put the bill's back.
-          out.push(...blocks, ...body(), ...align('center'));
         }
+        if (!sideDone && side.length) sideBelow(side);
+        out.push(...align('center'));
         for (const row of wrapText(line.caption, width)) out.line(row);
         out.push(...align('left'));
         break;
+      }
     }
   }
 

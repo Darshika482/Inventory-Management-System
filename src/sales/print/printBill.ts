@@ -3,7 +3,7 @@ import { readCache } from '../cache';
 import type { ShopInvoice, ShopItem, ShopSettings } from '../types';
 import { encodeImageReceipt, encodeReceipt, testPageLines } from './escpos';
 import { getPrinterPrefs, printBytes, type PrintResult } from './printer';
-import { renderReceiptPixels } from './raster';
+import { renderReceiptPixels, renderSideText } from './raster';
 import { layoutReceipt, type ReceiptLine } from './receipt';
 
 /** item id -> Hindi name, from the items kept on this phone. */
@@ -23,12 +23,19 @@ export function receiptLinesFor(bill: ShopInvoice, settings: ShopSettings): Rece
     billSubtitle: prefs.billSubtitle,
     // The Hindi printout is drawn as a picture with its own font.
     smallFont: prefs.smallFont && !prefs.hindi,
+    headingSize: prefs.headingSize,
   });
 }
 
 function encode(lines: ReceiptLine[], widthMm: 58 | 80): Uint8Array {
   const prefs = getPrinterPrefs();
-  const options = { widthMm, cutter: prefs.cutter, qrStyle: prefs.qrStyle, smallFont: prefs.smallFont && !prefs.hindi };
+  const options = {
+    widthMm,
+    cutter: prefs.cutter,
+    qrStyle: prefs.qrStyle,
+    smallFont: prefs.smallFont && !prefs.hindi,
+    renderSide: renderSideText,
+  };
   return prefs.hindi ? encodeImageReceipt(renderReceiptPixels(lines, widthMm), options) : encodeReceipt(lines, options);
 }
 

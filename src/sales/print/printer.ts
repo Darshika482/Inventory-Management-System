@@ -10,6 +10,7 @@
  */
 import { useStore } from '../useStore';
 import type { QrStyle } from './escpos';
+import type { HeadingSize } from './receipt';
 
 export type PrintMethod = 'bluetooth' | 'rawbt' | 'none';
 
@@ -27,6 +28,8 @@ export interface PrinterPrefs {
   showUpiQr: boolean;
   /** Printer's small font in bold: smaller, clear letters. */
   smallFont: boolean;
+  /** Size of the shop name at the top. */
+  headingSize: HeadingSize;
   /** Name printed at the top of the bill. */
   billName: string;
   /** Small line under the name. */
@@ -45,12 +48,14 @@ const DEFAULT_PREFS: PrinterPrefs = {
   // plain text perfectly, so the QR is drawn with block letters.
   // A small QR picture (about 2 KB, sent slowly, printed last on the bill).
   qrStyle: 'picture',
-  smallFont: true,
+  // The printer's normal font: the small bold one looked worse on paper.
+  smallFont: false,
+  headingSize: 'medium',
   hindi: false,
   showUpiQr: true,
   billName: 'Surbhi Fall',
   billSubtitle: 'wholesale',
-  version: 5,
+  version: 6,
 };
 
 export function getPrinterPrefs(): PrinterPrefs {
@@ -76,6 +81,12 @@ export function getPrinterPrefs(): PrinterPrefs {
       saved.qrStyle = 'picture';
       saved.smallFont = true;
       saved.version = 5;
+    }
+    // Version 6: back to the normal font, smaller shop name.
+    if (saved.version < 6) {
+      saved.smallFont = false;
+      saved.headingSize = 'medium';
+      saved.version = 6;
     }
     return { ...DEFAULT_PREFS, ...saved };
   } catch {

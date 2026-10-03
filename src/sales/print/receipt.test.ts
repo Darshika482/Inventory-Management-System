@@ -101,7 +101,10 @@ describe('receipt layout', () => {
     const qr = lines.find((l) => l.kind === 'qr');
     expect(qr && qr.kind === 'qr' && qr.data).toMatch(/^upi:\/\/pay\?pa=akshaytraders@upi&am=289(&pn=Akshay%20Traders)?$/);
     expect(qr && qr.kind === 'qr' && qr.caption).toBe('Scan to pay Rs 289');
-    expect(receiptToTextRows(lines, 32).join('\n')).toMatch(/Balance\s+:\s+289/);
+    expect(qr && qr.kind === 'qr' && qr.side).toEqual([
+      { label: 'Received', value: '500' },
+      { label: 'Balance', value: '289', strong: true },
+    ]);
   });
 
   it('uses Hindi names when asked', () => {
@@ -236,5 +239,52 @@ describe('small picture QR', () => {
     const lines = [{ kind: 'qr' as const, data: printedUpiLink('9131297397@ybl', 'Surbhi Fall', 1850), caption: 'Scan' }];
     const bytes = encodeReceipt(lines, { widthMm: 58, cutter: false, qrStyle: 'picture' });
     expect(bytes.length).toBeLessThan(2600);
+  });
+});
+
+describe('Received and Balance beside the QR', () => {
+  const side = [
+    { label: 'Received', value: '30' },
+    { label: 'Balance', value: '10', strong: true },
+  ];
+  const link = printedUpiLink('9131297397@ybl', 'Surbhi Fall', 1000);
+  const text = (bytes: Uint8Array) => Array.from(bytes, (b) => (b >= 32 && b < 127 ? String.fromCharCode(b) : ' ')).join('');
+
+  it('puts them on the block QR rows, with the QR on the left', () => {
+    const bytes = encodeReceipt([{ kind: 'qr', data: link, caption: 'Scan', side }], { widthMm: 58, cutter: false, qrStyle: 'blocks' });
+    const printed = text(bytes);
+    expect(printed).toContain('  Received');
+    expect(printed).toContain('  10');
+    // Not printed again under the QR.
+    expect(printed.match(/Received/g)).toHaveLength(1);
+  });
+
+  it('draws them into the QR picture when the phone can draw text', () => {
+    const calls: number[] = [];
+    const renderSide = (_: unknown, maxWidth: number, height: number) => {
+      calls.push(maxWidth);
+      return Array.from({ length: height }, () => new Array<boolean>(40).fill(true));
+    };
+    const bytes = encodeReceipt([{ kind: 'qr', data: link, caption: 'Scan', side }], {
+      widthMm: 58,
+      cutter: false,
+      qrStyle: 'picture',
+      renderSide,
+    });
+    expect(calls).toHaveLength(1);
+    expect(text(bytes)).not.toContain('Received');
+    expect(bytes.length).toBeLessThan(4000);
+  });
+
+  it('prints them under the QR when they cannot go beside it', () => {
+    const bytes = encodeReceipt([{ kind: 'qr', data: link, caption: 'Scan', side }], { widthMm: 58, cutter: false, qrStyle: 'native' });
+    expect(text(bytes)).toMatch(/Received\s+30/);
+    expect(text(bytes)).toMatch(/Balance\s+10/);
+  });
+
+  it('keeps them under the total when there is no QR', () => {
+    const rows = receiptToTextRows(layoutReceipt(bill, settings, { hindi: false, showUpiQr: false }), 32).join('\n');
+    expect(rows).toMatch(/Received\s+:\s+789/);
+    expect(rows).toMatch(/Balance\s+:\s+0/);
   });
 });

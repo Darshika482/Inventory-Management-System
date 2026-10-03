@@ -31,7 +31,7 @@ import {
 import type { QrStyle } from '../print/escpos';
 import { printTestPage } from '../print/printBill';
 import { qrMatrix } from '../print/qr';
-import type { ReceiptLine } from '../print/receipt';
+import type { HeadingSize, ReceiptLine } from '../print/receipt';
 import type { ShopSettings } from '../types';
 import { ActionButton, Segmented, ToggleRow } from './ui';
 
@@ -66,16 +66,31 @@ export function ReceiptPaper({ lines, widthMm }: { lines: ReceiptLine[]; widthMm
             return <div key={i} className="my-1 border-t border-dashed border-black" />;
           case 'feed':
             return <div key={i} style={{ height: line.lines * 6 }} />;
-          case 'qr':
+          case 'qr': {
+            const side = line.side ?? [];
+            const picture = getPrinterPrefs().qrStyle === 'picture';
             return (
-              <div key={i} className="my-2 text-center">
+              <div key={i} className="my-2">
                 {/* Same share of the paper as on the printout: small picture ~1/3, blocks ~3/4. */}
-                <div className="mx-auto" style={{ width: `${getPrinterPrefs().qrStyle === 'picture' ? 34 : 74}%` }}>
-                  <QrSvg data={line.data} className="w-full h-auto" />
+                <div className={`flex items-center gap-3 ${side.length ? 'justify-start' : 'justify-center'}`}>
+                  <div className="shrink-0" style={{ width: `${picture ? 34 : 74}%` }}>
+                    <QrSvg data={line.data} className="w-full h-auto" />
+                  </div>
+                  {side.length > 0 && (
+                    <div className="min-w-0 space-y-2 font-sans">
+                      {side.map((item) => (
+                        <div key={item.label}>
+                          <p className="text-[11px] font-semibold leading-tight">{item.label}</p>
+                          <p className={`text-lg leading-tight tabular-nums ${item.strong ? 'font-extrabold' : 'font-bold'}`}>{item.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <p className="mt-1 text-[11px]">{line.caption}</p>
+                <p className="mt-1 text-center text-[11px]">{line.caption}</p>
               </div>
             );
+          }
           case 'pair':
             return (
               <div key={i} className={`flex justify-between gap-2 ${line.bold ? 'font-bold' : ''} ${line.big ? 'text-base' : ''}`}>
@@ -87,7 +102,7 @@ export function ReceiptPaper({ lines, widthMm }: { lines: ReceiptLine[]; widthMm
             return (
               <p
                 key={i}
-                className={`${line.mono ? 'whitespace-pre' : 'break-words'} ${line.bold ? 'font-bold' : ''} ${line.big ? 'text-lg' : ''} ${
+                className={`${line.mono ? 'whitespace-pre' : 'break-words'} ${line.bold ? 'font-bold' : ''} ${line.big ? 'text-lg' : ''} ${line.tall ? 'text-base' : ''} ${
                   line.align === 'center' ? 'text-center' : line.align === 'right' ? 'text-right' : ''
                 }`}
               >
@@ -621,6 +636,17 @@ export function PrinterSetupPanel({ settings, canEdit = true }: { settings: Shop
                   <p className="text-sm text-slate-500 leading-relaxed -mt-2">{t('printerQrStyleHint')}</p>
                 </>
               )}
+              <Segmented<HeadingSize>
+                label={t('headingSize')}
+                value={prefs.headingSize}
+                columns={3}
+                options={[
+                  { value: 'small', label: t('headingSize_small') },
+                  { value: 'medium', label: t('headingSize_medium') },
+                  { value: 'large', label: t('headingSize_large') },
+                ]}
+                onChange={(headingSize) => update({ headingSize })}
+              />
               <ToggleRow
                 label={t('printerSmallFont')}
                 hint={t('printerSmallFontHint')}

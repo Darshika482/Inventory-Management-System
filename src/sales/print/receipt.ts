@@ -14,13 +14,24 @@ export type ReceiptAlign = 'left' | 'center' | 'right';
 
 export type ReceiptLine =
   /** `mono`: a pre-spaced table row, printed exactly as it is (no wrapping). */
-  | { kind: 'text'; text: string; align?: ReceiptAlign; bold?: boolean; big?: boolean; mono?: boolean }
+  /** `big`: double size. `tall`: double height only (normal width). */
+  | { kind: 'text'; text: string; align?: ReceiptAlign; bold?: boolean; big?: boolean; tall?: boolean; mono?: boolean }
   /** Left text and right text on one line, e.g. "Total" ... "Rs 789.00". */
   | { kind: 'pair'; left: string; right: string; bold?: boolean; big?: boolean }
   /** A dashed rule across the paper. */
   | { kind: 'rule' }
-  | { kind: 'qr'; data: string; caption: string }
+  /** `side`: short label/value pairs printed beside the QR (Received, Balance). */
+  | { kind: 'qr'; data: string; caption: string; side?: SideItem[] }
   | { kind: 'feed'; lines: number };
+
+export interface SideItem {
+  label: string;
+  value: string;
+  /** Stands out (e.g. a balance left to pay). */
+  strong?: boolean;
+}
+
+export type HeadingSize = 'small' | 'medium' | 'large';
 
 export interface ReceiptOptions {
   /** Item names in Hindi where known (needs image printing). */
@@ -37,6 +48,8 @@ export interface ReceiptOptions {
   billSubtitle?: string;
   /** Printer's small font (more letters per line). */
   smallFont?: boolean;
+  /** Size of the shop name: normal bold, double height, or double size. Default medium. */
+  headingSize?: HeadingSize;
 }
 
 /** Characters per line: normal font 12 dots wide, small font 9 dots wide. */
@@ -129,8 +142,16 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
   const due = bill.billType === 'quotation' ? 0 : bill.total - bill.paidAmount;
   const mono = (text: string, bold = false): ReceiptLine => ({ kind: 'text', text, mono: true, bold });
 
-  // Shop: only the name is large
-  lines.push({ kind: 'text', text: options.billName?.trim() || settings.shopName, align: 'center', bold: true, big: true });
+  // Shop name: bold, and taller or bigger as chosen
+  const heading = options.headingSize ?? 'medium';
+  lines.push({
+    kind: 'text',
+    text: options.billName?.trim() || settings.shopName,
+    align: 'center',
+    bold: true,
+    big: heading === 'large',
+    tall: heading === 'medium',
+  });
   if (options.billSubtitle?.trim()) lines.push({ kind: 'text', text: options.billSubtitle.trim(), align: 'center' });
   if (settings.address) lines.push({ kind: 'text', text: settings.address, align: 'center' });
   if (settings.phone) lines.push({ kind: 'text', text: `Ph.No.: ${settings.phone}`, align: 'center' });
@@ -218,10 +239,16 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
   }
   if (bill.roundOff !== 0) total('Round off', `${bill.roundOff > 0 ? '+' : ''}${plainAmount(bill.roundOff)}`);
   total('Total', plainAmount(bill.total), true);
-  if (bill.billType !== 'quotation') {
-    total('Received', plainAmount(bill.paidAmount));
-    total('Balance', plainAmount(Math.max(0, due)), due > 0);
-  }
+  // With a QR, Received and Balance go beside it; without one, under the total.
+  const qrShown = Boolean(options.showUpiQr && settings.upiId && bill.billType === 'sale' && bill.status !== 'cancelled');
+  const side: SideItem[] =
+    bill.billType === 'quotation'
+      ? []
+      : [
+          { label: 'Received', value: plainAmount(bill.paidAmount) },
+          { label: 'Balance', value: plainAmount(Math.max(0, due)), strong: due > 0 },
+        ];
+  if (!qrShown) for (const item of side) total(item.label, item.value, item.strong);
   if (bill.isGst && bill.ratesIncludeGst) lines.push({ kind: 'text', text: '(GST included in rates)', align: 'center' });
 
   // UPI QR on every sale bill: with the amount due (or the UPI total), else plain.
@@ -232,12 +259,13 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
 
   // The QR comes last, so the bill itself is complete whatever the printer does with it.
   const qrAmount = upiQrAmount(bill);
-  if (options.showUpiQr && settings.upiId && bill.billType === 'sale' && bill.status !== 'cancelled') {
+  if (qrShown) {
     lines.push({ kind: 'feed', lines: 1 });
     lines.push({
       kind: 'qr',
       data: printedUpiLink(settings.upiId, options.billName?.trim() || settings.shopName, qrAmount),
       caption: qrAmount ? `Scan to pay Rs ${plainAmount(qrAmount)}` : 'Scan this QR code to pay',
+      side,
     });
   }
   lines.push({ kind: 'feed', lines: 3 });
@@ -288,6 +316,7 @@ export function receiptToTextRows(lines: ReceiptLine[], width: number): string[]
         break;
       case 'qr':
         rows.push('[QR]');
+        for (const item of line.side ?? []) rows.push(`[QR]  ${item.label}: ${item.value}`);
         rows.push(...wrapText(line.caption, width).map((r) => centre(r, width)));
         break;
       case 'pair': {
