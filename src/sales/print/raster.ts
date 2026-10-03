@@ -87,6 +87,16 @@ export function renderReceiptPixels(lines: ReceiptLine[], widthMm: 58 | 80): boo
       continue;
     }
 
+    if (line.mono) {
+      // One character per column: size a monospace font so a full row fits the paper.
+      const chars = widthMm === 80 ? 48 : 32;
+      const monoSize = Math.floor((width - pad * 2) / (chars * 0.6));
+      ctx.font = `${line.bold ? 700 : 500} ${monoSize}px "Courier New", ui-monospace, monospace`;
+      ctx.fillText(line.text, pad, y);
+      y += Math.round(monoSize * 1.35);
+      continue;
+    }
+
     for (const row of wrap(line.text, width - pad * 2)) {
       const w = ctx.measureText(row).width;
       const x = line.align === 'center' ? (width - w) / 2 : line.align === 'right' ? width - pad - w : pad;

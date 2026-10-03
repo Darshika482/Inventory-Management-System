@@ -18,6 +18,8 @@ export function receiptLinesFor(bill: ShopInvoice, settings: ShopSettings): Rece
     hindi: prefs.hindi,
     hindiNames: prefs.hindi ? hindiNames() : undefined,
     showUpiQr: prefs.showUpiQr,
+    widthMm: settings.printerWidthMm,
+    billName: prefs.billName,
   });
 }
 

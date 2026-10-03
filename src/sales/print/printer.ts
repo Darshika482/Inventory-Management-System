@@ -24,6 +24,10 @@ export interface PrinterPrefs {
   hindi: boolean;
   /** UPI QR for the amount due. */
   showUpiQr: boolean;
+  /** Name printed at the top of the bill. */
+  billName: string;
+  /** Version of these choices; older saved choices are brought up to date on reading. */
+  version?: number;
 }
 
 const PREFS_KEY = 'shop_printer';
@@ -32,15 +36,27 @@ const DEFAULT_PREFS: PrinterPrefs = {
   deviceId: '',
   deviceName: '',
   cutter: false,
-  nativeQr: true,
+  // Many cheap printers print the QR command as text (seen on a Vyapar bill), so
+  // the QR goes as a picture unless the printer is known to draw QR codes.
+  nativeQr: false,
   hindi: false,
   showUpiQr: true,
+  billName: 'Fall Wholesale',
+  version: 2,
 };
 
 export function getPrinterPrefs(): PrinterPrefs {
   try {
     const raw = localStorage.getItem(PREFS_KEY);
-    return raw ? { ...DEFAULT_PREFS, ...JSON.parse(raw) } : DEFAULT_PREFS;
+    if (!raw) return DEFAULT_PREFS;
+    const saved = JSON.parse(raw) as Partial<PrinterPrefs>;
+    // Choices saved before version 2 had "printer draws the QR" on by default,
+    // which prints garbage on most shop printers: switch those to a picture.
+    if ((saved.version ?? 1) < 2) {
+      saved.nativeQr = false;
+      saved.version = 2;
+    }
+    return { ...DEFAULT_PREFS, ...saved };
   } catch {
     return DEFAULT_PREFS;
   }

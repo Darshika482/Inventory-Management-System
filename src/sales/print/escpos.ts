@@ -124,7 +124,8 @@ export function encodeReceipt(lines: ReceiptLine[], options: EscPosOptions): Uin
       case 'text': {
         const w = line.big ? Math.floor(width / 2) : width;
         out.push(...align(line.align ?? 'left'), ...bold(Boolean(line.bold)), ...big(Boolean(line.big)));
-        for (const row of wrapText(line.text, w)) out.line(row);
+        if (line.mono) out.line(line.text.slice(0, width));
+        else for (const row of wrapText(line.text, w)) out.line(row);
         out.push(...bold(false), ...big(false));
         break;
       }

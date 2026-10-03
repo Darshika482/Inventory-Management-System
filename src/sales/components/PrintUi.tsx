@@ -64,7 +64,7 @@ export function ReceiptPaper({ lines, widthMm }: { lines: ReceiptLine[]; widthMm
             return (
               <p
                 key={i}
-                className={`break-words ${line.bold ? 'font-bold' : ''} ${line.big ? 'text-lg' : ''} ${
+                className={`${line.mono ? 'whitespace-pre' : 'break-words'} ${line.bold ? 'font-bold' : ''} ${line.big ? 'text-lg' : ''} ${
                   line.align === 'center' ? 'text-center' : line.align === 'right' ? 'text-right' : ''
                 }`}
               >
@@ -250,6 +250,15 @@ export function PrinterSetupPanel({ settings }: { settings: ShopSettings | null 
 
       {prefs.method !== 'none' && (
         <>
+          <label className="block space-y-1.5">
+            <span className="block text-sm font-semibold text-slate-700">{t('billNameLabel')}</span>
+            <input
+              value={prefs.billName}
+              onChange={(e) => update({ billName: e.target.value })}
+              placeholder="Fall Wholesale"
+              className="w-full min-h-12 bg-slate-50 border border-slate-200 rounded-xl px-4 text-base text-slate-900 focus:outline-none focus:bg-white focus:border-amber-500"
+            />
+          </label>
           <ToggleRow label={t('printerUpiQr')} checked={prefs.showUpiQr} onChange={(showUpiQr) => update({ showUpiQr })} />
           <ToggleRow
             label={t('printerNativeQr')}

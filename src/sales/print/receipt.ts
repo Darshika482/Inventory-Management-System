@@ -6,13 +6,14 @@
  * Pure: no browser APIs, so it is unit tested.
  */
 import { formatQty, mulDivRound, type Paise } from '../money';
-import { formatBillDate, formatIstTime } from '../fy';
+import { formatIstTime } from '../fy';
 import type { ShopInvoice, ShopSettings } from '../types';
 
 export type ReceiptAlign = 'left' | 'center' | 'right';
 
 export type ReceiptLine =
-  | { kind: 'text'; text: string; align?: ReceiptAlign; bold?: boolean; big?: boolean }
+  /** `mono`: a pre-spaced table row, printed exactly as it is (no wrapping). */
+  | { kind: 'text'; text: string; align?: ReceiptAlign; bold?: boolean; big?: boolean; mono?: boolean }
   /** Left text and right text on one line, e.g. "Total" ... "Rs 789.00". */
   | { kind: 'pair'; left: string; right: string; bold?: boolean; big?: boolean }
   /** A dashed rule across the paper. */
@@ -27,6 +28,10 @@ export interface ReceiptOptions {
   hindiNames?: Record<string, string>;
   /** Print a UPI QR code for the amount due. */
   showUpiQr: boolean;
+  /** Paper width, for the item columns. Default 58. */
+  widthMm?: 58 | 80;
+  /** Name at the top of the printout (e.g. "Fall Wholesale"); defaults to the shop name. */
+  billName?: string;
 }
 
 /** Characters per line in the printer's normal font. */
@@ -74,53 +79,103 @@ export function upiQrAmount(bill: ShopInvoice): Paise | null {
   return null;
 }
 
+/** 126000 -> "1260", 1850 -> "18.50": plain numbers like a shop bill, no "Rs". */
+export function plainAmount(paise: Paise): string {
+  const negative = paise < 0;
+  const abs = Math.abs(paise);
+  const rest = abs % 100;
+  return `${negative ? '-' : ''}${Math.floor(abs / 100)}${rest ? `.${String(rest).padStart(2, '0')}` : ''}`;
+}
+
+/** '2026-10-03' -> '03/10/2026' */
+function slashDate(iso: string): string {
+  const [y, m, d] = iso.split('-');
+  return d && m && y ? `${d}/${m}/${y}` : iso;
+}
+
+/** Item table column widths (characters) for the paper width. */
+function columns(width: number) {
+  return width >= 48
+    ? { no: 3, qty: 7, price: 9, amount: 10, name: width - 3 - 7 - 9 - 10 }
+    : { no: 2, qty: 5, price: 6, amount: 7, name: width - 2 - 5 - 6 - 7 };
+}
+
+function fit(text: string, width: number): string {
+  return text.length > width ? text.slice(0, width) : text;
+}
+
 export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options: ReceiptOptions): ReceiptLine[] {
   const lines: ReceiptLine[] = [];
+  const width = charsPerLine(options.widthMm ?? 58);
+  const col = columns(width);
   const due = bill.billType === 'quotation' ? 0 : bill.total - bill.paidAmount;
+  const mono = (text: string, bold = false): ReceiptLine => ({ kind: 'text', text, mono: true, bold });
 
-  // Shop
-  lines.push({ kind: 'text', text: settings.shopName, align: 'center', bold: true, big: true });
+  // Shop: only the name is large
+  lines.push({ kind: 'text', text: options.billName?.trim() || settings.shopName, align: 'center', bold: true, big: true });
   if (settings.address) lines.push({ kind: 'text', text: settings.address, align: 'center' });
-  if (settings.phone) lines.push({ kind: 'text', text: `Ph: ${settings.phone}`, align: 'center' });
+  if (settings.phone) lines.push({ kind: 'text', text: `Ph.No.: ${settings.phone}`, align: 'center' });
   if (bill.isGst && settings.gstin) lines.push({ kind: 'text', text: `GSTIN: ${settings.gstin}`, align: 'center' });
   lines.push({ kind: 'rule' });
 
-  // Bill
-  const title = bill.billType === 'sale' && bill.isGst ? 'TAX INVOICE' : BILL_TITLES[bill.billType];
+  // Bill details
+  const title =
+    bill.billType === 'quotation'
+      ? 'Estimate'
+      : bill.billType === 'purchase'
+        ? 'Purchase'
+        : bill.isGst
+          ? 'Tax Invoice'
+          : 'Invoice';
   lines.push({ kind: 'text', text: title, align: 'center', bold: true });
   if (bill.status === 'cancelled') lines.push({ kind: 'text', text: '*** CANCELLED ***', align: 'center', bold: true });
-  lines.push({ kind: 'text', text: `Bill No: ${bill.billNumber ?? 'given on upload'}` });
-  lines.push({ kind: 'pair', left: `Date: ${formatBillDate(bill.billDate)}`, right: formatIstTime(bill.createdAt) });
-  lines.push({
-    kind: 'text',
-    text: `${bill.billType === 'purchase' ? 'Supplier' : 'Customer'}: ${bill.partyName || 'Cash Sale'}`,
-    bold: true,
-  });
+  lines.push({ kind: 'pair', left: bill.partyName || 'Cash Sale', right: `Date: ${slashDate(bill.billDate)}` });
+  const seq = bill.billNumber ? bill.billNumber.split('/').pop() : 'pending';
+  lines.push({ kind: 'pair', left: `Bill No: ${seq}`, right: formatIstTime(bill.createdAt) });
   if (bill.partyGstin) lines.push({ kind: 'text', text: `GSTIN: ${bill.partyGstin}` });
   lines.push({ kind: 'rule' });
 
-  // Items: name on one line, "qty x rate" and amount under it
+  // Item table:  # Name   Qty  Price  Amount
+  lines.push(
+    mono(
+      '#'.padEnd(col.no) +
+        'Name'.padEnd(col.name) +
+        'Qty'.padStart(col.qty) +
+        'Price'.padStart(col.price) +
+        'Amount'.padStart(col.amount),
+      true
+    )
+  );
+  lines.push({ kind: 'rule' });
   bill.lines.forEach((line, i) => {
     const hindiName = options.hindi && line.itemId ? options.hindiNames?.[line.itemId] : undefined;
-    lines.push({ kind: 'text', text: `${i + 1}. ${hindiName || line.itemName}` });
+    const name = hindiName || line.itemName;
+    // Long names continue on the next lines, in the name column.
     const gross = mulDivRound(line.qty, line.rate, 1000);
-    const gst = bill.isGst ? `  ${line.gstRate}%` : '';
-    lines.push({
-      kind: 'pair',
-      left: `${formatQty(line.qty)} ${line.unit} x ${receiptMoney(line.rate).replace('Rs ', '')}${gst}`,
-      right: receiptMoney(gross),
-    });
+    // Numbers are never cut: a big one takes room from the name column instead.
+    const numbers =
+      ` ${formatQty(line.qty)}`.padStart(col.qty) +
+      ` ${plainAmount(line.rate)}`.padStart(col.price) +
+      ` ${plainAmount(gross)}`.padStart(col.amount);
+    const nameWidth = Math.max(4, width - col.no - numbers.length);
+    const nameRows = wrapText(name, nameWidth);
+    lines.push(mono(fit(String(i + 1), col.no - 1).padEnd(col.no) + fit(nameRows[0], nameWidth).padEnd(nameWidth) + numbers));
+    // Long names continue on the next rows, under the name column.
+    for (const rest of nameRows.slice(1)) lines.push(mono(' '.repeat(col.no) + fit(rest, width - col.no)));
   });
   lines.push({ kind: 'rule' });
 
-  // Totals
-  lines.push({ kind: 'pair', left: 'Subtotal', right: receiptMoney(bill.itemsTotal) });
+  // Totals:   label   :   amount
+  const label = width >= 48 ? 20 : 14;
+  const total = (name: string, amount: string, bold = false) =>
+    lines.push(mono(`  ${name.padEnd(label)}:${amount.padStart(width - 3 - label)}`, bold));
+
+  lines.push(mono(plainAmount(bill.itemsTotal).padStart(width)));
   if (bill.discount > 0) {
-    const pct = bill.discountPercent !== null ? ` (${bill.discountPercent / 100}%)` : '';
-    lines.push({ kind: 'pair', left: `Discount${pct}`, right: `-${receiptMoney(bill.discount)}` });
+    const pct = bill.discountPercent !== null ? ` ${bill.discountPercent / 100}%` : '';
+    total(`Discount${pct}`, `-${plainAmount(bill.discount)}`);
   }
   if (bill.isGst) {
-    lines.push({ kind: 'pair', left: 'Taxable value', right: receiptMoney(bill.subtotal) });
     // Rate-wise split, worked out the same way as the bill.
     const byRate = new Map<number, { cgst: number; sgst: number; igst: number }>();
     for (const line of bill.lines) {
@@ -134,26 +189,22 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
       }
       byRate.set(line.gstRate, entry);
     }
+    total('Taxable', plainAmount(bill.subtotal));
     for (const [rate, e] of Array.from(byRate.entries()).sort((a, b) => a[0] - b[0])) {
-      if (bill.isInterstate) {
-        lines.push({ kind: 'pair', left: `IGST @${rate}%`, right: receiptMoney(e.igst) });
-      } else {
-        lines.push({ kind: 'pair', left: `CGST @${rate / 2}%`, right: receiptMoney(e.cgst) });
-        lines.push({ kind: 'pair', left: `SGST @${rate / 2}%`, right: receiptMoney(e.sgst) });
+      if (bill.isInterstate) total(`IGST ${rate}%`, plainAmount(e.igst));
+      else {
+        total(`CGST ${rate / 2}%`, plainAmount(e.cgst));
+        total(`SGST ${rate / 2}%`, plainAmount(e.sgst));
       }
     }
-    if (bill.ratesIncludeGst) lines.push({ kind: 'text', text: '(GST included in rates)', align: 'right' });
   }
-  if (bill.roundOff !== 0) {
-    lines.push({ kind: 'pair', left: 'Round off', right: `${bill.roundOff > 0 ? '+' : ''}${receiptMoney(bill.roundOff)}` });
-  }
-  lines.push({ kind: 'rule' });
-  lines.push({ kind: 'pair', left: 'TOTAL', right: receiptMoney(bill.total), bold: true, big: true });
-
+  if (bill.roundOff !== 0) total('Round off', `${bill.roundOff > 0 ? '+' : ''}${plainAmount(bill.roundOff)}`);
+  total('Total', plainAmount(bill.total), true);
   if (bill.billType !== 'quotation') {
-    lines.push({ kind: 'pair', left: `Paid (${PAYMENT_LABELS[bill.paymentMode]})`, right: receiptMoney(bill.paidAmount) });
-    if (due > 0) lines.push({ kind: 'pair', left: 'Balance due', right: receiptMoney(due), bold: true });
+    total('Received', plainAmount(bill.paidAmount));
+    if (due > 0) total('Balance', plainAmount(due), true);
   }
+  if (bill.isGst && bill.ratesIncludeGst) lines.push({ kind: 'text', text: '(GST included in rates)', align: 'center' });
 
   // UPI QR on every sale bill: with the amount due (or the UPI total), else plain.
   const qrAmount = upiQrAmount(bill);
@@ -162,9 +213,7 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
     lines.push({
       kind: 'qr',
       data: upiLink(settings.upiId, settings.shopName, qrAmount),
-      caption: qrAmount
-        ? `Scan to pay ${receiptMoney(qrAmount)} - ${settings.upiId}`
-        : `Pay by UPI - ${settings.upiId}`,
+      caption: 'Scan this QR code to pay',
     });
   }
 
@@ -228,6 +277,10 @@ export function receiptToTextRows(lines: ReceiptLine[], width: number): string[]
         break;
       }
       case 'text': {
+        if (line.mono) {
+          rows.push(line.text);
+          break;
+        }
         const w = line.big ? Math.floor(width / 2) : width;
         for (const r of wrapText(line.text, w)) {
           rows.push(line.align === 'center' ? centre(r, w) : line.align === 'right' ? r.padStart(w) : r);
