@@ -4,7 +4,6 @@ import {
   CheckCircle2,
   Eraser,
   Eye,
-  NotebookPen,
   Plus,
   Printer,
   ReceiptText,
@@ -12,7 +11,6 @@ import {
   Search,
   ShoppingCart,
   Smartphone,
-  SplitSquareHorizontal,
   Trash2,
   User as UserIcon,
   UserPlus,
@@ -78,8 +76,9 @@ interface Draft {
   lines: DraftLine[];
   discountMode: 'amount' | 'percent';
   discountText: string;
-  paymentMode: PaymentMode;
+  /** Amount received now; empty means the full bill. */
   paidText: string;
+  /** How it was received. */
   paidMode: PaidMode;
 }
 
@@ -88,7 +87,6 @@ const EMPTY_DRAFT: Draft = {
   lines: [],
   discountMode: 'amount',
   discountText: '',
-  paymentMode: 'cash',
   paidText: '',
   paidMode: 'cash',
 };
@@ -207,7 +205,12 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
     discount,
   });
 
-  const paidPartial = parsePaise(draft.paidText || '');
+  // Received now: empty box = the whole bill. Whatever is not received is the balance.
+  const received = draft.paidText.trim() === '' ? bill.total : parsePaise(draft.paidText);
+  const receivedOk = received !== null && received >= 0 && received <= bill.total;
+  const balance = receivedOk ? bill.total - (received as number) : 0;
+  const paymentMode: PaymentMode =
+    !receivedOk || received === bill.total ? draft.paidMode : received === 0 ? 'credit' : 'partial';
   // Each item's line, for editing quantity and rate inside the item picker.
   const pickerLines: Record<string, PickerLine> = {};
   parsedLines.forEach(({ line, qty, rate }, index) => {
@@ -287,12 +290,8 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
     }
     if (discount && discount.kind === 'amount' && discount.amount > bill.itemsTotal) return t('discountInvalid');
     if (discount && discount.kind === 'percent' && discount.basisPoints > 10_000) return t('discountInvalid');
-    if (draft.paymentMode === 'credit' || draft.paymentMode === 'partial') {
-      if (!party) return t('needCustomerForCredit');
-    }
-    if (draft.paymentMode === 'partial' && (paidPartial === null || paidPartial <= 0 || paidPartial >= bill.total)) {
-      return t('paidInvalid');
-    }
+    if (!receivedOk) return t('receivedInvalid');
+    if (balance > 0 && !party) return t('needCustomerForCredit');
     return null;
   };
 
@@ -306,12 +305,7 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
     }
 
     const billDate = istToday();
-    const paidAmount =
-      draft.paymentMode === 'cash' || draft.paymentMode === 'upi'
-        ? bill.total
-        : draft.paymentMode === 'credit'
-          ? 0
-          : (paidPartial as number);
+    const paidAmount = received as number;
     const updateRateIds = new Set(
       isOwner
         ? parsedLines.filter(({ line, rate }) => line.updateRate && rate !== line.savedRate).map(({ line }) => line.itemId)
@@ -332,8 +326,8 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
       isGst,
       isInterstate,
       ratesIncludeGst,
-      paymentMode: draft.paymentMode,
-      paidMode: draft.paymentMode === 'partial' ? draft.paidMode : null,
+      paymentMode,
+      paidMode: paymentMode === 'partial' ? draft.paidMode : null,
       itemsTotal: bill.itemsTotal,
       subtotal: bill.subtotal,
       discount: bill.discount,
@@ -633,27 +627,25 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
                 </div>
               </div>
 
-              {/* Payment mode */}
+              {/* How the money came: cash or UPI. How much came is under the total. */}
               <div className="space-y-2">
                 <p className="text-sm font-bold text-slate-700">{t('payment')}</p>
-                <div className="grid grid-cols-4 gap-2" role="radiogroup" aria-label={t('payment')}>
+                <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={t('payment')}>
                   {(
                     [
                       { value: 'cash', icon: Banknote },
                       { value: 'upi', icon: Smartphone },
-                      { value: 'credit', icon: NotebookPen },
-                      { value: 'partial', icon: SplitSquareHorizontal },
                     ] as const
                   ).map(({ value, icon: Icon }) => {
-                    const selected = draft.paymentMode === value;
+                    const selected = draft.paidMode === value;
                     return (
                       <button
                         key={value}
                         type="button"
                         role="radio"
                         aria-checked={selected}
-                        onClick={() => updateDraft({ paymentMode: value })}
-                        className={`min-h-12 px-1 flex flex-col items-center justify-center gap-0.5 rounded-xl border text-xs font-semibold leading-tight text-center whitespace-nowrap cursor-pointer transition-colors ${
+                        onClick={() => updateDraft({ paidMode: value })}
+                        className={`min-h-12 px-2 flex items-center justify-center gap-1.5 rounded-xl border text-sm font-semibold cursor-pointer transition-colors ${
                           selected
                             ? 'border-emerald-500 bg-emerald-50 text-emerald-800 ring-1 ring-emerald-500'
                             : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
@@ -667,76 +659,6 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
                 </div>
               </div>
             </div>
-
-            {draft.paymentMode === 'partial' && (
-              <div className="grid grid-cols-1 @lg:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <p className="text-sm font-bold text-slate-700">{t('paidNow')}</p>
-                  <input
-                    inputMode="decimal"
-                    value={draft.paidText}
-                    onChange={(e) => updateDraft({ paidText: e.target.value })}
-                    placeholder="0"
-                    className="w-full h-12 bg-slate-50 border border-slate-200 rounded-xl px-3.5 text-base font-semibold text-slate-900 focus:outline-none focus:bg-white focus:border-amber-500"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <p className="text-sm font-bold text-slate-700">{t('paidBy')}</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {(['cash', 'upi'] as const).map((mode) => {
-                      const selected = draft.paidMode === mode;
-                      return (
-                        <button
-                          key={mode}
-                          type="button"
-                          onClick={() => updateDraft({ paidMode: mode })}
-                          className={`min-h-12 flex items-center justify-center gap-1.5 rounded-xl border text-sm font-semibold cursor-pointer ${
-                            selected
-                              ? 'border-emerald-500 bg-emerald-50 text-emerald-800 ring-1 ring-emerald-500'
-                              : 'border-slate-200 bg-white text-slate-700'
-                          }`}
-                        >
-                          {mode === 'cash' ? <Banknote className="h-4 w-4" /> : <Smartphone className="h-4 w-4" />}
-                          {t(`pay_${mode}`)}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Customer scans this from the screen to pay by UPI. */}
-            {(draft.paymentMode === 'upi' || draft.paymentMode === 'partial') && (() => {
-              const amount = draft.paymentMode === 'upi' ? bill.total : paidPartial && paidPartial > 0 ? paidPartial : 0;
-              if (!settings.upiId) {
-                return <p className="text-sm text-slate-500">{t('upiQrNoId')}</p>;
-              }
-              if (draft.paymentMode === 'partial' && draft.paidMode !== 'upi') return null;
-              return (
-                <div className="flex items-center gap-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3" data-testid="upi-qr">
-                  <div className="shrink-0 rounded-lg bg-white p-1.5 border border-slate-200">
-                    <QrSvg data={upiLink(settings.upiId, settings.shopName, amount)} className="h-36 w-36" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-slate-600">{t('upiQrScan')}</p>
-                    {amount > 0 && <p className="text-2xl font-extrabold text-slate-900 tabular-nums">{formatRupees(amount, true)}</p>}
-                    <p className="text-xs text-slate-500 break-all mt-1">{settings.upiId}</p>
-                  </div>
-                </div>
-              );
-            })()}
-
-            {(draft.paymentMode === 'credit' || draft.paymentMode === 'partial') && (
-              <p className="text-sm font-bold text-red-700">
-                {t('udhaarLeft', {
-                  amount: formatRupees(
-                    draft.paymentMode === 'credit' ? bill.total : Math.max(0, bill.total - (paidPartial ?? 0)),
-                    true
-                  ),
-                })}
-              </p>
-            )}
 
             <div className="border-t border-slate-200 pt-3 space-y-1.5">
               <TotalRow label={t('itemsTotal')} value={formatRupees(bill.itemsTotal, true)} small />
@@ -791,6 +713,83 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
               <p className="shrink-0 text-3xl font-extrabold text-slate-900 tabular-nums tracking-tight">
                 {formatRupees(bill.total, true)}
               </p>
+            </div>
+
+            {/* Received now and balance left: a balance makes this an udhaar bill. */}
+            <div className="border-t border-slate-200 pt-3 space-y-2.5">
+              <label className="block space-y-1.5">
+                <span className="block text-sm font-bold text-slate-700">{t('amountReceived')}</span>
+                <div className="flex gap-2">
+                  <div className="flex min-w-0 flex-1 h-12 rounded-xl border border-slate-200 bg-slate-50 overflow-hidden focus-within:border-amber-500 focus-within:bg-white transition-colors">
+                    <span className="pl-3.5 flex items-center text-base font-semibold text-slate-400" aria-hidden="true">
+                      ₹
+                    </span>
+                    <input
+                      inputMode="decimal"
+                      value={draft.paidText}
+                      onChange={(e) => updateDraft({ paidText: e.target.value })}
+                      placeholder={paiseToInput(bill.total)}
+                      data-testid="amount-received"
+                      className="min-w-0 flex-1 bg-transparent px-2 text-base font-semibold text-slate-900 placeholder-slate-400 focus:outline-none"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => updateDraft({ paidText: '' })}
+                    className={`shrink-0 min-h-12 px-3 rounded-xl border text-sm font-bold cursor-pointer ${
+                      draft.paidText.trim() === '' ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-slate-200 bg-white text-slate-700'
+                    }`}
+                  >
+                    {t('receivedFull')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => updateDraft({ paidText: '0' })}
+                    className={`shrink-0 min-h-12 px-3 rounded-xl border text-sm font-bold cursor-pointer ${
+                      received === 0 && bill.total > 0 ? 'border-red-400 bg-red-50 text-red-700' : 'border-slate-200 bg-white text-slate-700'
+                    }`}
+                  >
+                    {t('receivedNone')}
+                  </button>
+                </div>
+              </label>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-xl bg-[#DCFCE7] px-3 py-2">
+                  <p className="text-xs font-bold text-[#166534]">{t('receivedLabel')}</p>
+                  <p className="text-lg font-extrabold text-[#166534] tabular-nums">{formatRupees(receivedOk ? received! : 0, true)}</p>
+                </div>
+                <div className={`rounded-xl px-3 py-2 ${balance > 0 ? 'bg-red-50' : 'bg-slate-50'}`} data-testid="balance-left">
+                  <p className={`text-xs font-bold ${balance > 0 ? 'text-red-700' : 'text-slate-500'}`}>{t('balanceLeft')}</p>
+                  <p className={`text-lg font-extrabold tabular-nums ${balance > 0 ? 'text-red-700' : 'text-slate-500'}`}>
+                    {formatRupees(balance, true)}
+                  </p>
+                </div>
+              </div>
+              {!receivedOk && <p className="text-sm font-semibold text-red-700">{t('receivedInvalid')}</p>}
+              {receivedOk && balance > 0 && !party && (
+                <p className="text-sm font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                  {t('needCustomerForCredit')}
+                </p>
+              )}
+
+              {/* Customer scans this from the screen to pay by UPI. */}
+              {draft.paidMode === 'upi' && receivedOk && received! > 0 && (
+                settings.upiId ? (
+                  <div className="flex items-center gap-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3" data-testid="upi-qr">
+                    <div className="shrink-0 rounded-lg bg-white p-1.5 border border-slate-200">
+                      <QrSvg data={upiLink(settings.upiId, settings.shopName, received)} className="h-36 w-36" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-600">{t('upiQrScan')}</p>
+                      <p className="text-2xl font-extrabold text-slate-900 tabular-nums">{formatRupees(received!, true)}</p>
+                      <p className="text-xs text-slate-500 break-all mt-1">{settings.upiId}</p>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500">{t('upiQrNoId')}</p>
+                )
+              )}
             </div>
           </section>
 
@@ -1043,6 +1042,11 @@ function SavedPanel({
         <p className="text-base text-slate-600 mt-1">
           {invoice.partyName || t('cashSale')} · {t(`pay_${invoice.paymentMode}`)}
         </p>
+        {invoice.total > invoice.paidAmount && (
+          <p className="mt-2 inline-block rounded-full bg-red-50 border border-red-200 px-3 py-1 text-sm font-bold text-red-700 tabular-nums">
+            {t('receivedLabel')} {formatRupees(invoice.paidAmount)} · {t('balanceLeft')} {formatRupees(invoice.total - invoice.paidAmount)}
+          </p>
+        )}
         {!uploaded && (
           <p className="mt-3 inline-block px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-sm font-bold text-amber-800">
             {t('waitingUpload')}

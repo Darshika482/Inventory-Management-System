@@ -15,7 +15,7 @@ import type { User } from '../../types';
 import { AppModal } from '../../components/AppModal';
 import { DateRangePicker, type DateRangeValue } from '../../components/DateRangePicker';
 import { describeDbError, type FriendlyError } from '../../lib/dbErrors';
-import { fetchRecentSales, fetchSaleByClientId, fetchSales, fetchShopParties, fetchUserNames } from '../db';
+import { fetchDueSales, fetchRecentSales, fetchSaleByClientId, fetchSales, fetchShopParties, fetchUserNames } from '../db';
 import { loadWithCache } from '../cache';
 import { billLabel, formatBillDate, formatIstTime, istToday } from '../fy';
 import { useT } from '../i18n';
@@ -31,14 +31,15 @@ import { printBill, receiptLinesFor } from '../print/printBill';
 import { connectPrinter } from '../print/printer';
 import { fetchShopSettings } from '../db';
 import type { ShopSettings } from '../types';
-import { Eye, MoreVertical, Printer } from 'lucide-react';
+import { Eye, MoreVertical, NotebookPen, Printer } from 'lucide-react';
 
 interface SalesListSectionProps {
   currentUser: User;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
-type Preset = 'today' | 'yesterday' | 'last7Days' | 'thisMonth' | 'custom';
+/** 'due': every bill with a balance left, whatever its date. */
+type Preset = 'today' | 'due' | 'yesterday' | 'last7Days' | 'thisMonth' | 'custom';
 
 function shiftDays(iso: string, days: number): string {
   const d = new Date(`${iso}T00:00:00Z`);
@@ -46,7 +47,7 @@ function shiftDays(iso: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-function presetRange(preset: Exclude<Preset, 'custom'>): DateRangeValue {
+function presetRange(preset: Exclude<Preset, 'custom' | 'due'>): DateRangeValue {
   const today = istToday();
   switch (preset) {
     case 'today':
@@ -89,6 +90,8 @@ export function SalesListSection({ currentUser, showToast }: SalesListSectionPro
   const [isRetrying, setIsRetrying] = useState(false);
   const [settings, setSettings] = useState<ShopSettings | null>(null);
 
+  const showDue = !isStaff && preset === 'due';
+
   const loadBills = async () => {
     setIsLoading(true);
     setLoadError(null);
@@ -98,7 +101,9 @@ export function SalesListSection({ currentUser, showToast }: SalesListSectionPro
       setServerBills(
         isStaff
           ? await fetchRecentSales(STAFF_BILL_LIMIT)
-          : await fetchSales({ from: range.from, to: range.to, partyId: partyId || null })
+          : showDue
+            ? await fetchDueSales(partyId || null)
+            : await fetchSales({ from: range.from, to: range.to, partyId: partyId || null })
       );
     } catch (err) {
       // Bills waiting on this phone can still be shown without the internet.
@@ -124,29 +129,48 @@ export function SalesListSection({ currentUser, showToast }: SalesListSectionPro
   useEffect(() => {
     void loadBills();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [range.from, range.to, partyId]);
+  }, [range.from, range.to, partyId, showDue]);
 
   // A bill that finishes uploading moves from "waiting" to the server list.
-  useEffect(() => onBillsSynced(() => void loadBills()), [range.from, range.to, partyId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => onBillsSynced(() => void loadBills()), [range.from, range.to, partyId, showDue]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const bills = useMemo(() => {
     const onServer = new Set(serverBills.map((b) => b.clientId));
     const waiting = queuedBills.filter(
       (b) =>
         !onServer.has(b.clientId) &&
-        (isStaff || (b.billDate >= range.from && b.billDate <= range.to && (!partyId || b.partyId === partyId)))
+        (isStaff ||
+          ((!partyId || b.partyId === partyId) &&
+            (showDue
+              ? b.status === 'active' && b.total > b.paidAmount
+              : b.billDate >= range.from && b.billDate <= range.to)))
     );
     const all = [...waiting, ...serverBills];
     return isStaff ? all.slice(0, STAFF_BILL_LIMIT) : all;
-  }, [serverBills, queuedBills, range, partyId, isStaff]);
+  }, [serverBills, queuedBills, range, partyId, isStaff, showDue]);
 
   const activeBills = bills.filter((b) => b.status === 'active');
   const total = activeBills.reduce((sum, b) => sum + b.total, 0);
+  const totalDue = activeBills.reduce((sum, b) => sum + Math.max(0, b.total - b.paidAmount), 0);
+
+  // Udhaar view: what each customer still owes, biggest first.
+  const dueByCustomer = useMemo(() => {
+    if (!showDue) return [];
+    const map = new Map<string, { partyId: string; name: string; bills: number; due: number }>();
+    for (const b of activeBills) {
+      const key = b.partyId ?? '';
+      const row = map.get(key) ?? { partyId: key, name: b.partyName || t('cashSale'), bills: 0, due: 0 };
+      row.bills += 1;
+      row.due += Math.max(0, b.total - b.paidAmount);
+      map.set(key, row);
+    }
+    return [...map.values()].sort((a, b) => b.due - a.due);
+  }, [activeBills, showDue, t]);
   const openBill = openClientId ? bills.find((b) => b.clientId === openClientId) ?? null : null;
 
   const choosePreset = (next: Preset) => {
     setPreset(next);
-    if (next !== 'custom') setRange(presetRange(next));
+    if (next !== 'custom' && next !== 'due') setRange(presetRange(next));
   };
 
   const retryUploads = async () => {
@@ -164,6 +188,7 @@ export function SalesListSection({ currentUser, showToast }: SalesListSectionPro
 
   const presets: { id: Preset; label: string }[] = [
     { id: 'today', label: t('today') },
+    { id: 'due', label: t('dueFilter') },
     { id: 'yesterday', label: t('yesterday') },
     { id: 'last7Days', label: t('last7Days') },
     { id: 'thisMonth', label: t('thisMonth') },
@@ -189,10 +214,17 @@ export function SalesListSection({ currentUser, showToast }: SalesListSectionPro
               type="button"
               onClick={() => choosePreset(p.id)}
               className={`shrink-0 min-h-12 px-4 flex items-center gap-1.5 rounded-full border text-sm font-bold cursor-pointer whitespace-nowrap ${
-                preset === p.id ? 'bg-[#0F172A] border-[#0F172A] text-white' : 'bg-white border-slate-200 text-slate-700'
+                preset === p.id
+                  ? p.id === 'due'
+                    ? 'bg-red-600 border-red-600 text-white'
+                    : 'bg-[#0F172A] border-[#0F172A] text-white'
+                  : p.id === 'due'
+                    ? 'bg-red-50 border-red-200 text-red-700'
+                    : 'bg-white border-slate-200 text-slate-700'
               }`}
             >
               {p.id === 'custom' && <CalendarDays className="h-4 w-4" />}
+              {p.id === 'due' && <NotebookPen className="h-4 w-4" />}
               {p.label}
             </button>
           ))}
@@ -221,6 +253,8 @@ export function SalesListSection({ currentUser, showToast }: SalesListSectionPro
         <span className="text-base font-semibold text-slate-600">
           {isStaff ? (
             t('lastBills', { n: STAFF_BILL_LIMIT })
+          ) : showDue ? (
+            t('dueTitle')
           ) : (
             <>
               {formatBillDate(range.from)}
@@ -230,11 +264,38 @@ export function SalesListSection({ currentUser, showToast }: SalesListSectionPro
         </span>
         {/* Staff do not see the money total, only the owner does. */}
         {!isStaff && (
-          <span className="text-lg font-extrabold text-slate-900 tabular-nums">
-            {t('billsSummary', { n: activeBills.length, amount: formatRupees(total) })}
+          <span className={`text-lg font-extrabold tabular-nums ${showDue ? 'text-red-700' : 'text-slate-900'}`}>
+            {showDue
+              ? t('dueSummary', { n: activeBills.length, amount: formatRupees(totalDue) })
+              : t('billsSummary', { n: activeBills.length, amount: formatRupees(total) })}
           </span>
         )}
       </div>
+
+      {/* Who owes how much; tap a customer to see only their bills. */}
+      {showDue && !partyId && dueByCustomer.length > 0 && !isLoading && (
+        <section className="bg-white border border-red-200 rounded-xl overflow-hidden" data-testid="due-customers">
+          <p className="px-4 pt-3 pb-2 text-sm font-bold text-slate-700">{t('dueCustomers')}</p>
+          <ul className="divide-y divide-slate-100">
+            {dueByCustomer.map((row) => (
+              <li key={row.partyId || 'none'}>
+                <button
+                  type="button"
+                  disabled={!row.partyId}
+                  onClick={() => setPartyId(row.partyId)}
+                  className="w-full min-h-14 px-4 py-2 flex items-center justify-between gap-3 text-left cursor-pointer disabled:cursor-default hover:bg-red-50/50"
+                >
+                  <span className="min-w-0">
+                    <span className="block text-base font-bold text-slate-900 truncate">{row.name}</span>
+                    <span className="block text-sm text-slate-500">{t('dueCustomerBills', { n: row.bills })}</span>
+                  </span>
+                  <span className="shrink-0 text-lg font-extrabold text-red-700 tabular-nums">{formatRupees(row.due)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {queuedBills.some((b) => b.syncState === 'failed') && (
         <ActionButton
@@ -251,7 +312,7 @@ export function SalesListSection({ currentUser, showToast }: SalesListSectionPro
         <LoadingState />
       ) : bills.length === 0 ? (
         <div className="p-8 text-center text-slate-500 text-base bg-white border border-slate-200 rounded-xl">
-          {t('noBills')}
+          {showDue ? t('noDueBills') : t('noBills')}
         </div>
       ) : (
         <ul className="space-y-2 @3xl:grid @3xl:grid-cols-2 @3xl:gap-3 @3xl:space-y-0">

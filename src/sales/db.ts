@@ -516,6 +516,24 @@ export async function fetchSales(filter: SalesFilter): Promise<ShopInvoice[]> {
   return (data ?? []).map(mapInvoice);
 }
 
+/**
+ * Sale bills with money still to come (udhaar or part paid), from any date,
+ * oldest first: the ones waiting longest are at the top.
+ */
+export async function fetchDueSales(partyId: string | null): Promise<ShopInvoice[]> {
+  const data = await runDb<DbShopInvoice[]>((signal) => {
+    let query = assertSupabase()
+      .from('shop_invoices')
+      .select('*')
+      .eq('bill_type', 'sale')
+      .eq('status', 'active')
+      .in('payment_mode', ['credit', 'partial']);
+    if (partyId) query = query.eq('party_id', partyId);
+    return query.order('bill_date', { ascending: true }).order('created_at', { ascending: true }).abortSignal(signal);
+  });
+  return (data ?? []).map(mapInvoice).filter((b) => b.total > b.paidAmount);
+}
+
 /** One bill with all its lines. */
 export async function fetchSaleByClientId(clientId: string): Promise<ShopInvoice | null> {
   const data = await runDb<DbShopInvoice | null>((signal) =>

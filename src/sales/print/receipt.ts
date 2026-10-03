@@ -220,7 +220,7 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
   total('Total', plainAmount(bill.total), true);
   if (bill.billType !== 'quotation') {
     total('Received', plainAmount(bill.paidAmount));
-    if (due > 0) total('Balance', plainAmount(due), true);
+    total('Balance', plainAmount(Math.max(0, due)), due > 0);
   }
   if (bill.isGst && bill.ratesIncludeGst) lines.push({ kind: 'text', text: '(GST included in rates)', align: 'center' });
 
