@@ -13,6 +13,7 @@ import { ShopItemsSection } from './components/ShopItemsSection';
 import { SalesListSection } from './components/SalesListSection';
 import { ShopPartiesSection } from './components/ShopPartiesSection';
 import { ShopSettingsSection } from './components/ShopSettingsSection';
+import { PrinterHelpHost } from './components/PrintUi';
 
 export type ShopSectionId = 'shop-new-sale' | 'shop-sales' | 'shop-items' | 'shop-parties' | 'shop-settings';
 
@@ -117,7 +118,16 @@ interface ShopSectionProps {
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
-export function ShopSection({ section, currentUser, onNavigate, showToast }: ShopSectionProps) {
+export function ShopSection(props: ShopSectionProps) {
+  return (
+    <>
+      <ShopPage {...props} />
+      <PrinterHelpHost canEdit={props.currentUser.role === 'Admin'} />
+    </>
+  );
+}
+
+function ShopPage({ section, currentUser, onNavigate, showToast }: ShopSectionProps) {
   switch (section) {
     case 'shop-new-sale':
       return <NewSaleSection currentUser={currentUser} onNavigate={onNavigate} showToast={showToast} />;

@@ -45,7 +45,7 @@ import type { PaidMode, PaymentMode, ShopCategory, ShopInvoice, ShopItem, ShopPa
 import { ItemPickerSheet, type PickerLine } from './ItemPickerSheet';
 import { usePhoneKeyboardOpen } from '../keyboard';
 import { ShareBillButton } from './ShareBill';
-import { PrinterChip, QrSvg, ReceiptPreviewModal, printDetail, printMessageKey } from './PrintUi';
+import { PrinterChip, QrSvg, ReceiptPreviewModal, connectAndPrint, openPrinterHelp, printDetail, printMessageKey } from './PrintUi';
 import { upiLink } from '../print/receipt';
 import { printBill, receiptLinesFor } from '../print/printBill';
 import { warmUpPrinter, type PrintResult } from '../print/printer';
@@ -421,13 +421,25 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
     if (print && !printStarted) void doPrint(result.invoice);
   };
 
-  const doPrint = async (invoice: ShopInvoice) => {
-    if (!settings) return;
+  const printNow = async (invoice: ShopInvoice): Promise<PrintResult> => {
+    if (!settings) return { ok: false, reason: 'failed' };
     setPreviewOpen(false);
     setPrintState('printing');
     const result = await printBill(invoice, settings);
     setPrintState(result);
-    if (!result.ok) showToast(t(printMessageKey(result)), 'error');
+    return result;
+  };
+
+  const doPrint = async (invoice: ShopInvoice) => {
+    const result = await printNow(invoice);
+    // Not connected: the help sheet's button connects (it counts as a tap) and prints.
+    if (!result.ok) openPrinterHelp({ result, retry: () => printNow(invoice) });
+  };
+
+  // Retry print: open the phone's printer list straight from the tap, then print.
+  const retryPrint = (invoice: ShopInvoice) => {
+    setPrintState('printing');
+    void connectAndPrint(() => printNow(invoice)).then(setPrintState);
   };
 
   if (saved) {
@@ -437,7 +449,9 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
         <SavedPanel
           saved={saved}
           printState={printState}
-          onPrint={() => doPrint(saved.invoice)}
+          onPrint={() =>
+            typeof printState === 'object' && !printState.ok ? retryPrint(saved.invoice) : void doPrint(saved.invoice)
+          }
           onPreview={() => setPreviewOpen(true)}
           onNewBill={resetBill}
           shareSlot={

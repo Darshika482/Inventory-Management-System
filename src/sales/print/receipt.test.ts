@@ -134,10 +134,10 @@ describe('receipt layout', () => {
 });
 
 describe('UPI QR on every sale bill', () => {
-  it('shows a plain "Pay by UPI" QR on a paid cash bill', () => {
+  it('puts the bill total in the QR of a bill already marked received', () => {
     const cash = { ...bill, paymentMode: 'cash' as const };
     const qr = layoutReceipt(cash, settings, { hindi: false, showUpiQr: true }).find((l) => l.kind === 'qr');
-    expect(qr && qr.kind === 'qr' && qr.data).toBe('upi://pay?pa=akshaytraders%40upi&pn=Akshay+Traders&cu=INR');
+    expect(qr && qr.kind === 'qr' && qr.data).toBe('upi://pay?pa=akshaytraders%40upi&pn=Akshay+Traders&am=789.00&cu=INR');
     expect(qr && qr.kind === 'qr' && qr.caption).toBe('Scan this QR code to pay');
   });
 

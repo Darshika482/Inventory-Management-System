@@ -71,14 +71,14 @@ export function upiLink(upiId: string, shopName: string, amount?: Paise | null):
 }
 
 /**
- * Amount for a bill's UPI QR: what is still due, the total on a UPI bill, or
- * null (a plain "pay by UPI" QR) when the bill is already settled.
+ * Amount for a bill's UPI QR, filled in when the customer scans: what is still
+ * due, otherwise the bill total (bills are often saved as "received" before the
+ * customer pays by scanning). null only for a zero bill.
  */
 export function upiQrAmount(bill: ShopInvoice): Paise | null {
   const due = bill.billType === 'quotation' ? 0 : bill.total - bill.paidAmount;
   if (due > 0) return due;
-  if (bill.paymentMode === 'upi' && bill.total > 0) return bill.total;
-  return null;
+  return bill.total > 0 ? bill.total : null;
 }
 
 /** 126000 -> "1260", 1850 -> "18.50": plain numbers like a shop bill, no "Rs". */

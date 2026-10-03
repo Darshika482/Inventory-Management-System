@@ -1,7 +1,22 @@
 import React, { useState } from 'react';
-import { Bluetooth, Eye, Printer, PrinterCheck, Smartphone, Trash2, X } from 'lucide-react';
+import {
+  Bluetooth,
+  BluetoothOff,
+  Check,
+  CircleCheck,
+  Copy,
+  ExternalLink,
+  Eye,
+  Printer,
+  PrinterCheck,
+  Smartphone,
+  Trash2,
+  TriangleAlert,
+  X,
+} from 'lucide-react';
 import { AppModal } from '../../components/AppModal';
 import { useT } from '../i18n';
+import { useStore } from '../useStore';
 import {
   bluetoothSupported,
   forgetPrinter,
@@ -117,6 +132,315 @@ export function printDetail(result: PrintResult): string {
   return 'detail' in result && result.detail ? result.detail : '';
 }
 
+// --- Printer help: connect the printer and print again ---
+
+interface HelpRequest {
+  /** The print that failed, to explain what went wrong. */
+  result?: PrintResult;
+  /** Prints the bill again once the printer is connected. */
+  retry?: () => Promise<PrintResult>;
+}
+
+let helpRequest: HelpRequest | null = null;
+const helpListeners = new Set<() => void>();
+
+/** Opens the printer help sheet (one at a time; a second call while open is ignored). */
+export function openPrinterHelp(request: HelpRequest): void {
+  if (helpRequest) return;
+  helpRequest = request;
+  helpListeners.forEach((l) => l());
+}
+
+function closePrinterHelp() {
+  helpRequest = null;
+  helpListeners.forEach((l) => l());
+}
+
+/**
+ * Print again from a tap: opens the phone's printer list straight away (Chrome
+ * only allows that right after a tap), then prints. When that is not possible,
+ * or the printer is not picked, the help sheet opens instead.
+ */
+export function connectAndPrint(print: () => Promise<PrintResult>): Promise<PrintResult> {
+  const prefs = getPrinterPrefs();
+  if (prefs.method === 'rawbt') return print();
+  if (!bluetoothSupported()) {
+    const result: PrintResult = { ok: false, reason: 'not_connected' };
+    openPrinterHelp({ result, retry: print });
+    return Promise.resolve(result);
+  }
+  return pairBluetoothPrinter().then((picked) => {
+    if (picked.ok) return print();
+    const result: PrintResult = { ok: false, reason: 'not_connected' };
+    openPrinterHelp({ result, retry: print });
+    return result;
+  });
+}
+
+type Browser = 'brave' | 'ios' | 'other';
+
+function blockedBrowser(): Browser {
+  if (typeof navigator === 'undefined') return 'other';
+  if ('brave' in navigator) return 'brave';
+  if (/iPad|iPhone|iPod/.test(navigator.userAgent)) return 'ios';
+  return 'other';
+}
+
+const isAndroid = () => typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
+
+const BRAVE_FLAG = 'brave://flags/#brave-web-bluetooth-api';
+
+/** Why the printer list cannot open in this browser, and the ways around it. */
+export function BluetoothBlockedHelp({ onUseRawBt }: { onUseRawBt?: () => void }) {
+  const { t } = useT();
+  const browser = blockedBrowser();
+  const [copied, setCopied] = useState(false);
+
+  const openInChrome = () => {
+    const { host, pathname, search } = window.location;
+    window.location.href = `intent://${host}${pathname}${search}#Intent;scheme=https;package=com.android.chrome;end`;
+  };
+
+  const copyFlag = async () => {
+    try {
+      await navigator.clipboard.writeText(BRAVE_FLAG);
+      setCopied(true);
+    } catch {
+      // Clipboard blocked: the address is on screen to type.
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-3 rounded-xl bg-amber-50 border border-amber-200 p-3.5">
+        <BluetoothOff className="h-6 w-6 shrink-0 text-amber-600" />
+        <div>
+          <p className="text-base font-bold text-slate-900">{t('btBlockedTitle')}</p>
+          <p className="text-sm text-slate-700 leading-relaxed mt-0.5">
+            {t(browser === 'brave' ? 'btBlockedBrave' : browser === 'ios' ? 'btBlockedIos' : 'btBlockedOther')}
+          </p>
+        </div>
+      </div>
+
+      {isAndroid() && (
+        <HelpOption number={1} title={t('btOpenChromeTitle')} text={t('btOpenChromeText')}>
+          <ActionButton icon={<ExternalLink className="h-5 w-5" />} label={t('btOpenChrome')} onClick={openInChrome} className="w-full" />
+        </HelpOption>
+      )}
+
+      {browser === 'brave' && (
+        <HelpOption number={isAndroid() ? 2 : 1} title={t('btBraveFlagTitle')} text={t('btBraveFlagText')}>
+          <div className="flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2">
+            <code className="min-w-0 flex-1 truncate text-sm text-slate-800">{BRAVE_FLAG}</code>
+            <button
+              type="button"
+              onClick={copyFlag}
+              className="shrink-0 min-h-10 px-3 rounded-lg bg-white border border-slate-200 text-sm font-bold text-slate-700 cursor-pointer flex items-center gap-1.5"
+            >
+              {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+              {copied ? t('copied') : t('copy')}
+            </button>
+          </div>
+        </HelpOption>
+      )}
+
+      {onUseRawBt && isAndroid() && (
+        <HelpOption number={browser === 'brave' ? 3 : 2} title={t('btRawBtTitle')} text={t('btRawBtText')}>
+          <ActionButton tone="secondary" icon={<Smartphone className="h-5 w-5" />} label={t('btUseRawBt')} onClick={onUseRawBt} className="w-full" />
+        </HelpOption>
+      )}
+    </div>
+  );
+}
+
+function HelpOption({ number, title, text, children }: { number: number; title: string; text: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-xl border border-slate-200 p-3.5 space-y-2.5">
+      <div className="flex gap-3">
+        <span className="h-7 w-7 shrink-0 rounded-full bg-slate-900 text-white text-sm font-bold flex items-center justify-center">{number}</span>
+        <div className="min-w-0">
+          <p className="text-base font-bold text-slate-900">{title}</p>
+          <p className="text-sm text-slate-600 leading-relaxed">{text}</p>
+        </div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** Things to check when the printer does not show up or does not print. */
+function PrinterChecklist({ rawbt }: { rawbt: boolean }) {
+  const { t } = useT();
+  const items = rawbt
+    ? (['checkRawBtInstalled', 'checkRawBtPrinter', 'checkPrinterOn'] as const)
+    : (['checkPrinterOn', 'checkOnePhone', 'checkPhoneBluetooth', 'checkOtherApps'] as const);
+  return (
+    <div className="rounded-xl bg-slate-50 border border-slate-200 p-3.5">
+      <p className="text-sm font-bold text-slate-800 mb-2">{t('checkTitle')}</p>
+      <ul className="space-y-1.5">
+        {items.map((key) => (
+          <li key={key} className="flex gap-2 text-sm text-slate-700 leading-relaxed">
+            <CircleCheck className="h-4 w-4 shrink-0 mt-0.5 text-slate-400" />
+            {t(key)}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** The help sheet; mounted once for the shop pages. */
+export function PrinterHelpHost({ canEdit }: { canEdit: boolean }) {
+  const { t } = useT();
+  const request = useStore(
+    (l) => {
+      helpListeners.add(l);
+      return () => helpListeners.delete(l);
+    },
+    () => helpRequest
+  );
+  // Keep the last request on screen while the sheet slides away.
+  const [shown, setShown] = useState<HelpRequest | null>(request);
+  if (request && request !== shown) setShown(request);
+
+  return (
+    <AppModal
+      open={Boolean(request)}
+      onClose={closePrinterHelp}
+      title={t('printerHelpTitle')}
+      description={t('printerHelpSubtitle')}
+      icon={<Printer className="h-5 w-5" />}
+      accent="amber"
+    >
+      {shown && <PrinterConnectFlow key={String(Boolean(request))} request={shown} canEdit={canEdit} onDone={closePrinterHelp} />}
+    </AppModal>
+  );
+}
+
+function PrinterConnectFlow({ request, canEdit, onDone }: { request: HelpRequest; canEdit: boolean; onDone: () => void }) {
+  const { t } = useT();
+  const status = usePrinterStatus();
+  const [prefs, setPrefs] = useState<PrinterPrefs>(getPrinterPrefs);
+  const [phase, setPhase] = useState<'idle' | 'connecting' | 'printing' | 'done'>('idle');
+  const [error, setError] = useState<string | null>(() =>
+    request.result && !request.result.ok ? [t(printMessageKey(request.result)), printDetail(request.result)].filter(Boolean).join(' ') : null
+  );
+
+  const runPrint = async () => {
+    if (!request.retry) {
+      setPhase('done');
+      setTimeout(onDone, 900);
+      return;
+    }
+    setPhase('printing');
+    const result = await request.retry();
+    if (result.ok) {
+      setPhase('done');
+      setTimeout(onDone, 900);
+    } else {
+      setPhase('idle');
+      setError([t(printMessageKey(result)), printDetail(result)].filter(Boolean).join(' '));
+    }
+  };
+
+  const connect = async () => {
+    setError(null);
+    setPhase('connecting');
+    // First thing after the tap, so Chrome lets the printer list open.
+    const picked = await pairBluetoothPrinter();
+    setPrefs(getPrinterPrefs());
+    if (picked.ok) return runPrint();
+    setPhase('idle');
+    if (picked.message === 'cancelled') setError(t('printerNotPicked'));
+    else if (picked.message !== 'bluetooth_unsupported') setError(picked.message);
+  };
+
+  const useRawBt = () => {
+    const next = { ...getPrinterPrefs(), method: 'rawbt' as const };
+    savePrinterPrefs(next);
+    setPrefs(next);
+    setError(null);
+  };
+
+  const rawbt = prefs.method === 'rawbt';
+  const blocked = !rawbt && !bluetoothSupported();
+  const busy = phase !== 'idle';
+
+  if (phase === 'done') {
+    return (
+      <div className="py-6 text-center space-y-2">
+        <CircleCheck className="h-14 w-14 mx-auto text-emerald-600" />
+        <p className="text-lg font-bold text-slate-900">{request.retry ? t('printed') : t('printerReady')}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {error && !blocked && (
+        <p role="alert" className="flex gap-2 rounded-xl bg-red-50 border border-red-100 px-3.5 py-3 text-sm font-semibold text-red-700">
+          <TriangleAlert className="h-5 w-5 shrink-0" />
+          {error}
+        </p>
+      )}
+
+      {blocked ? (
+        <BluetoothBlockedHelp onUseRawBt={canEdit ? useRawBt : undefined} />
+      ) : (
+        <>
+          <div className="flex items-center gap-3 rounded-xl border border-slate-200 p-3.5">
+            <span className="h-11 w-11 shrink-0 rounded-xl bg-slate-100 flex items-center justify-center">
+              {rawbt ? <Smartphone className="h-5 w-5 text-slate-700" /> : <Bluetooth className="h-5 w-5 text-slate-700" />}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-base font-bold text-slate-900 truncate">
+                {rawbt ? t('printer_rawbt') : prefs.deviceName || t('printerNoneYet')}
+              </p>
+              <p className="text-sm text-slate-500 flex items-center gap-1.5">
+                <span className={`h-2 w-2 rounded-full ${DOT[status.state]}`} />
+                {phase === 'connecting' ? t('printerStatus_connecting') : phase === 'printing' ? t('printing') : t(`printerStatus_${status.state}`)}
+              </p>
+            </div>
+          </div>
+
+          {rawbt ? (
+            <ActionButton
+              size="lg"
+              tone="success"
+              icon={<Printer className="h-5 w-5" />}
+              label={request.retry ? t('retryPrint') : t('close')}
+              busy={busy}
+              onClick={runPrint}
+              className="w-full"
+            />
+          ) : (
+            <div className="space-y-2">
+              <ActionButton
+                size="lg"
+                tone="success"
+                icon={<Bluetooth className="h-5 w-5" />}
+                label={request.retry ? t('connectAndPrint') : t('connectPrinter')}
+                busy={busy}
+                onClick={connect}
+                className="w-full"
+              />
+              <p className="text-xs text-slate-500 text-center">{t('connectAndPrintHint')}</p>
+            </div>
+          )}
+
+          <PrinterChecklist rawbt={rawbt} />
+
+          {canEdit && !rawbt && isAndroid() && (
+            <button type="button" onClick={useRawBt} className="w-full min-h-11 text-sm font-bold text-slate-600 underline underline-offset-4 cursor-pointer">
+              {t('btUseRawBtInstead')}
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // --- Printer status chip ---
 
 const DOT: Record<string, string> = {
@@ -177,10 +501,6 @@ export function PrinterSetupPanel({ settings, canEdit = true }: { settings: Shop
 
   const connect = async () => {
     setMessage(null);
-    if (!bluetoothSupported()) {
-      setMessage({ text: t('bluetoothUnsupported'), tone: 'error' });
-      return;
-    }
     setBusy(true);
     const result = await pairBluetoothPrinter();
     setBusy(false);
@@ -229,7 +549,11 @@ export function PrinterSetupPanel({ settings, canEdit = true }: { settings: Shop
         </>
       )}
 
-      {prefs.method === 'bluetooth' && (
+      {prefs.method === 'bluetooth' && !bluetoothSupported() && (
+        <BluetoothBlockedHelp onUseRawBt={canEdit ? () => update({ method: 'rawbt' }) : undefined} />
+      )}
+
+      {prefs.method === 'bluetooth' && bluetoothSupported() && (
         <div className="rounded-xl border border-slate-200 p-3 space-y-2">
           {statusText && (
             <p className="flex items-center gap-2 text-base font-semibold text-slate-800">

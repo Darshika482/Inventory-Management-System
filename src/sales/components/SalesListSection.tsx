@@ -25,7 +25,7 @@ import { listQueuedSales, onBillsSynced, syncOutbox } from '../outbox';
 import type { ShopInvoice, ShopParty } from '../types';
 import { ActionButton, ErrorState, InfoRow, LoadingState, PageHeader, PageShell, PickerField } from './ui';
 import { OPEN_BILL_KEY } from './NewSaleSection';
-import { ReceiptPreviewModal, printDetail, printMessageKey } from './PrintUi';
+import { ReceiptPreviewModal, openPrinterHelp, printDetail, printMessageKey } from './PrintUi';
 import { ShareBillButton } from './ShareBill';
 import { printBill, receiptLinesFor } from '../print/printBill';
 import { connectPrinter } from '../print/printer';
@@ -334,10 +334,8 @@ function BillCard({ bill, settings, phone, showToast, onOpen }: BillCardProps) {
       // Connect (or open the printer list) while the tap still counts, as the bill loads.
       const [full, ready] = await Promise.all([withLines(bill), connectPrinter()]);
       const result = ready.ok ? await printBill(full, settings) : ready;
-      showToast(
-        [t(printMessageKey(result)), printDetail(result)].filter(Boolean).join(' '),
-        result.ok ? 'success' : 'error'
-      );
+      if (result.ok) showToast(t(printMessageKey(result)), 'success');
+      else openPrinterHelp({ result, retry: () => printBill(full, settings) });
     } catch (err) {
       showToast(err instanceof Error ? err.message : String(err), 'error');
     } finally {
@@ -492,6 +490,16 @@ function BillDetailModal({ bill, userNames, partyPhone, showToast, onClose }: Bi
     const result = await printBill(full, settings);
     setPrinting(false);
     setPrintMessage({ text: [t(printMessageKey(result)), printDetail(result)].filter(Boolean).join(' '), ok: result.ok });
+    if (!result.ok) {
+      openPrinterHelp({
+        result,
+        retry: async () => {
+          const again = await printBill(full, settings);
+          setPrintMessage({ text: [t(printMessageKey(again)), printDetail(again)].filter(Boolean).join(' '), ok: again.ok });
+          return again;
+        },
+      });
+    }
   };
 
   useEffect(() => {
