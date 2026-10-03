@@ -696,42 +696,44 @@ export function PrinterSetupPanel({ settings, canEdit = true }: { settings: Shop
 
       {prefs.method === 'bluetooth' && bluetoothSupported() && <KeepPrinterTip />}
 
+      {/* How the bill looks: also used by the preview and shared bills, so shown even without a printer. */}
+      {canEdit && (
+        <>
+          <label className="block space-y-1.5">
+            <span className="block text-sm font-semibold text-slate-700">{t('billNameLabel')}</span>
+            <input
+              value={prefs.billName}
+              onChange={(e) => update({ billName: e.target.value })}
+              placeholder="Surbhi Fall"
+              className="w-full min-h-12 bg-slate-50 border border-slate-200 rounded-xl px-4 text-base text-slate-900 focus:outline-none focus:bg-white focus:border-amber-500"
+            />
+            <input
+              value={prefs.billSubtitle}
+              onChange={(e) => update({ billSubtitle: e.target.value })}
+              placeholder="wholesale"
+              className="w-full min-h-12 bg-slate-50 border border-slate-200 rounded-xl px-4 text-base text-slate-900 focus:outline-none focus:bg-white focus:border-amber-500"
+            />
+          </label>
+          <ToggleRow label={t('printerUpiQr')} checked={prefs.showUpiQr} onChange={(showUpiQr) => update({ showUpiQr })} />
+          <Segmented<BillFont>
+            label={t('billFontLabel')}
+            value={prefs.billFont}
+            options={[
+              { value: 'printer', label: t('billFont_printer') },
+              { value: 'roboto-mono', label: t('billFont_roboto') },
+            ]}
+            onChange={(billFont) => update({ billFont })}
+          />
+          <p className="text-sm text-slate-500 leading-relaxed -mt-2">
+            {t(prefs.billFont === 'printer' ? 'billFontPrinterHint' : 'billFontRobotoHint')}
+          </p>
+          <ToggleRow label={t('printerHindi')} hint={t('printerHindiHint')} checked={prefs.hindi} onChange={(hindi) => update({ hindi })} />
+        </>
+      )}
+
       {prefs.method !== 'none' && (
         <>
-          {canEdit && (
-            <>
-              <label className="block space-y-1.5">
-                <span className="block text-sm font-semibold text-slate-700">{t('billNameLabel')}</span>
-                <input
-                  value={prefs.billName}
-                  onChange={(e) => update({ billName: e.target.value })}
-                  placeholder="Surbhi Fall"
-                  className="w-full min-h-12 bg-slate-50 border border-slate-200 rounded-xl px-4 text-base text-slate-900 focus:outline-none focus:bg-white focus:border-amber-500"
-                />
-                <input
-                  value={prefs.billSubtitle}
-                  onChange={(e) => update({ billSubtitle: e.target.value })}
-                  placeholder="wholesale"
-                  className="w-full min-h-12 bg-slate-50 border border-slate-200 rounded-xl px-4 text-base text-slate-900 focus:outline-none focus:bg-white focus:border-amber-500"
-                />
-              </label>
-              <ToggleRow label={t('printerUpiQr')} checked={prefs.showUpiQr} onChange={(showUpiQr) => update({ showUpiQr })} />
-              <Segmented<BillFont>
-                label={t('billFontLabel')}
-                value={prefs.billFont}
-                options={[
-                  { value: 'printer', label: t('billFont_printer') },
-                  { value: 'roboto-mono', label: t('billFont_roboto') },
-                ]}
-                onChange={(billFont) => update({ billFont })}
-              />
-              <p className="text-sm text-slate-500 leading-relaxed -mt-2">
-                {t(prefs.billFont === 'printer' ? 'billFontPrinterHint' : 'billFontRobotoHint')}
-              </p>
-              <ToggleRow label={t('printerHindi')} hint={t('printerHindiHint')} checked={prefs.hindi} onChange={(hindi) => update({ hindi })} />
-              <ToggleRow label={t('printerCutter')} checked={prefs.cutter} onChange={(cutter) => update({ cutter })} />
-            </>
-          )}
+          {canEdit && <ToggleRow label={t('printerCutter')} checked={prefs.cutter} onChange={(cutter) => update({ cutter })} />}
           <ActionButton
             tone="success"
             icon={<PrinterCheck className="h-5 w-5" />}
