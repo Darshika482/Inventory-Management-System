@@ -76,6 +76,9 @@ export function ReceiptPaper({ lines, widthMm }: { lines: ReceiptLine[]; widthMm
             return <div key={i} className="my-1 border-t border-dashed border-black" />;
           case 'feed':
             return <div key={i} style={{ height: line.lines * 6 }} />;
+          case 'gap':
+            // The same share of the paper as on the printout (384 or 576 dots wide).
+            return <div key={i} style={{ height: (line.dots * paper) / (widthMm === 80 ? 576 : 384) }} />;
           case 'qr': {
             const side = line.side ?? [];
             const picture = getPrinterPrefs().qrStyle === 'picture';

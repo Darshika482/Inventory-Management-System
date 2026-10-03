@@ -73,6 +73,8 @@ const big = (on: boolean) => [GS, 0x21, on ? 0x11 : 0x00];
 /** Double width only: the shop name, wide but not tall. */
 const wide = [GS, 0x21, 0x10];
 const feed = (n: number) => [ESC, 0x64, Math.max(0, Math.min(255, n))];
+/** Feeds the paper by `n` dots (ESC J), for small gaps. */
+const feedDots = (n: number) => [ESC, 0x4a, Math.max(0, Math.min(255, n))];
 const cut = () => [GS, 0x56, 0x42, 0x00];
 
 /** Native QR: model 2, module size, error level M, store, print. */
@@ -261,6 +263,9 @@ export function encodeReceipt(lines: ReceiptLine[], options: EscPosOptions): Uin
         break;
       case 'feed':
         out.push(...feed(line.lines));
+        break;
+      case 'gap':
+        out.push(...feedDots(line.dots));
         break;
       case 'text': {
         const w = line.big || line.wide ? bigWidth : line.small && !line.tall ? smallWidth : width;

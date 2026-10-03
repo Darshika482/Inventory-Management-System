@@ -145,6 +145,10 @@ export function renderReceiptPixels(lines: ReceiptLine[], widthMm: 58 | 80, robo
       y += base * line.lines;
       continue;
     }
+    if (line.kind === 'gap') {
+      y += line.dots;
+      continue;
+    }
     if (line.kind === 'rule') {
       for (let x = edge; x < width - edge; x += 8) ctx.fillRect(x, y + base / 2, 5, 2);
       y += base;

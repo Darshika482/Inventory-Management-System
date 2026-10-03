@@ -265,6 +265,15 @@ describe('Vyapar-like letters: wide shop name, small font everywhere else', () =
     expect(rows.find((r) => r.startsWith('2 '))).toMatch(/ 2 {5}140 {6}280$/);
   });
 
+  it('leaves a small gap between products, but not inside a wrapped name', () => {
+    const hex = toHex(Uint8Array.from(bytes));
+    const at = (text: string) => hex.indexOf(toHex(new TextEncoder().encode(text)));
+    const gap = '1b4a0c'; // ESC J 12: feed 12 dots
+    expect(hex.slice(at('Lux Soap'), at('Surf Excel'))).toContain(gap);
+    expect(hex.slice(at('Classmate'), at('Notebook'))).not.toContain(gap);
+    expect(hex.slice(0, at('Lux Soap'))).not.toContain(gap); // none above the first item
+  });
+
   it('prints the shop name in the normal font at double width, not bold', () => {
     expect(settingBefore('Akshay Traders', 0x4d)).toBe(0); // ESC M 0: normal font
     expect(sizeBefore('Akshay Traders')).toBe(0x10); // GS ! 0x10: double width only

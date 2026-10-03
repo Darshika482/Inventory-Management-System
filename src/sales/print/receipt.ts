@@ -33,7 +33,9 @@ export type ReceiptLine =
   | { kind: 'rule' }
   /** `side`: short label/value pairs printed beside the QR (Received, Balance). */
   | { kind: 'qr'; data: string; caption?: string; side?: SideItem[] }
-  | { kind: 'feed'; lines: number };
+  | { kind: 'feed'; lines: number }
+  /** A little white space, in printer dots (8 dots = 1 mm). */
+  | { kind: 'gap'; dots: number };
 
 export interface SideItem {
   label: string;
@@ -137,6 +139,9 @@ function columns(width: number) {
   return { no: 3, qty: 6, price: 8, amount: 9, name: width - 3 - 6 - 8 - 9 };
 }
 
+/** White space between two products in the item table, in dots (about 1.5 mm). */
+export const ITEM_GAP = 12;
+
 /** Spaces kept in front of every number, so Qty, Price and Amount never run together. */
 const NUMBER_GAP = '  ';
 
@@ -189,6 +194,8 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
   );
   lines.push({ kind: 'rule' });
   bill.lines.forEach((line, i) => {
+    // A little space between products, so the rows do not look crowded.
+    if (i > 0) lines.push({ kind: 'gap', dots: ITEM_GAP });
     const hindiName = options.hindi && line.itemId ? options.hindiNames?.[line.itemId] : undefined;
     const name = hindiName || line.itemName;
     // Long names continue on the next lines, in the name column.
@@ -310,6 +317,8 @@ export function receiptToTextRows(lines: ReceiptLine[], widthMm: 58 | 80): strin
         break;
       case 'feed':
         for (let i = 0; i < line.lines; i++) rows.push('');
+        break;
+      case 'gap':
         break;
       case 'qr':
         rows.push('[QR]');
