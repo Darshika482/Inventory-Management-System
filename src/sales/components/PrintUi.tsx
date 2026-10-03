@@ -13,6 +13,7 @@ import {
   type PrintMethod,
   type PrintResult,
 } from '../print/printer';
+import type { QrStyle } from '../print/escpos';
 import { printTestPage } from '../print/printBill';
 import { qrMatrix } from '../print/qr';
 import type { ReceiptLine } from '../print/receipt';
@@ -273,12 +274,22 @@ export function PrinterSetupPanel({ settings, canEdit = true }: { settings: Shop
                 />
               </label>
               <ToggleRow label={t('printerUpiQr')} checked={prefs.showUpiQr} onChange={(showUpiQr) => update({ showUpiQr })} />
-              <ToggleRow
-                label={t('printerNativeQr')}
-                hint={t('printerNativeQrHint')}
-                checked={prefs.nativeQr}
-                onChange={(nativeQr) => update({ nativeQr })}
-              />
+              {prefs.showUpiQr && (
+                <>
+                  <Segmented<QrStyle>
+                    label={t('printerQrStyle')}
+                    value={prefs.qrStyle}
+                    columns={3}
+                    options={[
+                      { value: 'blocks', label: t('qrStyle_blocks') },
+                      { value: 'picture', label: t('qrStyle_picture') },
+                      { value: 'native', label: t('qrStyle_native') },
+                    ]}
+                    onChange={(qrStyle) => update({ qrStyle })}
+                  />
+                  <p className="text-sm text-slate-500 leading-relaxed -mt-2">{t('printerQrStyleHint')}</p>
+                </>
+              )}
               <ToggleRow label={t('printerHindi')} hint={t('printerHindiHint')} checked={prefs.hindi} onChange={(hindi) => update({ hindi })} />
               <ToggleRow label={t('printerCutter')} checked={prefs.cutter} onChange={(cutter) => update({ cutter })} />
             </>

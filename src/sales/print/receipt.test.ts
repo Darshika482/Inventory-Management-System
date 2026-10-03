@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { encodeReceipt, rasterBytes, testPageLines } from './escpos';
+import { blockQr, encodeReceipt, rasterBytes, testPageLines } from './escpos';
 import { charsPerLine, layoutReceipt, receiptMoney, receiptToTextRows, upiLink } from './receipt';
 import type { ShopInvoice, ShopSettings } from '../types';
 
@@ -70,7 +70,7 @@ describe('receipt layout', () => {
 
     it(`encodes ESC/POS bytes for ${width}mm (snapshot)`, () => {
       const lines = layoutReceipt(bill, { ...settings, printerWidthMm: width }, { hindi: false, showUpiQr: true, widthMm: width });
-      const bytes = encodeReceipt(lines, { widthMm: width, cutter: true, nativeQr: true });
+      const bytes = encodeReceipt(lines, { widthMm: width, cutter: true, qrStyle: 'native' });
       expect(Array.from(bytes.slice(0, 2))).toEqual([0x1b, 0x40]); // ESC @
       expect(toHex(bytes)).toContain('1d286b'); // native QR command
       expect(Array.from(bytes.slice(-4))).toEqual([0x1d, 0x56, 0x42, 0x00]); // cut
@@ -109,7 +109,7 @@ describe('receipt layout', () => {
 
   it('can send the QR as an image instead', () => {
     const lines = layoutReceipt({ ...bill, paidAmount: 0, paymentMode: 'credit' }, settings, { hindi: false, showUpiQr: true });
-    const hex = toHex(encodeReceipt(lines, { widthMm: 58, cutter: false, nativeQr: false }));
+    const hex = toHex(encodeReceipt(lines, { widthMm: 58, cutter: false, qrStyle: 'picture' }));
     expect(hex).not.toContain('1d286b');
     expect(hex).toContain('1d7630'); // GS v 0 raster
   });
@@ -173,4 +173,31 @@ it('never cuts digits off a big amount', () => {
   expect(row).toContain('12345.50');
   expect(row).toContain('12345500');
   expect(row.length).toBeLessThanOrEqual(32);
+});
+
+describe('QR drawn with block letters', () => {
+  const link = 'upi://pay?pa=9131297397%40ybl&pn=Surbhi+Fall&am=18.50&cu=INR';
+
+  it('is plain text that fits the paper, two QR rows per line', () => {
+    for (const width of [58, 80] as const) {
+      const bytes = blockQr(link, width)!;
+      const rows: number[][] = [[]];
+      // Skip the set-up commands (they end with ESC a 1) and the reset after the last row.
+      const body = bytes.slice(bytes.indexOf(0x61) + 2, bytes.lastIndexOf(0x0a) + 1);
+      for (const b of body) b === 0x0a ? rows.push([]) : rows[rows.length - 1].push(b);
+      rows.pop();
+      const cols = width === 58 ? 42 : 48;
+      for (const row of rows) {
+        expect(row.length).toBeLessThanOrEqual(cols);
+        for (const b of row) expect([0x20, 0xdb, 0xdf, 0xdc]).toContain(b);
+      }
+      expect(rows.length).toBe(Math.ceil(rows[0].length / 2));
+    }
+  });
+
+  it('prints the UPI ID instead when the link is too long to draw', () => {
+    const lines = [{ kind: 'qr' as const, data: `upi://pay?pa=shop%40upi&pn=${'x'.repeat(400)}`, caption: 'Scan' }];
+    const text = new TextDecoder().decode(encodeReceipt(lines, { widthMm: 58, cutter: false, qrStyle: 'blocks' }));
+    expect(text).toContain('UPI: shop@upi');
+  });
 });

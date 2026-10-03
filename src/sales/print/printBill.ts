@@ -26,7 +26,7 @@ export function receiptLinesFor(bill: ShopInvoice, settings: ShopSettings): Rece
 
 function encode(lines: ReceiptLine[], widthMm: 58 | 80): Uint8Array {
   const prefs = getPrinterPrefs();
-  const options = { widthMm, cutter: prefs.cutter, nativeQr: prefs.nativeQr };
+  const options = { widthMm, cutter: prefs.cutter, qrStyle: prefs.qrStyle };
   return prefs.hindi ? encodeImageReceipt(renderReceiptPixels(lines, widthMm), options) : encodeReceipt(lines, options);
 }
 

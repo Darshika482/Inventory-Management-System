@@ -9,6 +9,7 @@
  * every function here reports failure instead of throwing at the caller.
  */
 import { useStore } from '../useStore';
+import type { QrStyle } from './escpos';
 
 export type PrintMethod = 'bluetooth' | 'rawbt' | 'none';
 
@@ -18,8 +19,8 @@ export interface PrinterPrefs {
   deviceName: string;
   /** Printer has an automatic paper cutter. */
   cutter: boolean;
-  /** Printer can draw QR codes itself (GS ( k). Off = QR sent as an image. */
-  nativeQr: boolean;
+  /** How the QR is printed; block letters work on every printer. */
+  qrStyle: QrStyle;
   /** Item names in Hindi (receipt is sent as an image). */
   hindi: boolean;
   /** UPI QR for the amount due. */
@@ -38,32 +39,33 @@ const DEFAULT_PREFS: PrinterPrefs = {
   deviceId: '',
   deviceName: '',
   cutter: false,
-  // Many cheap printers print the QR command as text (seen on a Vyapar bill), so
-  // the QR goes as a picture unless the printer is known to draw QR codes.
-  nativeQr: false,
+  // The shop printer prints GS ( k as text and garbles pictures, but prints
+  // plain text perfectly, so the QR is drawn with block letters.
+  qrStyle: 'blocks',
   hindi: false,
   showUpiQr: true,
   billName: 'Surbhi Fall',
   billSubtitle: 'wholesale',
-  version: 3,
+  version: 4,
 };
 
 export function getPrinterPrefs(): PrinterPrefs {
   try {
     const raw = localStorage.getItem(PREFS_KEY);
     if (!raw) return DEFAULT_PREFS;
-    const saved = JSON.parse(raw) as Partial<PrinterPrefs>;
-    // Choices saved before version 2 had "printer draws the QR" on by default,
-    // which prints garbage on most shop printers: switch those to a picture.
-    if ((saved.version ?? 1) < 2) {
-      saved.nativeQr = false;
-      saved.version = 2;
-    }
+    const saved = JSON.parse(raw) as Partial<PrinterPrefs> & { nativeQr?: boolean };
+    delete saved.nativeQr;
+    saved.version ??= 1;
     // Version 3: heading became "Surbhi Fall" with "wholesale" underneath.
     if (saved.version < 3) {
       if (!saved.billName || saved.billName === 'Fall Wholesale') saved.billName = DEFAULT_PREFS.billName;
       saved.billSubtitle = DEFAULT_PREFS.billSubtitle;
       saved.version = 3;
+    }
+    // Version 4: QR as a picture still garbled on the shop printer; use block letters.
+    if (saved.version < 4) {
+      saved.qrStyle = 'blocks';
+      saved.version = 4;
     }
     return { ...DEFAULT_PREFS, ...saved };
   } catch {

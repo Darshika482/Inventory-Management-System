@@ -9,12 +9,19 @@ const ESC = 0x1b;
 const GS = 0x1d;
 const LF = 0x0a;
 
+/**
+ * How the QR is printed:
+ * - blocks: drawn with the printer's own block letters, sent as plain text (works on any printer)
+ * - picture: a GS v 0 image (garbles on printers that cannot keep up)
+ * - native: the printer draws it itself (GS ( k; many cheap printers print this as text)
+ */
+export type QrStyle = 'blocks' | 'picture' | 'native';
+
 export interface EscPosOptions {
   widthMm: 58 | 80;
   /** Cut the paper at the end (only printers with a cutter). */
   cutter: boolean;
-  /** true: printer draws the QR (GS ( k). false: send the QR as an image. */
-  nativeQr: boolean;
+  qrStyle: QrStyle;
 }
 
 /** Printable dots across the paper. */
@@ -122,6 +129,46 @@ export function qrRaster(data: string, widthMm: 58 | 80, scale = 4): number[] {
   return rasterBytes(pixels);
 }
 
+/**
+ * QR drawn with block letters from code page 437 (full, upper-half and
+ * lower-half blocks), two QR rows per text line. It is plain text, which the
+ * shop printer prints perfectly, so it works where pictures turn into strange
+ * letters. On 58mm paper the small font (9x17 dots, 42 per line) is used so a
+ * payment QR fits; a half block is then about 9x8.5 dots, close to square.
+ * null when the QR is too big for the paper.
+ */
+export function blockQr(data: string, widthMm: 58 | 80): number[] | null {
+  const small = widthMm === 58;
+  const cols = small ? 42 : 48;
+  const lineHeight = small ? 17 : 24;
+  let matrix = qrMatrix(data, 'M');
+  if (matrix.length + 2 > cols) matrix = qrMatrix(data, 'L');
+  const size = matrix.length;
+  if (size > cols) return null;
+  const quiet = Math.min(2, Math.floor((cols - size) / 2));
+  const total = size + quiet * 2;
+  const dark = (r: number, c: number) => {
+    const y = r - quiet;
+    const x = c - quiet;
+    return y >= 0 && y < size && x >= 0 && x < size && matrix[y][x];
+  };
+
+  // Code page 437, small font on 58mm, and line spacing equal to the letter
+  // height so the rows touch with no white gaps.
+  const out = [ESC, 0x74, 0, ...(small ? [ESC, 0x4d, 1] : []), ESC, 0x33, lineHeight, ...align('center')];
+  for (let r = 0; r < total; r += 2) {
+    for (let c = 0; c < total; c++) {
+      const top = dark(r, c);
+      const bottom = r + 1 < total && dark(r + 1, c);
+      out.push(top && bottom ? 0xdb : top ? 0xdf : bottom ? 0xdc : 0x20);
+    }
+    out.push(LF);
+  }
+  // Back to normal spacing and font.
+  out.push(ESC, 0x32, ...(small ? [ESC, 0x4d, 0] : []));
+  return out;
+}
+
 /** The whole receipt as ESC/POS bytes, in text mode. */
 export function encodeReceipt(lines: ReceiptLine[], options: EscPosOptions): Uint8Array {
   const width = charsPerLine(options.widthMm);
@@ -152,8 +199,18 @@ export function encodeReceipt(lines: ReceiptLine[], options: EscPosOptions): Uin
       }
       case 'qr':
         out.push(...align('center'));
-        if (options.nativeQr) out.push(...nativeQr(line.data, options.widthMm === 80 ? 7 : 6), LF);
-        else out.push(...qrRaster(line.data, options.widthMm), LF);
+        if (options.qrStyle === 'native') out.push(...nativeQr(line.data, options.widthMm === 80 ? 7 : 6), LF);
+        else if (options.qrStyle === 'picture') out.push(...qrRaster(line.data, options.widthMm), LF);
+        else {
+          const blocks = blockQr(line.data, options.widthMm);
+          if (!blocks) {
+            // Too long to draw: print the UPI ID so the customer can type it in.
+            out.line(`UPI: ${new URLSearchParams(line.data.split('?')[1] ?? '').get('pa') ?? ''}`);
+            out.push(...align('left'));
+            break;
+          }
+          out.push(...blocks, ...align('center'));
+        }
         for (const row of wrapText(line.caption, width)) out.line(row);
         out.push(...align('left'));
         break;
