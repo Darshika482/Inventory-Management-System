@@ -21,9 +21,6 @@ export function receiptLinesFor(bill: ShopInvoice, settings: ShopSettings): Rece
     widthMm: settings.printerWidthMm,
     billName: prefs.billName,
     billSubtitle: prefs.billSubtitle,
-    // The Hindi printout is drawn as a picture with its own font.
-    smallFont: prefs.smallFont && !prefs.hindi,
-    headingSize: prefs.headingSize,
   });
 }
 
@@ -33,7 +30,6 @@ function encode(lines: ReceiptLine[], widthMm: 58 | 80): Uint8Array {
     widthMm,
     cutter: prefs.cutter,
     qrStyle: prefs.qrStyle,
-    smallFont: prefs.smallFont && !prefs.hindi,
     renderSide: renderSideText,
   };
   return prefs.hindi ? encodeImageReceipt(renderReceiptPixels(lines, widthMm), options) : encodeReceipt(lines, options);
@@ -49,8 +45,7 @@ export async function printBill(bill: ShopInvoice, settings: ShopSettings): Prom
 
 export async function printTestPage(settings: ShopSettings): Promise<PrintResult> {
   try {
-    const prefs = getPrinterPrefs();
-    const lines = testPageLines(settings.shopName, settings.printerWidthMm, settings.upiId, prefs.smallFont && !prefs.hindi);
+    const lines = testPageLines(settings.shopName, settings.printerWidthMm, settings.upiId);
     return await printBytes(encode(lines, settings.printerWidthMm));
   } catch (err) {
     return { ok: false, reason: 'failed', detail: err instanceof Error ? err.message : String(err) };

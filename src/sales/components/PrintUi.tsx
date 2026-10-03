@@ -31,10 +31,9 @@ import {
   type PrintMethod,
   type PrintResult,
 } from '../print/printer';
-import type { QrStyle } from '../print/escpos';
 import { printTestPage } from '../print/printBill';
 import { qrMatrix } from '../print/qr';
-import type { HeadingSize, ReceiptLine } from '../print/receipt';
+import type { ReceiptLine } from '../print/receipt';
 import type { ShopSettings } from '../types';
 import { ActionButton, Segmented, ToggleRow } from './ui';
 
@@ -697,39 +696,6 @@ export function PrinterSetupPanel({ settings, canEdit = true }: { settings: Shop
                 />
               </label>
               <ToggleRow label={t('printerUpiQr')} checked={prefs.showUpiQr} onChange={(showUpiQr) => update({ showUpiQr })} />
-              {prefs.showUpiQr && (
-                <>
-                  <Segmented<QrStyle>
-                    label={t('printerQrStyle')}
-                    value={prefs.qrStyle}
-                    columns={3}
-                    options={[
-                      { value: 'picture', label: t('qrStyle_picture') },
-                      { value: 'blocks', label: t('qrStyle_blocks') },
-                      { value: 'native', label: t('qrStyle_native') },
-                    ]}
-                    onChange={(qrStyle) => update({ qrStyle })}
-                  />
-                  <p className="text-sm text-slate-500 leading-relaxed -mt-2">{t('printerQrStyleHint')}</p>
-                </>
-              )}
-              <Segmented<HeadingSize>
-                label={t('headingSize')}
-                value={prefs.headingSize}
-                columns={3}
-                options={[
-                  { value: 'small', label: t('headingSize_small') },
-                  { value: 'medium', label: t('headingSize_medium') },
-                  { value: 'large', label: t('headingSize_large') },
-                ]}
-                onChange={(headingSize) => update({ headingSize })}
-              />
-              <ToggleRow
-                label={t('printerSmallFont')}
-                hint={t('printerSmallFontHint')}
-                checked={prefs.smallFont}
-                onChange={(smallFont) => update({ smallFont })}
-              />
               <ToggleRow label={t('printerHindi')} hint={t('printerHindiHint')} checked={prefs.hindi} onChange={(hindi) => update({ hindi })} />
               <ToggleRow label={t('printerCutter')} checked={prefs.cutter} onChange={(cutter) => update({ cutter })} />
             </>

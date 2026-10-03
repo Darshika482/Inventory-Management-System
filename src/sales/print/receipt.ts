@@ -31,8 +31,6 @@ export interface SideItem {
   strong?: boolean;
 }
 
-export type HeadingSize = 'small' | 'medium' | 'large';
-
 export interface ReceiptOptions {
   /** Item names in Hindi where known (needs image printing). */
   hindi: boolean;
@@ -48,8 +46,6 @@ export interface ReceiptOptions {
   billSubtitle?: string;
   /** Printer's small font (more letters per line). */
   smallFont?: boolean;
-  /** Size of the shop name: normal bold, double height, or double size. Default medium. */
-  headingSize?: HeadingSize;
 }
 
 /** Characters per line: normal font 12 dots wide, small font 9 dots wide. */
@@ -142,16 +138,8 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
   const due = bill.billType === 'quotation' ? 0 : bill.total - bill.paidAmount;
   const mono = (text: string, bold = false): ReceiptLine => ({ kind: 'text', text, mono: true, bold });
 
-  // Shop name: bold, and taller or bigger as chosen
-  const heading = options.headingSize ?? 'medium';
-  lines.push({
-    kind: 'text',
-    text: options.billName?.trim() || settings.shopName,
-    align: 'center',
-    bold: true,
-    big: heading === 'large',
-    tall: heading === 'medium',
-  });
+  // Shop name: bold and double height (normal width), one fixed size.
+  lines.push({ kind: 'text', text: options.billName?.trim() || settings.shopName, align: 'center', bold: true, tall: true });
   if (options.billSubtitle?.trim()) lines.push({ kind: 'text', text: options.billSubtitle.trim(), align: 'center' });
   if (settings.address) lines.push({ kind: 'text', text: settings.address, align: 'center' });
   if (settings.phone) lines.push({ kind: 'text', text: `Ph.No.: ${settings.phone}`, align: 'center' });
@@ -252,11 +240,6 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
   if (bill.isGst && bill.ratesIncludeGst) lines.push({ kind: 'text', text: '(GST included in rates)', align: 'center' });
 
   // UPI QR on every sale bill: with the amount due (or the UPI total), else plain.
-  if (settings.receiptFooter) {
-    lines.push({ kind: 'feed', lines: 1 });
-    lines.push({ kind: 'text', text: settings.receiptFooter, align: 'center' });
-  }
-
   // The QR comes last, so the bill itself is complete whatever the printer does with it.
   const qrAmount = upiQrAmount(bill);
   if (qrShown) {

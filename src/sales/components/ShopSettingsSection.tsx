@@ -165,11 +165,6 @@ export function ShopSettingsSection({ currentUser, showToast }: ShopSettingsSect
             checked={settings.ratesIncludeGst}
             onChange={(checked) => update('ratesIncludeGst', checked)}
           />
-          <FormInput
-            label={t('receiptFooter')}
-            value={settings.receiptFooter}
-            onChange={(e) => update('receiptFooter', e.target.value)}
-          />
         </section>
 
         <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 space-y-4">

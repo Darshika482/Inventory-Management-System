@@ -239,10 +239,7 @@ export async function drawBillCanvas(bill: ShopInvoice, settings: ShopSettings):
   y += 40;
   ctx.fillStyle = AMBER;
   ctx.fillRect(PAD, y, W - PAD * 2, 4);
-  y += 56;
-  font(30, 700);
-  text(settings.receiptFooter || 'Thank you for shopping with us!', W / 2, y, 'center');
-  y += 42;
+  y += 48;
   font(22, 500);
   text(`${settings.shopName || 'Akshay Traders'}${settings.phone ? `  •  ${settings.phone}` : ''}`, W / 2, y, 'center', SLATE_500);
   y += 56;
@@ -292,6 +289,6 @@ export function billShareText(bill: ShopInvoice, settings: ShopSettings): string
     lines.push(`Balance due: ${formatRupees(due, true)}`);
     if (settings.upiId) lines.push(`Pay by UPI: ${settings.upiId}`);
   }
-  lines.push(settings.receiptFooter || 'Thank you!');
+  lines.push('Thank you!');
   return lines.join('\n');
 }

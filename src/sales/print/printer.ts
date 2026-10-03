@@ -10,7 +10,6 @@
  */
 import { useStore } from '../useStore';
 import type { QrStyle } from './escpos';
-import type { HeadingSize } from './receipt';
 
 export type PrintMethod = 'bluetooth' | 'rawbt' | 'none';
 
@@ -20,16 +19,12 @@ export interface PrinterPrefs {
   deviceName: string;
   /** Printer has an automatic paper cutter. */
   cutter: boolean;
-  /** How the QR is printed; block letters work on every printer. */
+  /** How the QR is printed (fixed: a small picture; not shown in settings). */
   qrStyle: QrStyle;
   /** Item names in Hindi (receipt is sent as an image). */
   hindi: boolean;
   /** UPI QR for the amount due. */
   showUpiQr: boolean;
-  /** Printer's small font in bold: smaller, clear letters. */
-  smallFont: boolean;
-  /** Size of the shop name at the top. */
-  headingSize: HeadingSize;
   /** Name printed at the top of the bill. */
   billName: string;
   /** Small line under the name. */
@@ -48,22 +43,22 @@ const DEFAULT_PREFS: PrinterPrefs = {
   // plain text perfectly, so the QR is drawn with block letters.
   // A small QR picture (about 2 KB, sent slowly, printed last on the bill).
   qrStyle: 'picture',
-  // The printer's normal font: the small bold one looked worse on paper.
-  smallFont: false,
-  headingSize: 'medium',
   hindi: false,
   showUpiQr: true,
   billName: 'Surbhi Fall',
   billSubtitle: 'wholesale',
-  version: 6,
+  version: 7,
 };
 
 export function getPrinterPrefs(): PrinterPrefs {
   try {
     const raw = localStorage.getItem(PREFS_KEY);
     if (!raw) return DEFAULT_PREFS;
-    const saved = JSON.parse(raw) as Partial<PrinterPrefs> & { nativeQr?: boolean };
+    const saved = JSON.parse(raw) as Partial<PrinterPrefs> & { nativeQr?: boolean; smallFont?: boolean; headingSize?: string };
+    // Options that no longer exist (the layout is fixed now).
     delete saved.nativeQr;
+    delete saved.smallFont;
+    delete saved.headingSize;
     saved.version ??= 1;
     // Version 3: heading became "Surbhi Fall" with "wholesale" underneath.
     if (saved.version < 3) {
@@ -79,14 +74,16 @@ export function getPrinterPrefs(): PrinterPrefs {
     // Version 5: the picture QR is now small enough to print safely; small clear letters.
     if (saved.version < 5) {
       saved.qrStyle = 'picture';
-      saved.smallFont = true;
       saved.version = 5;
     }
     // Version 6: back to the normal font, smaller shop name.
     if (saved.version < 6) {
-      saved.smallFont = false;
-      saved.headingSize = 'medium';
       saved.version = 6;
+    }
+    // Version 7: one fixed layout; the small QR picture for everyone.
+    if (saved.version < 7) {
+      saved.qrStyle = 'picture';
+      saved.version = 7;
     }
     return { ...DEFAULT_PREFS, ...saved };
   } catch {

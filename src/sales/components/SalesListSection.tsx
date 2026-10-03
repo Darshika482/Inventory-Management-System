@@ -15,7 +15,17 @@ import type { User } from '../../types';
 import { AppModal } from '../../components/AppModal';
 import { DateRangePicker, type DateRangeValue } from '../../components/DateRangePicker';
 import { describeDbError, type FriendlyError } from '../../lib/dbErrors';
-import { fetchDueSales, fetchRecentSales, fetchSaleByClientId, fetchSales, fetchShopParties, fetchUserNames } from '../db';
+import {
+  fetchBillPayments,
+  fetchDueSales,
+  fetchRecentSales,
+  fetchSaleByClientId,
+  fetchSales,
+  fetchShopParties,
+  fetchUserNames,
+  type BillPayment,
+} from '../db';
+import { ReceivePaymentModal } from './ReceivePayment';
 import { loadWithCache } from '../cache';
 import { billLabel, formatBillDate, formatIstTime, istToday } from '../fy';
 import { useT } from '../i18n';
@@ -31,7 +41,7 @@ import { printBill, receiptLinesFor } from '../print/printBill';
 import { connectPrinter } from '../print/printer';
 import { fetchShopSettings } from '../db';
 import type { ShopSettings } from '../types';
-import { Eye, MoreVertical, NotebookPen, Printer } from 'lucide-react';
+import { Eye, HandCoins, MoreVertical, NotebookPen, Printer } from 'lucide-react';
 
 interface SalesListSectionProps {
   currentUser: User;
@@ -145,7 +155,8 @@ export function SalesListSection({ currentUser, showToast }: SalesListSectionPro
               ? b.status === 'active' && b.total > b.paidAmount
               : b.billDate >= range.from && b.billDate <= range.to)))
     );
-    const all = [...waiting, ...serverBills];
+    // A bill paid off just now leaves the Udhaar list straight away.
+    const all = [...waiting, ...serverBills].filter((b) => !showDue || b.total > b.paidAmount);
     return isStaff ? all.slice(0, STAFF_BILL_LIMIT) : all;
   }, [serverBills, queuedBills, range, partyId, isStaff, showDue]);
 
@@ -335,6 +346,9 @@ export function SalesListSection({ currentUser, showToast }: SalesListSectionPro
         partyPhone={openBill?.partyId ? parties.find((p) => p.id === openBill.partyId)?.phone : undefined}
         showToast={showToast}
         onClose={() => setOpenClientId(null)}
+        onPaid={(clientId, paidAmount) =>
+          setServerBills((prev) => prev.map((b) => (b.clientId === clientId ? { ...b, paidAmount } : b)))
+        }
       />
     </PageShell>
   );
@@ -525,9 +539,11 @@ interface BillDetailModalProps {
   partyPhone?: string;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   onClose: () => void;
+  /** A payment was received: the bill's new paid amount, for the list. */
+  onPaid: (clientId: string, paidAmount: number) => void;
 }
 
-function BillDetailModal({ bill, userNames, partyPhone, showToast, onClose }: BillDetailModalProps) {
+function BillDetailModal({ bill, userNames, partyPhone, showToast, onClose, onPaid }: BillDetailModalProps) {
   const { t } = useT();
   const [full, setFull] = useState<ShopInvoice | null>(null);
   const [problem, setProblem] = useState<FriendlyError | null>(null);
@@ -535,6 +551,18 @@ function BillDetailModal({ bill, userNames, partyPhone, showToast, onClose }: Bi
   const [previewOpen, setPreviewOpen] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [printMessage, setPrintMessage] = useState<{ text: string; ok: boolean } | null>(null);
+  const [payOpen, setPayOpen] = useState(false);
+  const [payments, setPayments] = useState<BillPayment[]>([]);
+
+  // Payments received later, shown under the bill.
+  const loadPayments = (invoiceId: string | null) => {
+    setPayments([]);
+    if (!invoiceId) return;
+    fetchBillPayments(invoiceId)
+      .then(setPayments)
+      .catch(() => {});
+  };
+  useEffect(() => loadPayments(full?.id ?? null), [full?.id]);
 
   useEffect(() => {
     loadWithCache('settings', fetchShopSettings)
@@ -636,7 +664,20 @@ function BillDetailModal({ bill, userNames, partyPhone, showToast, onClose }: Bi
               {printMessage.text}
             </p>
           )}
-          <BillDetailBody bill={full} userNames={userNames} />
+          {full.billType === 'sale' && full.status === 'active' && full.total > full.paidAmount && (
+            <div className="space-y-1.5">
+              <ActionButton
+                size="lg"
+                icon={<HandCoins className="h-5 w-5" />}
+                label={t('receivePayment')}
+                disabled={full.syncState !== 'synced' || !full.id}
+                onClick={() => setPayOpen(true)}
+                className="w-full"
+              />
+              {full.syncState !== 'synced' && <p className="text-sm text-slate-500 text-center">{t('receivePaymentUploadFirst')}</p>}
+            </div>
+          )}
+          <BillDetailBody bill={full} userNames={userNames} payments={payments} />
         </div>
       )}
       {full && settings && (
@@ -649,11 +690,38 @@ function BillDetailModal({ bill, userNames, partyPhone, showToast, onClose }: Bi
           busy={printing}
         />
       )}
+      <ReceivePaymentModal
+        bill={payOpen ? full : null}
+        settings={settings}
+        onClose={() => setPayOpen(false)}
+        onReceived={(paidAmount, received) => {
+          if (!full) return;
+          setPayOpen(false);
+          setFull({ ...full, paidAmount });
+          onPaid(full.clientId, paidAmount);
+          loadPayments(full.id);
+          const left = Math.max(0, full.total - paidAmount);
+          showToast(
+            left > 0
+              ? t('paymentSavedLeft', { amount: formatRupees(received), left: formatRupees(left) })
+              : t('paymentSavedClear', { amount: formatRupees(received) }),
+            'success'
+          );
+        }}
+      />
     </AppModal>
   );
 }
 
-function BillDetailBody({ bill, userNames }: { bill: ShopInvoice; userNames: Record<string, string> }) {
+function BillDetailBody({
+  bill,
+  userNames,
+  payments,
+}: {
+  bill: ShopInvoice;
+  userNames: Record<string, string>;
+  payments: BillPayment[];
+}) {
   const { t } = useT();
   const udhaar = bill.total - bill.paidAmount;
   const taxOnTop = bill.isGst && !bill.ratesIncludeGst;
@@ -706,6 +774,28 @@ function BillDetailBody({ bill, userNames }: { bill: ShopInvoice; userNames: Rec
         <InfoRow label={t('gstBill')} value={bill.isGst ? (bill.isInterstate ? `${t('yes')} · IGST` : t('yes')) : t('no')} />
         {bill.createdBy && userNames[bill.createdBy] && <InfoRow label={t('madeBy')} value={userNames[bill.createdBy]} />}
       </div>
+
+      {payments.length > 0 && (
+        <div data-testid="bill-payments">
+          <p className="text-sm font-semibold text-slate-700 mb-2">{t('paymentsReceived')}</p>
+          <ul className="divide-y divide-slate-100 border border-emerald-200 rounded-xl overflow-hidden">
+            {payments.map((p) => (
+              <li key={p.id} className="flex items-center justify-between gap-3 px-3 py-2.5 bg-white">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-900">
+                    {formatBillDate(p.paymentDate)} · {formatIstTime(p.createdAt)}
+                  </p>
+                  <p className="text-sm text-slate-500">
+                    {p.mode === 'upi' ? t('pay_upi') : p.mode === 'cash' ? t('pay_cash') : p.mode}
+                    {p.createdBy && userNames[p.createdBy] ? ` · ${userNames[p.createdBy]}` : ''}
+                  </p>
+                </div>
+                <span className="shrink-0 text-base font-bold text-emerald-700 tabular-nums">{formatRupees(p.amount, true)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div>
         <p className="text-sm font-semibold text-slate-700 mb-2">{t('items')}</p>

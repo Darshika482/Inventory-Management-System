@@ -534,6 +534,60 @@ export async function fetchDueSales(partyId: string | null): Promise<ShopInvoice
   return (data ?? []).map(mapInvoice).filter((b) => b.total > b.paidAmount);
 }
 
+/** Money received later against one bill. */
+export interface BillPayment {
+  id: string;
+  amount: number;
+  mode: string;
+  paymentDate: string;
+  createdAt: string;
+  createdBy: string | null;
+}
+
+/** Payments received later against a bill, oldest first. */
+export async function fetchBillPayments(invoiceId: string): Promise<BillPayment[]> {
+  const data = await runDb<
+    { id: string; amount: Num; mode: string; payment_date: string; created_at: string; created_by: string | null }[]
+  >((signal) =>
+    assertSupabase()
+      .from('shop_payments')
+      .select('id, amount, mode, payment_date, created_at, created_by')
+      .eq('invoice_id', invoiceId)
+      .order('created_at', { ascending: true })
+      .abortSignal(signal)
+  );
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    amount: dbToPaise(row.amount),
+    mode: row.mode,
+    paymentDate: row.payment_date,
+    createdAt: row.created_at,
+    createdBy: row.created_by,
+  }));
+}
+
+/**
+ * Records money received against an udhaar bill (shop_receive_payment, from
+ * supabase/shop/09-receive-payment.sql). Returns the bill's new paid amount.
+ * The same `clientId` sent twice is saved once.
+ */
+export async function receivePaymentRpc(input: {
+  clientId: string;
+  invoiceId: string;
+  amount: number;
+  mode: PaidMode;
+}): Promise<number> {
+  const data = await runDb<{ paid_amount: Num }>((signal) =>
+    assertSupabase()
+      .rpc('shop_receive_payment', {
+        p: { client_id: input.clientId, invoice_id: input.invoiceId, amount: paiseToDecimal(input.amount), mode: input.mode },
+      })
+      .abortSignal(signal)
+  );
+  if (!data) throw new Error('The server did not confirm the payment.');
+  return dbToPaise(data.paid_amount);
+}
+
 /** One bill with all its lines. */
 export async function fetchSaleByClientId(clientId: string): Promise<ShopInvoice | null> {
   const data = await runDb<DbShopInvoice | null>((signal) =>
