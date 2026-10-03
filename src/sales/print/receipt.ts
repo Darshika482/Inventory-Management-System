@@ -115,12 +115,14 @@ export function upiQrAmount(bill: ShopInvoice): Paise | null {
   return bill.total > 0 ? bill.total : null;
 }
 
-/** 126000 -> "1260", 1850 -> "18.50": plain numbers like a shop bill, no "Rs". */
+/** 126000 -> "1260", 1750 -> "17.5", 1825 -> "18.25": plain numbers like a Vyapar bill, no "Rs". */
 export function plainAmount(paise: Paise): string {
   const negative = paise < 0;
   const abs = Math.abs(paise);
   const rest = abs % 100;
-  return `${negative ? '-' : ''}${Math.floor(abs / 100)}${rest ? `.${String(rest).padStart(2, '0')}` : ''}`;
+  // No trailing zero after the point: 17.5, not 17.50.
+  const paisePart = rest ? `.${String(rest).padStart(2, '0').replace(/0$/, '')}` : '';
+  return `${negative ? '-' : ''}${Math.floor(abs / 100)}${paisePart}`;
 }
 
 /** '2026-10-03' -> '03/10/2026' */

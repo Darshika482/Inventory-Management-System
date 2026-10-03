@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { blockQr, encodeReceipt, rasterBytes, testPageLines } from './escpos';
-import { charsPerLine, layoutReceipt, printedUpiLink, receiptMoney, receiptToTextRows, upiLink, type ReceiptLine } from './receipt';
+import { charsPerLine, layoutReceipt, plainAmount, printedUpiLink, receiptMoney, receiptToTextRows, upiLink, type ReceiptLine } from './receipt';
 import { qrMatrix } from './qr';
 import type { ShopInvoice, ShopSettings } from '../types';
 
@@ -190,8 +190,16 @@ it('never cuts digits off a big amount', () => {
   const rows = receiptToTextRows(layoutReceipt(big, settings, { hindi: false, showUpiQr: false }), 58);
   const row = rows.find((r) => r.startsWith('1 '))!;
   // Two spaces between Qty, Price and Amount even when they overflow their columns.
-  expect(row).toMatch(/ 1000  12345\.50  12345500$/);
+  expect(row).toMatch(/ 1000  12345\.5  12345500$/);
   expect(row.length).toBeLessThanOrEqual(charsPerLine(58, true));
+});
+
+it('prints amounts without a trailing zero, like Vyapar', () => {
+  expect(plainAmount(1750)).toBe('17.5');
+  expect(plainAmount(1825)).toBe('18.25');
+  expect(plainAmount(1805)).toBe('18.05');
+  expect(plainAmount(126000)).toBe('1260');
+  expect(plainAmount(-4150)).toBe('-41.5');
 });
 
 describe('QR drawn with block letters', () => {
