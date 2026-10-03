@@ -20,7 +20,6 @@ import { PaymentsSection } from './components/PaymentsSection';
 import { AnalysisSection } from './components/AnalysisSection';
 import { TransportSection } from './components/TransportSection';
 import { WorkersSection } from './components/WorkersSection';
-import { WorkerDashboard } from './components/WorkerDashboard';
 import {
   authenticateUser,
   deleteCategoryFromDb,
@@ -49,13 +48,13 @@ interface Toast {
 const ACTIVE_SECTION_KEY = 'ims_active_section';
 
 function homeSectionFor(role?: User['role']): string {
-  return role === 'Admin' ? 'overview' : 'withdraw';
+  return role === 'Admin' ? 'overview' : 'shop-new-sale';
 }
 
 // Reopen on the page the user last had. Admins can land on any of their pages
 // (whatever was stored came from a real menu click), while workers only have
-// their stock page and the shop sales pages open to staff. Falls back to the
-// home page when nothing is stored.
+// the shop sales pages open to staff. Falls back to the home page when nothing
+// is stored.
 function readInitialSection(user: User | null): string {
   const home = homeSectionFor(user?.role);
   const stored = localStorage.getItem(ACTIVE_SECTION_KEY);
@@ -574,11 +573,12 @@ export default function App() {
             activeSection={activeSection}
           />
         ) : (
-          <WorkerDashboard
+          <ShopSection
+            key="shop-new-sale"
+            section="shop-new-sale"
             currentUser={currentUser}
-            categories={categories}
-            logs={logs}
-            onWithdraw={handleWithdraw}
+            onNavigate={setActiveSection}
+            showToast={showToast}
           />
         )}
       </div>

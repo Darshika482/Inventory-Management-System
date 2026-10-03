@@ -481,7 +481,7 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
         hideLanguage
         actions={
           <>
-            <PrinterChip settings={settings} />
+            <PrinterChip settings={settings} canEdit={isOwner} />
             {draft.lines.length > 0 && (
               <ActionButton
                 tone="secondary"

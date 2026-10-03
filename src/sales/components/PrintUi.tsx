@@ -127,7 +127,7 @@ const DOT: Record<string, string> = {
 };
 
 /** Small "Printer ready / Printer off" button; tapping it connects or opens setup. */
-export function PrinterChip({ settings }: { settings: ShopSettings | null }) {
+export function PrinterChip({ settings, canEdit }: { settings: ShopSettings | null; canEdit: boolean }) {
   const { t } = useT();
   const status = usePrinterStatus();
   const [setupOpen, setSetupOpen] = useState(false);
@@ -152,7 +152,7 @@ export function PrinterChip({ settings }: { settings: ShopSettings | null }) {
         <span className="hidden @md:inline">{t(`printerStatus_${status.state}`)}</span>
       </button>
       <AppModal open={setupOpen} onClose={() => setSetupOpen(false)} title={t('printerTitle')} icon={<Printer className="h-5 w-5" />} accent="slate">
-        <PrinterSetupPanel settings={settings} />
+        <PrinterSetupPanel settings={settings} canEdit={canEdit} />
       </AppModal>
     </>
   );
@@ -160,7 +160,8 @@ export function PrinterChip({ settings }: { settings: ShopSettings | null }) {
 
 // --- Setup (Shop settings and the chip) ---
 
-export function PrinterSetupPanel({ settings }: { settings: ShopSettings | null }) {
+/** Staff (canEdit false) only get connect and test; the print options are the owner's. */
+export function PrinterSetupPanel({ settings, canEdit = true }: { settings: ShopSettings | null; canEdit?: boolean }) {
   const { t } = useT();
   const status = usePrinterStatus();
   const [prefs, setPrefs] = useState<PrinterPrefs>(getPrinterPrefs);
@@ -210,18 +211,22 @@ export function PrinterSetupPanel({ settings }: { settings: ShopSettings | null 
 
   return (
     <div className="space-y-4">
-      <Segmented<PrintMethod>
-        label={t('printerMethod')}
-        value={prefs.method}
-        columns={3}
-        options={[
-          { value: 'bluetooth', label: t('printer_bluetooth'), icon: <Bluetooth className="h-4 w-4" /> },
-          { value: 'rawbt', label: t('printer_rawbt'), icon: <Smartphone className="h-4 w-4" /> },
-          { value: 'none', label: t('printer_none'), icon: <X className="h-4 w-4" /> },
-        ]}
-        onChange={(method) => update({ method })}
-      />
-      <p className="text-sm text-slate-500 leading-relaxed -mt-2">{t('printerMethodHint')}</p>
+      {canEdit && (
+        <>
+        <Segmented<PrintMethod>
+          label={t('printerMethod')}
+          value={prefs.method}
+          columns={3}
+          options={[
+            { value: 'bluetooth', label: t('printer_bluetooth'), icon: <Bluetooth className="h-4 w-4" /> },
+            { value: 'rawbt', label: t('printer_rawbt'), icon: <Smartphone className="h-4 w-4" /> },
+            { value: 'none', label: t('printer_none'), icon: <X className="h-4 w-4" /> },
+          ]}
+          onChange={(method) => update({ method })}
+        />
+        <p className="text-sm text-slate-500 leading-relaxed -mt-2">{t('printerMethodHint')}</p>
+        </>
+      )}
 
       {prefs.method === 'bluetooth' && (
         <div className="rounded-xl border border-slate-200 p-3 space-y-2">
@@ -250,30 +255,34 @@ export function PrinterSetupPanel({ settings }: { settings: ShopSettings | null 
 
       {prefs.method !== 'none' && (
         <>
-          <label className="block space-y-1.5">
-            <span className="block text-sm font-semibold text-slate-700">{t('billNameLabel')}</span>
-            <input
-              value={prefs.billName}
-              onChange={(e) => update({ billName: e.target.value })}
-              placeholder="Surbhi Fall"
-              className="w-full min-h-12 bg-slate-50 border border-slate-200 rounded-xl px-4 text-base text-slate-900 focus:outline-none focus:bg-white focus:border-amber-500"
-            />
-            <input
-              value={prefs.billSubtitle}
-              onChange={(e) => update({ billSubtitle: e.target.value })}
-              placeholder="wholesale"
-              className="w-full min-h-12 bg-slate-50 border border-slate-200 rounded-xl px-4 text-base text-slate-900 focus:outline-none focus:bg-white focus:border-amber-500"
-            />
-          </label>
-          <ToggleRow label={t('printerUpiQr')} checked={prefs.showUpiQr} onChange={(showUpiQr) => update({ showUpiQr })} />
-          <ToggleRow
-            label={t('printerNativeQr')}
-            hint={t('printerNativeQrHint')}
-            checked={prefs.nativeQr}
-            onChange={(nativeQr) => update({ nativeQr })}
-          />
-          <ToggleRow label={t('printerHindi')} hint={t('printerHindiHint')} checked={prefs.hindi} onChange={(hindi) => update({ hindi })} />
-          <ToggleRow label={t('printerCutter')} checked={prefs.cutter} onChange={(cutter) => update({ cutter })} />
+          {canEdit && (
+            <>
+              <label className="block space-y-1.5">
+                <span className="block text-sm font-semibold text-slate-700">{t('billNameLabel')}</span>
+                <input
+                  value={prefs.billName}
+                  onChange={(e) => update({ billName: e.target.value })}
+                  placeholder="Surbhi Fall"
+                  className="w-full min-h-12 bg-slate-50 border border-slate-200 rounded-xl px-4 text-base text-slate-900 focus:outline-none focus:bg-white focus:border-amber-500"
+                />
+                <input
+                  value={prefs.billSubtitle}
+                  onChange={(e) => update({ billSubtitle: e.target.value })}
+                  placeholder="wholesale"
+                  className="w-full min-h-12 bg-slate-50 border border-slate-200 rounded-xl px-4 text-base text-slate-900 focus:outline-none focus:bg-white focus:border-amber-500"
+                />
+              </label>
+              <ToggleRow label={t('printerUpiQr')} checked={prefs.showUpiQr} onChange={(showUpiQr) => update({ showUpiQr })} />
+              <ToggleRow
+                label={t('printerNativeQr')}
+                hint={t('printerNativeQrHint')}
+                checked={prefs.nativeQr}
+                onChange={(nativeQr) => update({ nativeQr })}
+              />
+              <ToggleRow label={t('printerHindi')} hint={t('printerHindiHint')} checked={prefs.hindi} onChange={(hindi) => update({ hindi })} />
+              <ToggleRow label={t('printerCutter')} checked={prefs.cutter} onChange={(cutter) => update({ cutter })} />
+            </>
+          )}
           <ActionButton
             tone="success"
             icon={<PrinterCheck className="h-5 w-5" />}

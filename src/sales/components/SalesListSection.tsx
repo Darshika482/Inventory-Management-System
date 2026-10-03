@@ -63,7 +63,7 @@ function presetRange(preset: Exclude<Preset, 'custom'>): DateRangeValue {
 const ALL_PARTIES = '';
 
 /** Staff see only this many of the newest bills. */
-const STAFF_BILL_LIMIT = 10;
+const STAFF_BILL_LIMIT = 5;
 
 export function SalesListSection({ currentUser, showToast }: SalesListSectionProps) {
   const isStaff = currentUser.role !== 'Admin';
