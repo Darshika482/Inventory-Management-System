@@ -261,19 +261,23 @@ const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
  */
 async function writeBluetooth(bytes: Uint8Array): Promise<void> {
   if (!channel) throw new Error('not connected');
-  // "With response" waits for the printer to accept each piece: slower but safe.
-  const confirmed = channel.properties.write;
-  const chunk = confirmed ? 100 : 20;
+  // Cheap printers hold only ~4 KB and print pictures slowly; a bill that
+  // printed fine for its first ~3 KB then turned to letters showed the buffer
+  // overflowing. Capping the speed keeps the buffer from ever filling up.
+  const bytesPerSecond = 2000;
+  const chunk = 100;
+  const fast = channel.properties.writeWithoutResponse && channel.writeValueWithoutResponse;
+  const start = Date.now();
   for (let i = 0; i < bytes.length; i += chunk) {
     const part = bytes.slice(i, i + chunk);
-    if (confirmed) await channel.writeValue(part);
-    else {
-      await channel.writeValueWithoutResponse!(part);
-      await pause(12);
-    }
+    if (fast) await channel.writeValueWithoutResponse!(part);
+    else await channel.writeValue(part);
+    const due = start + ((i + part.length) / bytesPerSecond) * 1000;
+    const wait = due - Date.now();
+    if (wait > 0) await pause(wait);
   }
   // Let the printer finish its buffer before the link is let go.
-  await pause(800);
+  await pause(1500);
 }
 
 /** Lets go of the printer so other phones in the shop can print too. */
@@ -286,6 +290,19 @@ function releasePrinter() {
     // Already gone.
   }
   channel = null;
+}
+
+/**
+ * Blank bytes before each print. If an earlier print was cut off in the middle
+ * of a picture strip, the printer is still waiting for the rest of it and would
+ * print this bill's bytes as letters; these zeros fill that strip with white
+ * (at most a few mm of blank paper), and printers ignore them otherwise.
+ */
+function withFlush(bytes: Uint8Array): Uint8Array {
+  const flush = 24 * 72 + 16; // one full picture strip on 80mm paper
+  const out = new Uint8Array(flush + bytes.length);
+  out.set(bytes, flush);
+  return out;
 }
 
 // --- RawBT ---
@@ -346,7 +363,7 @@ export async function printBytes(bytes: Uint8Array): Promise<PrintResult> {
 
   setState('printing');
   try {
-    await writeBluetooth(bytes);
+    await writeBluetooth(withFlush(bytes));
     releasePrinter();
     // Still "ready": the next print connects again in a moment.
     setState('connected');

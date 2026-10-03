@@ -100,16 +100,18 @@ function rasterBand(pixels: boolean[][]): number[] {
 }
 
 /** QR code as an image, `scale` dots per module, centred on the paper. */
-export function qrRaster(data: string, widthMm: 58 | 80, scale = 5): number[] {
+export function qrRaster(data: string, widthMm: 58 | 80, scale = 4): number[] {
   const matrix = qrMatrix(data);
   const size = matrix.length;
   const quiet = 2;
   const dots = (size + quiet * 2) * scale;
   const total = dotsPerLine(widthMm);
   const left = Math.max(0, Math.floor((total - dots) / 2));
+  // Rows stop at the QR's right edge: less to send, so less to go wrong.
+  const rowWidth = left + dots;
   const pixels: boolean[][] = [];
   for (let y = 0; y < dots; y++) {
-    const row = new Array<boolean>(total).fill(false);
+    const row = new Array<boolean>(rowWidth).fill(false);
     const my = Math.floor(y / scale) - quiet;
     for (let x = 0; x < dots; x++) {
       const mx = Math.floor(x / scale) - quiet;
