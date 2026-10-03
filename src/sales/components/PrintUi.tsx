@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Bluetooth,
   BluetoothOff,
@@ -9,6 +9,7 @@ import {
   Eye,
   Printer,
   PrinterCheck,
+  RefreshCw,
   Smartphone,
   Trash2,
   TriangleAlert,
@@ -20,6 +21,8 @@ import { useStore } from '../useStore';
 import {
   bluetoothSupported,
   forgetPrinter,
+  printerRemembered,
+  restorePrinter,
   getPrinterPrefs,
   pairBluetoothPrinter,
   savePrinterPrefs,
@@ -212,6 +215,72 @@ const isAndroid = () => typeof navigator !== 'undefined' && /Android/i.test(navi
 
 const BRAVE_FLAG = 'brave://flags/#brave-web-bluetooth-api';
 
+/** An address to copy (chrome:// pages cannot be opened by a link). */
+function CopyLine({ value }: { value: string }) {
+  const { t } = useT();
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="flex items-center gap-2 rounded-lg bg-slate-100 px-3 py-2">
+      <code className="min-w-0 flex-1 truncate text-sm text-slate-800">{value}</code>
+      <button
+        type="button"
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(value);
+            setCopied(true);
+          } catch {
+            // Clipboard blocked: the address is on screen to type.
+          }
+        }}
+        className="shrink-0 min-h-10 px-3 rounded-lg bg-white border border-slate-200 text-sm font-bold text-slate-700 cursor-pointer flex items-center gap-1.5"
+      >
+        {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+        {copied ? t('copied') : t('copy')}
+      </button>
+    </div>
+  );
+}
+
+const CHROME_FLAGS = [
+  'chrome://flags/#enable-web-bluetooth-new-permissions-backend',
+  'chrome://flags/#enable-experimental-web-platform-features',
+];
+
+/**
+ * Chrome forgets the printer whenever the app reloads (after a refresh or an
+ * update) unless two of its settings are on. One-time steps per phone.
+ */
+export function KeepPrinterTip() {
+  const { t } = useT();
+  const [open, setOpen] = useState(false);
+  if (printerRemembered() || !isAndroid()) return null;
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3.5 space-y-2.5" data-testid="keep-printer-tip">
+      <button type="button" onClick={() => setOpen((v) => !v)} className="w-full flex gap-3 text-left cursor-pointer">
+        <RefreshCw className="h-5 w-5 shrink-0 text-amber-600 mt-0.5" />
+        <span className="min-w-0">
+          <span className="block text-base font-bold text-slate-900">{t('keepPrinterTitle')}</span>
+          <span className="block text-sm text-slate-700 leading-relaxed">{t('keepPrinterText')}</span>
+          {!open && <span className="block text-sm font-bold text-amber-800 underline underline-offset-4 mt-1">{t('keepPrinterShow')}</span>}
+        </span>
+      </button>
+      {open && (
+        <ol className="space-y-2.5 text-sm text-slate-800">
+          <li>
+            <p className="mb-1.5">{t('keepPrinterStep1')}</p>
+            <CopyLine value={CHROME_FLAGS[0]} />
+          </li>
+          <li>
+            <p className="mb-1.5">{t('keepPrinterStep2')}</p>
+            <CopyLine value={CHROME_FLAGS[1]} />
+          </li>
+          <li>{t('keepPrinterStep3')}</li>
+        </ol>
+      )}
+    </div>
+  );
+}
+
 /** Why the printer list cannot open in this browser, and the ways around it. */
 export function BluetoothBlockedHelp({ onUseRawBt }: { onUseRawBt?: () => void }) {
   const { t } = useT();
@@ -314,6 +383,10 @@ function PrinterChecklist({ rawbt }: { rawbt: boolean }) {
 /** The help sheet; mounted once for the shop pages. */
 export function PrinterHelpHost({ canEdit }: { canEdit: boolean }) {
   const { t } = useT();
+  // After a refresh or an app update, pick the saved printer back up if Chrome allows it.
+  useEffect(() => {
+    void restorePrinter();
+  }, []);
   const request = useStore(
     (l) => {
       helpListeners.add(l);
@@ -451,6 +524,8 @@ function PrinterConnectFlow({ request, canEdit, onDone }: { request: HelpRequest
           )}
 
           <PrinterChecklist rawbt={rawbt} />
+
+          {!rawbt && <KeepPrinterTip />}
 
           {canEdit && !rawbt && isAndroid() && (
             <button type="button" onClick={useRawBt} className="w-full min-h-11 text-sm font-bold text-slate-600 underline underline-offset-4 cursor-pointer">
@@ -599,6 +674,8 @@ export function PrinterSetupPanel({ settings, canEdit = true }: { settings: Shop
           </div>
         </div>
       )}
+
+      {prefs.method === 'bluetooth' && bluetoothSupported() && <KeepPrinterTip />}
 
       {prefs.method !== 'none' && (
         <>

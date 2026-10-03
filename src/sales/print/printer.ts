@@ -269,6 +269,34 @@ async function ensureConnected(ms: number): Promise<'connected' | 'unknown' | 'f
   }
 }
 
+/**
+ * Chrome keeps the chosen printer after the app reloads only when its
+ * "remember Bluetooth devices" settings (flags) are on; then getDevices() exists.
+ */
+export function printerRemembered(): boolean {
+  return typeof navigator !== 'undefined' && Boolean(navigator.bluetooth?.getDevices);
+}
+
+/**
+ * When the app opens again (refresh, update): finds the saved printer if
+ * Chrome still allows it, and shows it as ready. Each print connects for
+ * itself, so nothing is held open. Never throws.
+ */
+export async function restorePrinter(): Promise<void> {
+  const prefs = getPrinterPrefs();
+  if (prefs.method !== 'bluetooth' || !prefs.deviceId || device || !printerRemembered()) return;
+  try {
+    const known = await navigator.bluetooth!.getDevices!();
+    const saved = known.find((d) => d.id === prefs.deviceId);
+    if (!saved || device) return;
+    saved.addEventListener('gattserverdisconnected', onDisconnected);
+    device = saved;
+    if (status.state === 'disconnected') setState('connected');
+  } catch {
+    // Not allowed: the first print opens the printer list instead.
+  }
+}
+
 /** Tries to reconnect in the background (e.g. when the bill screen opens). */
 export function warmUpPrinter(): void {
   // Deliberately does nothing now: holding the link open blocks the other
