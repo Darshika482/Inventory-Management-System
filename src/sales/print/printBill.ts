@@ -3,8 +3,11 @@ import { readCache } from '../cache';
 import type { ShopInvoice, ShopItem, ShopSettings } from '../types';
 import { encodeImageReceipt, encodeReceipt, testPageLines } from './escpos';
 import { getPrinterPrefs, printBytes, type PrintResult } from './printer';
-import { renderReceiptPixels, renderSideText } from './raster';
+import { loadBillFont, renderReceiptPixels, renderSideText } from './raster';
 import { layoutReceipt, type ReceiptLine } from './receipt';
+
+// Fetch the bill font now, so the first print does not wait for it.
+void loadBillFont();
 
 /** item id -> Hindi name, from the items kept on this phone. */
 function hindiNames(): Record<string, string> {
@@ -24,7 +27,7 @@ export function receiptLinesFor(bill: ShopInvoice, settings: ShopSettings): Rece
   });
 }
 
-function encode(lines: ReceiptLine[], widthMm: 58 | 80): Uint8Array {
+async function encode(lines: ReceiptLine[], widthMm: 58 | 80): Promise<Uint8Array> {
   const prefs = getPrinterPrefs();
   const options = {
     widthMm,
@@ -32,12 +35,15 @@ function encode(lines: ReceiptLine[], widthMm: 58 | 80): Uint8Array {
     qrStyle: prefs.qrStyle,
     renderSide: renderSideText,
   };
-  return prefs.hindi ? encodeImageReceipt(renderReceiptPixels(lines, widthMm), options) : encodeReceipt(lines, options);
+  // The printer only has its own two fonts: Hindi and Roboto Mono go as a picture.
+  if (!prefs.hindi && !prefs.robotoMono) return encodeReceipt(lines, options);
+  if (prefs.robotoMono) await loadBillFont();
+  return encodeImageReceipt(renderReceiptPixels(lines, widthMm, prefs.robotoMono), options);
 }
 
 export async function printBill(bill: ShopInvoice, settings: ShopSettings): Promise<PrintResult> {
   try {
-    return await printBytes(encode(receiptLinesFor(bill, settings), settings.printerWidthMm));
+    return await printBytes(await encode(receiptLinesFor(bill, settings), settings.printerWidthMm));
   } catch (err) {
     return { ok: false, reason: 'failed', detail: err instanceof Error ? err.message : String(err) };
   }
@@ -46,7 +52,7 @@ export async function printBill(bill: ShopInvoice, settings: ShopSettings): Prom
 export async function printTestPage(settings: ShopSettings): Promise<PrintResult> {
   try {
     const lines = testPageLines(settings.shopName, settings.printerWidthMm, settings.upiId);
-    return await printBytes(encode(lines, settings.printerWidthMm));
+    return await printBytes(await encode(lines, settings.printerWidthMm));
   } catch (err) {
     return { ok: false, reason: 'failed', detail: err instanceof Error ? err.message : String(err) };
   }

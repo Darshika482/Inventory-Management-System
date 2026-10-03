@@ -15,13 +15,14 @@ export type ReceiptAlign = 'left' | 'center' | 'right';
 export type ReceiptLine =
   /** `mono`: a pre-spaced table row, printed exactly as it is (no wrapping). */
   /** `big`: double size. `tall`: double height only (normal width). */
-  | { kind: 'text'; text: string; align?: ReceiptAlign; bold?: boolean; big?: boolean; tall?: boolean; mono?: boolean }
+  /** `small`: the printer's small font (more letters per line). */
+  | { kind: 'text'; text: string; align?: ReceiptAlign; bold?: boolean; big?: boolean; tall?: boolean; mono?: boolean; small?: boolean }
   /** Left text and right text on one line, e.g. "Total" ... "Rs 789.00". */
-  | { kind: 'pair'; left: string; right: string; bold?: boolean; big?: boolean }
+  | { kind: 'pair'; left: string; right: string; bold?: boolean; big?: boolean; small?: boolean }
   /** A dashed rule across the paper. */
   | { kind: 'rule' }
   /** `side`: short label/value pairs printed beside the QR (Received, Balance). */
-  | { kind: 'qr'; data: string; caption: string; side?: SideItem[] }
+  | { kind: 'qr'; data: string; caption?: string; side?: SideItem[] }
   | { kind: 'feed'; lines: number };
 
 export interface SideItem {
@@ -44,8 +45,6 @@ export interface ReceiptOptions {
   billName?: string;
   /** Small line under the name (e.g. "wholesale"). */
   billSubtitle?: string;
-  /** Printer's small font (more letters per line). */
-  smallFont?: boolean;
 }
 
 /** Characters per line: normal font 12 dots wide, small font 9 dots wide. */
@@ -120,12 +119,14 @@ function slashDate(iso: string): string {
   return d && m && y ? `${d}/${m}/${y}` : iso;
 }
 
-/** Item table column widths (characters) for the paper width. */
+/** Item table column widths (characters), for the small font's line. */
 function columns(width: number) {
-  if (width >= 48) return { no: 3, qty: 7, price: 9, amount: 10, name: width - 3 - 7 - 9 - 10 };
-  if (width >= 40) return { no: 3, qty: 6, price: 8, amount: 9, name: width - 3 - 6 - 8 - 9 };
-  return { no: 2, qty: 5, price: 6, amount: 7, name: width - 2 - 5 - 6 - 7 };
+  if (width >= 64) return { no: 4, qty: 8, price: 11, amount: 12, name: width - 4 - 8 - 11 - 12 };
+  return { no: 3, qty: 6, price: 8, amount: 9, name: width - 3 - 6 - 8 - 9 };
 }
+
+/** Spaces kept in front of every number, so Qty, Price and Amount never run together. */
+const NUMBER_GAP = '  ';
 
 function fit(text: string, width: number): string {
   return text.length > width ? text.slice(0, width) : text;
@@ -133,10 +134,12 @@ function fit(text: string, width: number): string {
 
 export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options: ReceiptOptions): ReceiptLine[] {
   const lines: ReceiptLine[] = [];
-  const width = charsPerLine(options.widthMm ?? 58, options.smallFont);
+  // The heading uses the normal font; the details, items and totals the small
+  // font, so the numbers stay small and the columns have room between them.
+  const width = charsPerLine(options.widthMm ?? 58, true);
   const col = columns(width);
   const due = bill.billType === 'quotation' ? 0 : bill.total - bill.paidAmount;
-  const mono = (text: string, bold = false): ReceiptLine => ({ kind: 'text', text, mono: true, bold });
+  const mono = (text: string, bold = false): ReceiptLine => ({ kind: 'text', text, mono: true, small: true, bold });
 
   // Shop name: bold and double height (normal width), one fixed size.
   lines.push({ kind: 'text', text: options.billName?.trim() || settings.shopName, align: 'center', bold: true, tall: true });
@@ -157,9 +160,9 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
           : 'Invoice';
   lines.push({ kind: 'text', text: title, align: 'center', bold: true });
   if (bill.status === 'cancelled') lines.push({ kind: 'text', text: '*** CANCELLED ***', align: 'center', bold: true });
-  lines.push({ kind: 'pair', left: bill.partyName || 'Cash Sale', right: `Date: ${slashDate(bill.billDate)}` });
-  lines.push({ kind: 'pair', left: `Bill No: ${billLabel(bill.billNumber) ?? 'pending'}`, right: formatIstTime(bill.createdAt) });
-  if (bill.partyGstin) lines.push({ kind: 'text', text: `GSTIN: ${bill.partyGstin}` });
+  lines.push({ kind: 'pair', left: bill.partyName || 'Cash Sale', right: `Date: ${slashDate(bill.billDate)}`, small: true });
+  lines.push({ kind: 'pair', left: `Bill No: ${billLabel(bill.billNumber) ?? 'pending'}`, right: formatIstTime(bill.createdAt), small: true });
+  if (bill.partyGstin) lines.push({ kind: 'text', text: `GSTIN: ${bill.partyGstin}`, small: true });
   lines.push({ kind: 'rule' });
 
   // Item table:  # Name   Qty  Price  Amount
@@ -181,9 +184,9 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
     const gross = mulDivRound(line.qty, line.rate, 1000);
     // Numbers are never cut: a big one takes room from the name column instead.
     const numbers =
-      ` ${formatQty(line.qty)}`.padStart(col.qty) +
-      ` ${plainAmount(line.rate)}`.padStart(col.price) +
-      ` ${plainAmount(gross)}`.padStart(col.amount);
+      `${NUMBER_GAP}${formatQty(line.qty)}`.padStart(col.qty) +
+      `${NUMBER_GAP}${plainAmount(line.rate)}`.padStart(col.price) +
+      `${NUMBER_GAP}${plainAmount(gross)}`.padStart(col.amount);
     const nameWidth = Math.max(4, width - col.no - numbers.length);
     const nameRows = wrapText(name, nameWidth);
     lines.push(mono(fit(String(i + 1), col.no - 1).padEnd(col.no) + fit(nameRows[0], nameWidth).padEnd(nameWidth) + numbers));
@@ -237,17 +240,16 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
           { label: 'Balance', value: plainAmount(Math.max(0, due)), strong: due > 0 },
         ];
   if (!qrShown) for (const item of side) total(item.label, item.value, item.strong);
-  if (bill.isGst && bill.ratesIncludeGst) lines.push({ kind: 'text', text: '(GST included in rates)', align: 'center' });
+  if (bill.isGst && bill.ratesIncludeGst) lines.push({ kind: 'text', text: '(GST included in rates)', align: 'center', small: true });
 
   // UPI QR on every sale bill: with the amount due (or the UPI total), else plain.
   // The QR comes last, so the bill itself is complete whatever the printer does with it.
-  const qrAmount = upiQrAmount(bill);
+  // No line under it: the amount is already filled in when the customer scans.
   if (qrShown) {
     lines.push({ kind: 'feed', lines: 1 });
     lines.push({
       kind: 'qr',
-      data: printedUpiLink(settings.upiId, options.billName?.trim() || settings.shopName, qrAmount),
-      caption: qrAmount ? `Scan to pay Rs ${plainAmount(qrAmount)}` : 'Scan this QR code to pay',
+      data: printedUpiLink(settings.upiId, options.billName?.trim() || settings.shopName, upiQrAmount(bill)),
       side,
     });
   }
@@ -286,10 +288,11 @@ export function pairToRows(left: string, right: string, width: number): string[]
   return [...leftRows, last.padEnd(width - right.length) + right];
 }
 
-/** The receipt as plain fixed-width text rows (used by the text printout and tests). */
-export function receiptToTextRows(lines: ReceiptLine[], width: number): string[] {
+/** The receipt as plain fixed-width text rows (used by tests); small-font rows are longer. */
+export function receiptToTextRows(lines: ReceiptLine[], widthMm: 58 | 80): string[] {
   const rows: string[] = [];
   for (const line of lines) {
+    const width = charsPerLine(widthMm, 'small' in line && Boolean(line.small));
     switch (line.kind) {
       case 'rule':
         rows.push('-'.repeat(width));
@@ -300,7 +303,7 @@ export function receiptToTextRows(lines: ReceiptLine[], width: number): string[]
       case 'qr':
         rows.push('[QR]');
         for (const item of line.side ?? []) rows.push(`[QR]  ${item.label}: ${item.value}`);
-        rows.push(...wrapText(line.caption, width).map((r) => centre(r, width)));
+        if (line.caption) rows.push(...wrapText(line.caption, width).map((r) => centre(r, width)));
         break;
       case 'pair': {
         const w = line.big ? Math.floor(width / 2) : width;

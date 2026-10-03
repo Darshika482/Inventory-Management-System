@@ -23,6 +23,8 @@ export interface PrinterPrefs {
   qrStyle: QrStyle;
   /** Item names in Hindi (receipt is sent as an image). */
   hindi: boolean;
+  /** Bill letters in Roboto Mono Medium (receipt is sent as an image). */
+  robotoMono: boolean;
   /** UPI QR for the amount due. */
   showUpiQr: boolean;
   /** Name printed at the top of the bill. */
@@ -44,10 +46,11 @@ const DEFAULT_PREFS: PrinterPrefs = {
   // A small QR picture (about 2 KB, sent slowly, printed last on the bill).
   qrStyle: 'picture',
   hindi: false,
+  robotoMono: true,
   showUpiQr: true,
   billName: 'Surbhi Fall',
   billSubtitle: 'wholesale',
-  version: 7,
+  version: 8,
 };
 
 export function getPrinterPrefs(): PrinterPrefs {
@@ -84,6 +87,11 @@ export function getPrinterPrefs(): PrinterPrefs {
     if (saved.version < 7) {
       saved.qrStyle = 'picture';
       saved.version = 7;
+    }
+    // Version 8: bill letters in Roboto Mono Medium.
+    if (saved.version < 8) {
+      saved.robotoMono = true;
+      saved.version = 8;
     }
     return { ...DEFAULT_PREFS, ...saved };
   } catch {

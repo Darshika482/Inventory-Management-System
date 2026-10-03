@@ -22,8 +22,6 @@ export interface EscPosOptions {
   /** Cut the paper at the end (only printers with a cutter). */
   cutter: boolean;
   qrStyle: QrStyle;
-  /** Small font (9x17 dots) in bold: more per line and still easy to read. */
-  smallFont?: boolean;
   /**
    * Draws the Received/Balance text that sits beside a picture QR, as dots
    * `height` tall and at most `maxWidth` wide (browser only: needs a canvas).
@@ -68,8 +66,8 @@ const font = (small: boolean) => [ESC, 0x4d, small ? 1 : 0];
 const spacing = (dots?: number) => (dots ? [ESC, 0x33, dots] : [ESC, 0x32]);
 /** Double height only: makes a line stand out without taking more width. */
 const tall = (on: boolean) => [GS, 0x21, on ? 0x01 : 0x00];
-/** Rows of the small font sit 3 dots apart: compact but not touching. */
-const SMALL_LINE = 20;
+/** Line spacing for the small font (17 dots tall): 7 dots of white between rows. */
+const SMALL_LINE = 24;
 /** Double width and height when on. */
 const big = (on: boolean) => [GS, 0x21, on ? 0x11 : 0x00];
 const feed = (n: number) => [ESC, 0x64, Math.max(0, Math.min(255, n))];
@@ -223,60 +221,63 @@ export function blockQr(data: string, widthMm: 58 | 80, side: string[] = []): nu
 
 /** The whole receipt as ESC/POS bytes, in text mode. */
 export function encodeReceipt(lines: ReceiptLine[], options: EscPosOptions): Uint8Array {
-  const small = Boolean(options.smallFont);
-  const width = charsPerLine(options.widthMm, small);
-  // Big lines (the shop name) always use the normal font, doubled.
-  const bigWidth = Math.floor(charsPerLine(options.widthMm) / 2);
+  const width = charsPerLine(options.widthMm);
+  const smallWidth = charsPerLine(options.widthMm, true);
+  // Big lines (the shop name) are the normal font, doubled.
+  const bigWidth = Math.floor(width / 2);
   const out = new Bytes().push(...init());
-  // Small font in bold: thin small letters fade on thermal paper, bold ones stay clear.
-  const body = () => (small ? [...font(true), ...bold(true), ...spacing(SMALL_LINE)] : []);
-  out.push(...body());
 
-  /** Starts a line: big and tall lines in the normal font; in small mode bold lines are made taller. */
-  const start = (line: { bold?: boolean; big?: boolean; tall?: boolean }) => {
-    if (line.big || line.tall)
-      return [...font(false), ...spacing(), ...bold(Boolean(line.bold)), ...(line.big ? big(true) : tall(true))];
-    if (small) return [...bold(true), ...tall(Boolean(line.bold))];
-    return [...bold(Boolean(line.bold)), ...big(false)];
+  /** Font, line spacing, bold and size for a line; only sent when they change. */
+  let current = '';
+  const style = (line: { bold?: boolean; big?: boolean; tall?: boolean; small?: boolean }) => {
+    const small = Boolean(line.small && !line.big && !line.tall);
+    const bytes = [
+      ...font(small),
+      ...spacing(small ? SMALL_LINE : undefined),
+      ...bold(Boolean(line.bold)),
+      ...(line.big ? big(true) : tall(Boolean(line.tall))),
+    ];
+    const key = bytes.join(',');
+    if (key !== current) out.push(...bytes);
+    current = key;
   };
-  const end = (line: { big?: boolean; tall?: boolean }) =>
-    line.big || line.tall ? [...big(false), ...body(), ...bold(small)] : [...tall(false), ...bold(small)];
   /** Received/Balance under the QR, when they cannot go beside it. */
   const sideBelow = (side: SideItem[]) => {
     out.push(...align('left'));
     for (const item of side) {
-      out.push(...bold(small || Boolean(item.strong)));
-      for (const row of pairToRows(`  ${item.label}`, `${item.value}  `, width)) out.line(row);
+      style({ small: true, bold: item.strong });
+      for (const row of pairToRows(`  ${item.label}`, `${item.value}  `, smallWidth)) out.line(row);
     }
-    out.push(...bold(small));
   };
 
   for (const line of lines) {
     switch (line.kind) {
       case 'rule':
+        style({});
         out.push(...align('left')).line('-'.repeat(width));
         break;
       case 'feed':
         out.push(...feed(line.lines));
         break;
       case 'text': {
-        const w = line.big ? bigWidth : line.tall ? charsPerLine(options.widthMm) : width;
-        out.push(...align(line.align ?? 'left'), ...start(line));
-        if (line.mono) out.line(line.text.slice(0, width));
+        const w = line.big ? bigWidth : line.small && !line.tall ? smallWidth : width;
+        style(line);
+        out.push(...align(line.align ?? 'left'));
+        if (line.mono) out.line(line.text.slice(0, w));
         else for (const row of wrapText(line.text, w)) out.line(row);
-        out.push(...end(line));
         break;
       }
       case 'pair': {
-        const w = line.big ? bigWidth : width;
-        out.push(...align('left'), ...start(line));
+        const w = line.big ? bigWidth : line.small ? smallWidth : width;
+        style(line);
+        out.push(...align('left'));
         for (const row of pairToRows(line.left, line.right, w)) out.line(row);
-        out.push(...end(line));
         break;
       }
       case 'qr': {
         const side = line.side ?? [];
         let sideDone = false;
+        style({});
         out.push(...align('center'));
         if (options.qrStyle === 'native') out.push(...nativeQr(line.data, options.widthMm === 80 ? 7 : 6), LF);
         else if (options.qrStyle === 'picture') {
@@ -294,13 +295,18 @@ export function encodeReceipt(lines: ReceiptLine[], options: EscPosOptions): Uin
           } else {
             // blockQr left-aligns (ESC a 0) only when the text fitted beside it.
             sideDone = side.length > 0 && blocks[blocks.indexOf(0x61) + 1] === 0;
-            // The block QR sets its own font and spacing; put the bill's back.
-            out.push(...blocks, ...body());
+            // The block QR sets its own font and spacing, and ends on the normal ones.
+            out.push(...blocks);
+            current = '';
+            style({});
           }
         }
         if (!sideDone && side.length) sideBelow(side);
-        out.push(...align('center'));
-        for (const row of wrapText(line.caption, width)) out.line(row);
+        if (line.caption) {
+          style({});
+          out.push(...align('center'));
+          for (const row of wrapText(line.caption, width)) out.line(row);
+        }
         out.push(...align('left'));
         break;
       }
@@ -319,15 +325,19 @@ export function encodeImageReceipt(pixels: boolean[][], options: EscPosOptions):
   return out.done();
 }
 
-/** Short test page: shop name, width check and a QR. */
-export function testPageLines(shopName: string, widthMm: 58 | 80, upiId: string, smallFont = false): ReceiptLine[] {
-  const width = charsPerLine(widthMm, smallFont);
+/** Short test page: shop name, width check (normal and small font) and a QR. */
+export function testPageLines(shopName: string, widthMm: 58 | 80, upiId: string): ReceiptLine[] {
+  const width = charsPerLine(widthMm);
+  const smallWidth = charsPerLine(widthMm, true);
+  const digits = (n: number) => '1234567890'.repeat(Math.ceil(n / 10)).slice(0, n);
   const lines: ReceiptLine[] = [
     { kind: 'text', text: shopName, align: 'center', bold: true, big: true },
     { kind: 'text', text: 'Printer test', align: 'center' },
     { kind: 'rule' },
     { kind: 'text', text: `${widthMm} mm paper, ${width} letters per line` },
-    { kind: 'text', text: '1234567890'.repeat(Math.ceil(width / 10)).slice(0, width) },
+    { kind: 'text', text: digits(width) },
+    { kind: 'text', text: `Small letters: ${smallWidth} per line`, small: true },
+    { kind: 'text', text: digits(smallWidth), small: true },
     { kind: 'pair', left: 'Left', right: 'Right' },
     { kind: 'pair', left: 'TOTAL', right: 'Rs 789.00', bold: true, big: true },
   ];

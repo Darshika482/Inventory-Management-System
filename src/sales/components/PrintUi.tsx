@@ -33,7 +33,7 @@ import {
 } from '../print/printer';
 import { printTestPage } from '../print/printBill';
 import { qrMatrix } from '../print/qr';
-import type { ReceiptLine } from '../print/receipt';
+import { charsPerLine, type ReceiptLine } from '../print/receipt';
 import type { ShopSettings } from '../types';
 import { ActionButton, Segmented, ToggleRow } from './ui';
 
@@ -52,14 +52,17 @@ export function QrSvg({ data, className = 'mx-auto h-36 w-36' }: { data: string;
 
 /** The bill drawn like the paper roll, from the same lines the printer gets. */
 export function ReceiptPaper({ lines, widthMm }: { lines: ReceiptLine[]; widthMm: 58 | 80 }) {
-  // Size the letters so the widest table row fits, like on the paper.
+  // Size the letters so a full row fits, like on the paper: the small font
+  // (items, totals) fits more letters per line than the normal one.
   const paper = widthMm === 80 ? 380 : 280;
-  const widest = Math.max(32, ...lines.map((l) => (l.kind === 'text' && l.mono ? l.text.length : 0)));
-  const fontSize = Math.min(12, Math.floor(((paper - 24) / (widest * 0.6)) * 10) / 10);
+  const sizeFor = (chars: number) => Math.min(12, Math.floor(((paper - 24) / (chars * 0.6)) * 10) / 10);
+  const fontSize = sizeFor(charsPerLine(widthMm));
+  const smallSize = sizeFor(charsPerLine(widthMm, true));
+  const robotoMono = getPrinterPrefs().robotoMono;
   return (
     <div
-      className="mx-auto bg-white text-black shadow-md border border-slate-200 px-3 py-4 font-mono leading-snug"
-      style={{ width: paper, maxWidth: '100%', fontSize }}
+      className={`mx-auto bg-white text-black shadow-md border border-slate-200 px-3 py-4 font-mono leading-snug ${robotoMono ? 'font-medium' : ''}`}
+      style={{ width: paper, maxWidth: '100%', fontSize, fontFamily: robotoMono ? '"Roboto Mono", ui-monospace, monospace' : undefined }}
       data-testid="receipt-paper"
     >
       {lines.map((line, i) => {
@@ -79,23 +82,27 @@ export function ReceiptPaper({ lines, widthMm }: { lines: ReceiptLine[]; widthMm
                     <QrSvg data={line.data} className="w-full h-auto" />
                   </div>
                   {side.length > 0 && (
-                    <div className="min-w-0 space-y-2 font-sans">
+                    <div className={`min-w-0 space-y-2 ${robotoMono ? '' : 'font-sans'}`}>
                       {side.map((item) => (
                         <div key={item.label}>
-                          <p className="text-[11px] font-semibold leading-tight">{item.label}</p>
-                          <p className={`text-lg leading-tight tabular-nums ${item.strong ? 'font-extrabold' : 'font-bold'}`}>{item.value}</p>
+                          <p className="text-[10px] font-semibold leading-tight">{item.label}</p>
+                          <p className={`text-[13px] leading-tight tabular-nums ${item.strong ? 'font-extrabold' : robotoMono ? '' : 'font-bold'}`}>{item.value}</p>
                         </div>
                       ))}
                     </div>
                   )}
                 </div>
-                <p className="mt-1 text-center text-[11px]">{line.caption}</p>
+                {line.caption && <p className="mt-1 text-center text-[11px]">{line.caption}</p>}
               </div>
             );
           }
           case 'pair':
             return (
-              <div key={i} className={`flex justify-between gap-2 ${line.bold ? 'font-bold' : ''} ${line.big ? 'text-base' : ''}`}>
+              <div
+                key={i}
+                className={`flex justify-between gap-2 ${line.bold ? 'font-bold' : ''} ${line.big ? 'text-base' : ''}`}
+                style={line.small ? { fontSize: smallSize } : undefined}
+              >
                 <span className="min-w-0 break-words">{line.left}</span>
                 <span className="shrink-0 tabular-nums">{line.right}</span>
               </div>
@@ -107,6 +114,7 @@ export function ReceiptPaper({ lines, widthMm }: { lines: ReceiptLine[]; widthMm
                 className={`${line.mono ? 'whitespace-pre' : 'break-words'} ${line.bold ? 'font-bold' : ''} ${line.big ? 'text-lg' : ''} ${line.tall ? 'text-base' : ''} ${
                   line.align === 'center' ? 'text-center' : line.align === 'right' ? 'text-right' : ''
                 }`}
+                style={line.small ? { fontSize: smallSize } : undefined}
               >
                 {line.text}
               </p>
@@ -696,6 +704,7 @@ export function PrinterSetupPanel({ settings, canEdit = true }: { settings: Shop
                 />
               </label>
               <ToggleRow label={t('printerUpiQr')} checked={prefs.showUpiQr} onChange={(showUpiQr) => update({ showUpiQr })} />
+              <ToggleRow label={t('printerRobotoMono')} hint={t('printerRobotoMonoHint')} checked={prefs.robotoMono} onChange={(robotoMono) => update({ robotoMono })} />
               <ToggleRow label={t('printerHindi')} hint={t('printerHindiHint')} checked={prefs.hindi} onChange={(hindi) => update({ hindi })} />
               <ToggleRow label={t('printerCutter')} checked={prefs.cutter} onChange={(cutter) => update({ cutter })} />
             </>

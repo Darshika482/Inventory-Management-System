@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { blockQr, encodeReceipt, rasterBytes, testPageLines } from './escpos';
-import { charsPerLine, layoutReceipt, printedUpiLink, receiptMoney, receiptToTextRows, upiLink } from './receipt';
+import { charsPerLine, layoutReceipt, printedUpiLink, receiptMoney, receiptToTextRows, upiLink, type ReceiptLine } from './receipt';
 import { qrMatrix } from './qr';
 import type { ShopInvoice, ShopSettings } from '../types';
 
@@ -60,13 +60,20 @@ const bill: ShopInvoice = {
 
 const toHex = (bytes: Uint8Array) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 
+/** Every row fits its font's line: the normal font's, or the small font's (more letters). */
+function expectInsidePaper(lines: ReceiptLine[], width: 58 | 80) {
+  for (const line of lines) {
+    const max = charsPerLine(width, 'small' in line && Boolean(line.small));
+    for (const row of receiptToTextRows([line], width)) expect(row.length).toBeLessThanOrEqual(max);
+  }
+}
+
 describe('receipt layout', () => {
   for (const width of [58, 80] as const) {
     it(`fits ${width}mm paper and matches the snapshot`, () => {
       const lines = layoutReceipt(bill, { ...settings, printerWidthMm: width }, { hindi: false, showUpiQr: true, widthMm: width });
-      const rows = receiptToTextRows(lines, charsPerLine(width));
-      for (const row of rows) expect(row.length).toBeLessThanOrEqual(charsPerLine(width));
-      expect(rows.join('\n')).toMatchSnapshot();
+      expectInsidePaper(lines, width);
+      expect(receiptToTextRows(lines, width).join('\n')).toMatchSnapshot();
     });
 
     it(`encodes ESC/POS bytes for ${width}mm (snapshot)`, () => {
@@ -80,13 +87,13 @@ describe('receipt layout', () => {
   }
 
   it('shows the amounts from the bill', () => {
-    const rows = receiptToTextRows(layoutReceipt(bill, settings, { hindi: false, showUpiQr: false }), 32).join('\n');
+    const rows = receiptToTextRows(layoutReceipt(bill, settings, { hindi: false, showUpiQr: false }), 58).join('\n');
     expect(rows).toContain('Tax Invoice');
     expect(rows).toMatch(/Bill No: [A-HJ-NP-Z]{2}\d[A-HJ-NP-Z]{2}/);
     expect(rows).toContain('Cash Sale');
     expect(rows).toContain('Date: 01/10/2026');
-    expect(rows).toMatch(/# Name\s+Qty\s+Price\s+Amount/);
-    expect(rows).toMatch(/1 Lux Soap\s+3\s+40\s+120/);
+    expect(rows).toMatch(/#\s+Name\s+Qty\s+Price\s+Amount/);
+    expect(rows).toMatch(/1\s+Lux Soap 100g\s+3\s+40\s+120/);
     expect(rows).toMatch(/Total\s+:\s+789/);
     expect(rows).toContain('CGST 9%');
     expect(rows).toContain('CGST 6%');
@@ -100,7 +107,6 @@ describe('receipt layout', () => {
     const lines = layoutReceipt(credit, settings, { hindi: false, showUpiQr: true });
     const qr = lines.find((l) => l.kind === 'qr');
     expect(qr && qr.kind === 'qr' && qr.data).toMatch(/^upi:\/\/pay\?pa=akshaytraders@upi&am=289(&pn=Akshay%20Traders)?$/);
-    expect(qr && qr.kind === 'qr' && qr.caption).toBe('Scan to pay Rs 289');
     expect(qr && qr.kind === 'qr' && qr.side).toEqual([
       { label: 'Received', value: '500' },
       { label: 'Balance', value: '289', strong: true },
@@ -132,8 +138,9 @@ describe('receipt layout', () => {
 
   it('builds a test page for both widths', () => {
     for (const width of [58, 80] as const) {
-      const rows = receiptToTextRows(testPageLines('Akshay Traders', width, 'a@upi'), charsPerLine(width));
+      const rows = receiptToTextRows(testPageLines('Akshay Traders', width, 'a@upi'), width);
       expect(rows.some((r) => r.length === charsPerLine(width))).toBe(true);
+      expect(rows.some((r) => r.length === charsPerLine(width, true))).toBe(true);
     }
   });
 });
@@ -143,7 +150,14 @@ describe('UPI QR on every sale bill', () => {
     const cash = { ...bill, paymentMode: 'cash' as const };
     const qr = layoutReceipt(cash, settings, { hindi: false, showUpiQr: true }).find((l) => l.kind === 'qr');
     expect(qr && qr.kind === 'qr' && qr.data).toMatch(/^upi:\/\/pay\?pa=akshaytraders@upi&am=789(&pn=Akshay%20Traders)?$/);
-    expect(qr && qr.kind === 'qr' && qr.caption).toBe('Scan to pay Rs 789');
+  });
+
+  it('prints no "Scan to pay" line under the QR', () => {
+    const lines = layoutReceipt(bill, settings, { hindi: false, showUpiQr: true });
+    const qr = lines.find((l) => l.kind === 'qr');
+    expect(qr && qr.kind === 'qr' && qr.caption).toBeUndefined();
+    const printed = new TextDecoder().decode(encodeReceipt(lines, { widthMm: 58, cutter: false, qrStyle: 'native' }));
+    expect(printed).not.toContain('Scan');
   });
 
   it('leaves the QR off a cancelled bill', () => {
@@ -156,28 +170,27 @@ describe('Vyapar-style printout', () => {
   it('puts the chosen name on top and keeps every row inside the paper', () => {
     for (const width of [58, 80] as const) {
       const lines = layoutReceipt(bill, settings, { hindi: false, showUpiQr: true, widthMm: width, billName: 'Fall Wholesale' });
-      const rows = receiptToTextRows(lines, charsPerLine(width));
-      expect(rows[0].trim()).toBe('Fall Wholesale');
-      for (const row of rows) expect(row.length).toBeLessThanOrEqual(charsPerLine(width));
+      expect(receiptToTextRows(lines, width)[0].trim()).toBe('Fall Wholesale');
+      expectInsidePaper(lines, width);
     }
   });
 
   it('wraps a long item name onto the next row, under the name column', () => {
     const long = { ...bill, lines: [{ ...bill.lines[0], itemName: 'Cotton Aster Premium Quality Long Name' }] };
-    const rows = receiptToTextRows(layoutReceipt(long, settings, { hindi: false, showUpiQr: false }), 32);
+    const rows = receiptToTextRows(layoutReceipt(long, settings, { hindi: false, showUpiQr: false }), 58);
     const first = rows.findIndex((r) => r.startsWith('1 '));
     expect(rows[first]).toMatch(/120$/);
-    expect(rows[first + 1].startsWith('  ')).toBe(true);
+    expect(rows[first + 1].startsWith('   ')).toBe(true);
   });
 });
 
 it('never cuts digits off a big amount', () => {
   const big = { ...bill, lines: [{ ...bill.lines[1], qty: 1000_000, rate: 1234550 }] };
-  const rows = receiptToTextRows(layoutReceipt(big, settings, { hindi: false, showUpiQr: false }), 32);
+  const rows = receiptToTextRows(layoutReceipt(big, settings, { hindi: false, showUpiQr: false }), 58);
   const row = rows.find((r) => r.startsWith('1 '))!;
-  expect(row).toContain('12345.50');
-  expect(row).toContain('12345500');
-  expect(row.length).toBeLessThanOrEqual(32);
+  // Two spaces between Qty, Price and Amount even when they overflow their columns.
+  expect(row).toMatch(/ 1000  12345\.50  12345500$/);
+  expect(row.length).toBeLessThanOrEqual(charsPerLine(58, true));
 });
 
 describe('QR drawn with block letters', () => {
@@ -216,21 +229,31 @@ describe('printed UPI QR is small', () => {
   });
 });
 
-describe('small clear letters', () => {
-  it('fits 42 letters per line on 58mm and keeps every row inside the paper', () => {
-    const lines = layoutReceipt(bill, settings, { hindi: false, showUpiQr: true, widthMm: 58, smallFont: true });
-    const rows = receiptToTextRows(lines, charsPerLine(58, true));
+describe('small letters for the items and totals', () => {
+  const lines = layoutReceipt(bill, settings, { hindi: false, showUpiQr: false, widthMm: 58 });
+  const bytes = Array.from(encodeReceipt(lines, { widthMm: 58, cutter: false, qrStyle: 'picture' }));
+  /** The last value set by `ESC <command>` before the given text is printed. */
+  const settingBefore = (text: string, command: number) => {
+    const at = new TextDecoder().decode(Uint8Array.from(bytes)).indexOf(text);
+    let value: number | undefined;
+    for (let i = 0; i < at; i++) if (bytes[i] === 0x1b && bytes[i + 1] === command) value = bytes[i + 2];
+    return value;
+  };
+
+  it('fits 42 letters per line on 58mm, two spaces between the numbers', () => {
+    const rows = receiptToTextRows(lines, 58);
     expect(charsPerLine(58, true)).toBe(42);
-    for (const row of rows) expect(row.length).toBeLessThanOrEqual(42);
-    expect(rows.join('\n')).toMatch(/#\s+Name\s+Qty\s+Price\s+Amount/);
+    const header = rows.find((r) => r.startsWith('#'))!;
+    expect(header).toHaveLength(42);
+    expect(header).toMatch(/Qty {3}Price {3}Amount$/);
+    expect(rows.find((r) => r.startsWith('2 '))).toMatch(/ 2 {5}140 {6}280$/);
   });
 
-  it('switches the printer to the small font in bold, and the name back to the big normal font', () => {
-    const lines = layoutReceipt(bill, settings, { hindi: false, showUpiQr: false, widthMm: 58, smallFont: true });
-    const bytes = Array.from(encodeReceipt(lines, { widthMm: 58, cutter: false, qrStyle: 'picture', smallFont: true }));
-    const has = (seq: number[]) => bytes.some((_, i) => seq.every((b, j) => bytes[i + j] === b));
-    expect(has([0x1b, 0x4d, 1, 0x1b, 0x45, 1])).toBe(true); // small font, bold
-    expect(has([0x1b, 0x4d, 0])).toBe(true); // normal font for the big name
+  it('prints the shop name in the normal font and the item rows in the small font, not bold', () => {
+    expect(settingBefore('Akshay Traders', 0x4d)).toBe(0); // ESC M 0: normal font
+    expect(settingBefore('Lux Soap', 0x4d)).toBe(1); // ESC M 1: small font
+    expect(settingBefore('Lux Soap', 0x45)).toBe(0); // ESC E 0: not bold
+    expect(settingBefore('Total', 0x45)).toBe(1); // the total stays bold
   });
 });
 
@@ -283,7 +306,7 @@ describe('Received and Balance beside the QR', () => {
   });
 
   it('keeps them under the total when there is no QR', () => {
-    const rows = receiptToTextRows(layoutReceipt(bill, settings, { hindi: false, showUpiQr: false }), 32).join('\n');
+    const rows = receiptToTextRows(layoutReceipt(bill, settings, { hindi: false, showUpiQr: false }), 58).join('\n');
     expect(rows).toMatch(/Received\s+:\s+789/);
     expect(rows).toMatch(/Balance\s+:\s+0/);
   });
