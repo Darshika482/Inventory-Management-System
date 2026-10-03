@@ -6,7 +6,7 @@
  * Pure: no browser APIs, so it is unit tested.
  */
 import { formatQty, mulDivRound, type Paise } from '../money';
-import { formatIstTime } from '../fy';
+import { billLabel, formatIstTime } from '../fy';
 import type { ShopInvoice, ShopSettings } from '../types';
 import { qrMatrix } from './qr';
 
@@ -146,8 +146,7 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
   lines.push({ kind: 'text', text: title, align: 'center', bold: true });
   if (bill.status === 'cancelled') lines.push({ kind: 'text', text: '*** CANCELLED ***', align: 'center', bold: true });
   lines.push({ kind: 'pair', left: bill.partyName || 'Cash Sale', right: `Date: ${slashDate(bill.billDate)}` });
-  const seq = bill.billNumber ? bill.billNumber.split('/').pop() : 'pending';
-  lines.push({ kind: 'pair', left: `Bill No: ${seq}`, right: formatIstTime(bill.createdAt) });
+  lines.push({ kind: 'pair', left: `Bill No: ${billLabel(bill.billNumber) ?? 'pending'}`, right: formatIstTime(bill.createdAt) });
   if (bill.partyGstin) lines.push({ kind: 'text', text: `GSTIN: ${bill.partyGstin}` });
   lines.push({ kind: 'rule' });
 

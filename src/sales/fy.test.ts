@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { billSequence, formatBillNumber, fyFor, istToday } from './fy';
+import { billCode, billLabel, billNumberFromCode, billSequence, formatBillNumber, fyFor, istToday } from './fy';
 
 describe('financial year and bill numbers', () => {
   it('starts the year on 1 April', () => {
@@ -39,5 +39,37 @@ describe('shop phone numbers', () => {
   it('allows two numbers', () => {
     expect(toShopPhones('9131297397, 9300106271')).toBe('9131297397, 9300106271');
     expect(toShopPhones('91312-97397 / 93001')).toBe('9131297397 93001');
+  });
+});
+
+describe('bill codes', () => {
+  it('turns a bill number into four letters with one digit in the middle', () => {
+    const code = billCode('S-A/2026-27/0001')!;
+    expect(code).toMatch(/^[A-HJ-NP-Z]{2}\d[A-HJ-NP-Z]{2}$/);
+    expect(billCode('S-A/2026-27/0001')).toBe(code); // same bill, same code
+  });
+
+  it('gives every bill of a year its own code, and turns back into the number', () => {
+    const seen = new Set<string>();
+    for (const series of ['A', 'B', 'Z']) {
+      for (let n = 1; n <= 3000; n++) {
+        const number = formatBillNumber('sale', series, '2026-27', n);
+        const code = billCode(number)!;
+        expect(seen.has(code)).toBe(false);
+        seen.add(code);
+        expect(billNumberFromCode(code, 'sale', '2026-27')).toBe(number);
+      }
+    }
+  });
+
+  it('does not look like a counter', () => {
+    const codes = [1, 2, 3].map((n) => billCode(formatBillNumber('sale', 'A', '2026-27', n))!);
+    expect(codes[0].slice(0, 2)).not.toBe(codes[1].slice(0, 2));
+    expect(new Set(codes).size).toBe(3);
+  });
+
+  it('keeps numbers it cannot code as they are', () => {
+    expect(billLabel('OLD-17')).toBe('OLD-17');
+    expect(billLabel(null)).toBeNull();
   });
 });

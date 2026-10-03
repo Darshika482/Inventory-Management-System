@@ -35,7 +35,7 @@ import {
 } from '../db';
 import { loadWithCache, readCache, writeCache } from '../cache';
 import { computeBill, type BillDiscount } from '../gst';
-import { fyFor, istToday } from '../fy';
+import { billLabel, fyFor, istToday } from '../fy';
 import { useT } from '../i18n';
 import { newId } from '../ids';
 import { displayName, unitLabel } from '../labels';
@@ -412,7 +412,7 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
       });
     }
 
-    const number = result.invoice.billNumber ?? t('numberOnUpload');
+    const number = billLabel(result.invoice.billNumber) ?? t('numberOnUpload');
     playSuccessChime();
     showToast(result.uploaded ? t('billSaved', { number }) : t('billSavedOffline', { number }), result.uploaded ? 'success' : 'info');
     setDraft(EMPTY_DRAFT);
@@ -1037,7 +1037,7 @@ function SavedPanel({
       <div>
         <p className="text-xl font-bold text-slate-900">{t('savedTitle')}</p>
         <p className="text-2xl font-extrabold text-slate-900 mt-1 tabular-nums" data-testid="saved-bill-number">
-          {invoice.billNumber ?? t('numberOnUpload')}
+          {billLabel(invoice.billNumber) ?? t('numberOnUpload')}
         </p>
         <p className="text-4xl font-extrabold text-emerald-700 mt-2 tabular-nums">{formatRupees(invoice.total)}</p>
         <p className="text-base text-slate-600 mt-1">

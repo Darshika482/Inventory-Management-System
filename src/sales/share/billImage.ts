@@ -3,7 +3,7 @@
  * image or wrapped into a PDF. Browser only.
  */
 import { jsPDF } from 'jspdf';
-import { formatBillDate, formatIstTime } from '../fy';
+import { billLabel, formatBillDate, formatIstTime } from '../fy';
 import { formatQty, formatRupees, mulDivRound } from '../money';
 import { qrMatrix } from '../print/qr';
 import { upiLink, upiQrAmount } from '../print/receipt';
@@ -112,7 +112,7 @@ export async function drawBillCanvas(bill: ShopInvoice, settings: ShopSettings):
     text('CANCELLED', PAD + ctx.measureText(title).width + 30, y, 'left', RED);
   }
   font(26, 600);
-  text(`Bill No: ${bill.billNumber ?? 'given on upload'}`, W - PAD, y - 14, 'right');
+  text(`Bill No: ${billLabel(bill.billNumber) ?? 'given on upload'}`, W - PAD, y - 14, 'right');
   font(24, 500);
   text(`${formatBillDate(bill.billDate)}  •  ${formatIstTime(bill.createdAt)}`, W - PAD, y + 22, 'right', SLATE_500);
 
@@ -256,7 +256,7 @@ export async function drawBillCanvas(bill: ShopInvoice, settings: ShopSettings):
 }
 
 export function billFileName(bill: ShopInvoice, ext: 'png' | 'pdf'): string {
-  const number = (bill.billNumber ?? 'bill').replace(/[\\/]+/g, '-');
+  const number = (billLabel(bill.billNumber) ?? 'bill').replace(/[\\/]+/g, '-');
   return `Akshay-Traders-${number}.${ext}`;
 }
 
@@ -273,7 +273,7 @@ export async function billPdfFile(bill: ShopInvoice, settings: ShopSettings): Pr
   const pageW = 595;
   const pageH = Math.round((canvas.height * pageW) / canvas.width);
   const pdf = new jsPDF({ unit: 'pt', format: [pageW, pageH], orientation: 'portrait', compress: true });
-  pdf.setProperties({ title: `${settings.shopName || 'Akshay Traders'} ${bill.billNumber ?? ''}`.trim(), author: settings.shopName });
+  pdf.setProperties({ title: `${settings.shopName || 'Akshay Traders'} ${billLabel(bill.billNumber) ?? ''}`.trim(), author: settings.shopName });
   // JPEG keeps the file small enough to send on WhatsApp (a PNG page is several MB).
   pdf.addImage(canvas.toDataURL('image/jpeg', 0.9), 'JPEG', 0, 0, pageW, pageH, undefined, 'FAST');
   const blob = pdf.output('blob');
@@ -285,7 +285,7 @@ export function billShareText(bill: ShopInvoice, settings: ShopSettings): string
   const due = bill.billType === 'quotation' ? 0 : bill.total - bill.paidAmount;
   const lines = [
     `*${settings.shopName || 'Akshay Traders'}*`,
-    `${bill.billType === 'quotation' ? 'Quotation' : 'Bill'} ${bill.billNumber ?? ''} • ${formatBillDate(bill.billDate)}`.trim(),
+    `${bill.billType === 'quotation' ? 'Quotation' : 'Bill'} ${billLabel(bill.billNumber) ?? ''} • ${formatBillDate(bill.billDate)}`.trim(),
     `Total: ${formatRupees(bill.total, true)}`,
   ];
   if (due > 0) {

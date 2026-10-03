@@ -17,7 +17,7 @@ import { DateRangePicker, type DateRangeValue } from '../../components/DateRange
 import { describeDbError, type FriendlyError } from '../../lib/dbErrors';
 import { fetchRecentSales, fetchSaleByClientId, fetchSales, fetchShopParties, fetchUserNames } from '../db';
 import { loadWithCache } from '../cache';
-import { formatBillDate, formatIstTime, istToday } from '../fy';
+import { billLabel, formatBillDate, formatIstTime, istToday } from '../fy';
 import { useT } from '../i18n';
 import { unitLabel } from '../labels';
 import { formatQty, formatRupees, mulDivRound, paiseToInput } from '../money';
@@ -153,7 +153,7 @@ export function SalesListSection({ currentUser, showToast }: SalesListSectionPro
     setIsRetrying(true);
     try {
       const done = await syncOutbox(true);
-      if (done.length) showToast(t('billSaved', { number: done.map((d) => d.billNumber).join(', ') }), 'success');
+      if (done.length) showToast(t('billSaved', { number: done.map((d) => billLabel(d.billNumber)).join(', ') }), 'success');
       await loadBills();
     } finally {
       setIsRetrying(false);
@@ -325,7 +325,7 @@ function BillCard({ bill, settings, phone, showToast, onOpen }: BillCardProps) {
   const [printing, setPrinting] = useState(false);
   const status = payStatus(bill);
   const balance = bill.status === 'cancelled' ? 0 : Math.max(0, bill.total - bill.paidAmount);
-  const seq = bill.billNumber ? bill.billNumber.split('/').pop() : null;
+  const seq = billLabel(bill.billNumber);
 
   const print = async () => {
     if (!settings) return;
@@ -529,7 +529,7 @@ function BillDetailModal({ bill, userNames, partyPhone, showToast, onClose }: Bi
     <AppModal
       open={Boolean(bill)}
       onClose={onClose}
-      title={bill?.billNumber ?? t('numberOnUpload')}
+      title={billLabel(bill?.billNumber) ?? t('numberOnUpload')}
       description={bill ? `${formatBillDate(bill.billDate)} · ${formatIstTime(bill.createdAt)}` : undefined}
       icon={<ReceiptText className="h-5 w-5" />}
     >

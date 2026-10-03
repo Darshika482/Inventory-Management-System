@@ -82,7 +82,7 @@ describe('receipt layout', () => {
   it('shows the amounts from the bill', () => {
     const rows = receiptToTextRows(layoutReceipt(bill, settings, { hindi: false, showUpiQr: false }), 32).join('\n');
     expect(rows).toContain('Tax Invoice');
-    expect(rows).toContain('Bill No: 0001');
+    expect(rows).toMatch(/Bill No: [A-HJ-NP-Z]{2}\d[A-HJ-NP-Z]{2}/);
     expect(rows).toContain('Cash Sale');
     expect(rows).toContain('Date: 01/10/2026');
     expect(rows).toMatch(/# Name\s+Qty\s+Price\s+Amount/);
