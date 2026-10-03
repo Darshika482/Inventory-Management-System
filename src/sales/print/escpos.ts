@@ -66,10 +66,12 @@ const font = (small: boolean) => [ESC, 0x4d, small ? 1 : 0];
 const spacing = (dots?: number) => (dots ? [ESC, 0x33, dots] : [ESC, 0x32]);
 /** Double height only: makes a line stand out without taking more width. */
 const tall = (on: boolean) => [GS, 0x21, on ? 0x01 : 0x00];
-/** Line spacing for the small font (17 dots tall): 7 dots of white between rows. */
-const SMALL_LINE = 24;
+/** Line spacing for the small font (17 dots tall): 15 dots of white between rows, like Vyapar's bill. */
+const SMALL_LINE = 32;
 /** Double width and height when on. */
 const big = (on: boolean) => [GS, 0x21, on ? 0x11 : 0x00];
+/** Double width only: the shop name, wide but not tall. */
+const wide = [GS, 0x21, 0x10];
 const feed = (n: number) => [ESC, 0x64, Math.max(0, Math.min(255, n))];
 const cut = () => [GS, 0x56, 0x42, 0x00];
 
@@ -229,13 +231,13 @@ export function encodeReceipt(lines: ReceiptLine[], options: EscPosOptions): Uin
 
   /** Font, line spacing, bold and size for a line; only sent when they change. */
   let current = '';
-  const style = (line: { bold?: boolean; big?: boolean; tall?: boolean; small?: boolean }) => {
-    const small = Boolean(line.small && !line.big && !line.tall);
+  const style = (line: { bold?: boolean; big?: boolean; tall?: boolean; wide?: boolean; small?: boolean }) => {
+    const small = Boolean(line.small && !line.big && !line.tall && !line.wide);
     const bytes = [
       ...font(small),
       ...spacing(small ? SMALL_LINE : undefined),
       ...bold(Boolean(line.bold)),
-      ...(line.big ? big(true) : tall(Boolean(line.tall))),
+      ...(line.big ? big(true) : line.wide ? wide : tall(Boolean(line.tall))),
     ];
     const key = bytes.join(',');
     if (key !== current) out.push(...bytes);
@@ -253,14 +255,15 @@ export function encodeReceipt(lines: ReceiptLine[], options: EscPosOptions): Uin
   for (const line of lines) {
     switch (line.kind) {
       case 'rule':
-        style({});
-        out.push(...align('left')).line('-'.repeat(width));
+        // Small-font dashes: a fine line, like Vyapar's.
+        style({ small: true });
+        out.push(...align('left')).line('-'.repeat(smallWidth));
         break;
       case 'feed':
         out.push(...feed(line.lines));
         break;
       case 'text': {
-        const w = line.big ? bigWidth : line.small && !line.tall ? smallWidth : width;
+        const w = line.big || line.wide ? bigWidth : line.small && !line.tall ? smallWidth : width;
         style(line);
         out.push(...align(line.align ?? 'left'));
         if (line.mono) out.line(line.text.slice(0, w));

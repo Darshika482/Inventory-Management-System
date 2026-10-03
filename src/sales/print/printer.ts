@@ -13,6 +13,12 @@ import type { QrStyle } from './escpos';
 
 export type PrintMethod = 'bluetooth' | 'rawbt' | 'none';
 
+/**
+ * Letters on the bill: the printer's own (sent as text: fast and sharp, like
+ * Vyapar) or Roboto Mono (the whole bill sent as a picture).
+ */
+export type BillFont = 'printer' | 'roboto-mono';
+
 export interface PrinterPrefs {
   method: PrintMethod;
   deviceId: string;
@@ -23,8 +29,8 @@ export interface PrinterPrefs {
   qrStyle: QrStyle;
   /** Item names in Hindi (receipt is sent as an image). */
   hindi: boolean;
-  /** Bill letters in Roboto Mono Medium (receipt is sent as an image). */
-  robotoMono: boolean;
+  /** Letters on the bill (chosen by the owner). */
+  billFont: BillFont;
   /** UPI QR for the amount due. */
   showUpiQr: boolean;
   /** Name printed at the top of the bill. */
@@ -46,21 +52,27 @@ const DEFAULT_PREFS: PrinterPrefs = {
   // A small QR picture (about 2 KB, sent slowly, printed last on the bill).
   qrStyle: 'picture',
   hindi: false,
-  robotoMono: true,
+  billFont: 'printer',
   showUpiQr: true,
   billName: 'Surbhi Fall',
   billSubtitle: 'wholesale',
-  version: 8,
+  version: 9,
 };
 
 export function getPrinterPrefs(): PrinterPrefs {
   try {
     const raw = localStorage.getItem(PREFS_KEY);
     if (!raw) return DEFAULT_PREFS;
-    const saved = JSON.parse(raw) as Partial<PrinterPrefs> & { nativeQr?: boolean; smallFont?: boolean; headingSize?: string };
+    const saved = JSON.parse(raw) as Partial<PrinterPrefs> & {
+      nativeQr?: boolean;
+      smallFont?: boolean;
+      headingSize?: string;
+      robotoMono?: boolean;
+    };
     // Options that no longer exist (the layout is fixed now).
     delete saved.nativeQr;
     delete saved.smallFont;
+    delete saved.robotoMono;
     delete saved.headingSize;
     saved.version ??= 1;
     // Version 3: heading became "Surbhi Fall" with "wholesale" underneath.
@@ -88,10 +100,10 @@ export function getPrinterPrefs(): PrinterPrefs {
       saved.qrStyle = 'picture';
       saved.version = 7;
     }
-    // Version 8: bill letters in Roboto Mono Medium.
-    if (saved.version < 8) {
-      saved.robotoMono = true;
-      saved.version = 8;
+    // Version 9: the printer's own letters (Vyapar-like) by default; Roboto Mono is a choice.
+    if (saved.version < 9) {
+      saved.billFont = 'printer';
+      saved.version = 9;
     }
     return { ...DEFAULT_PREFS, ...saved };
   } catch {

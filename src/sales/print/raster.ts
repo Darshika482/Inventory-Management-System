@@ -180,13 +180,16 @@ export function renderReceiptPixels(lines: ReceiptLine[], widthMm: 58 | 80, robo
       continue;
     }
 
+    // The picture has no double-width letters: a wide line is drawn bigger instead.
     const size = line.big
       ? Math.round(base * 1.6)
-      : line.kind === 'text' && line.tall
-        ? Math.round(base * 1.3)
-        : line.small
-          ? smallSize
-          : base;
+      : line.kind === 'text' && line.wide
+        ? Math.round(base * 1.5)
+        : line.kind === 'text' && line.tall
+          ? Math.round(base * 1.3)
+          : line.small
+            ? smallSize
+            : base;
     const lineHeight = Math.round(size * 1.35);
     setFont(size, Boolean(line.bold));
 

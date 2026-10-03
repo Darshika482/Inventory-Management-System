@@ -27,6 +27,7 @@ import {
   pairBluetoothPrinter,
   savePrinterPrefs,
   usePrinterStatus,
+  type BillFont,
   type PrinterPrefs,
   type PrintMethod,
   type PrintResult,
@@ -58,11 +59,15 @@ export function ReceiptPaper({ lines, widthMm }: { lines: ReceiptLine[]; widthMm
   const sizeFor = (chars: number) => Math.min(12, Math.floor(((paper - 24) / (chars * 0.6)) * 10) / 10);
   const fontSize = sizeFor(charsPerLine(widthMm));
   const smallSize = sizeFor(charsPerLine(widthMm, true));
-  const robotoMono = getPrinterPrefs().robotoMono;
+  const robotoMono = getPrinterPrefs().billFont === 'roboto-mono';
+  // The printer's small letters are tall, with wide gaps between rows (32 dots a row).
+  const smallStyle = { fontSize: smallSize, lineHeight: robotoMono ? undefined : 1.9 };
   return (
     <div
       className={`mx-auto bg-white text-black shadow-md border border-slate-200 px-3 py-4 font-mono leading-snug ${robotoMono ? 'font-medium' : ''}`}
-      style={{ width: paper, maxWidth: '100%', fontSize, fontFamily: robotoMono ? '"Roboto Mono", ui-monospace, monospace' : undefined }}
+      // Roboto Mono either way: its letters are 0.6 wide like the sizes above
+      // assume, so the columns line up (the phone's own monospace may be narrower).
+      style={{ width: paper, maxWidth: '100%', fontSize, fontFamily: '"Roboto Mono", "Courier New", monospace' }}
       data-testid="receipt-paper"
     >
       {lines.map((line, i) => {
@@ -101,7 +106,7 @@ export function ReceiptPaper({ lines, widthMm }: { lines: ReceiptLine[]; widthMm
               <div
                 key={i}
                 className={`flex justify-between gap-2 ${line.bold ? 'font-bold' : ''} ${line.big ? 'text-base' : ''}`}
-                style={line.small ? { fontSize: smallSize } : undefined}
+                style={line.small ? smallStyle : undefined}
               >
                 <span className="min-w-0 break-words">{line.left}</span>
                 <span className="shrink-0 tabular-nums">{line.right}</span>
@@ -114,9 +119,16 @@ export function ReceiptPaper({ lines, widthMm }: { lines: ReceiptLine[]; widthMm
                 className={`${line.mono ? 'whitespace-pre' : 'break-words'} ${line.bold ? 'font-bold' : ''} ${line.big ? 'text-lg' : ''} ${line.tall ? 'text-base' : ''} ${
                   line.align === 'center' ? 'text-center' : line.align === 'right' ? 'text-right' : ''
                 }`}
-                style={line.small ? { fontSize: smallSize } : undefined}
+                style={line.small ? smallStyle : undefined}
               >
-                {line.text}
+                {line.wide ? (
+                  // Double width, normal height, like the printer's wide letters.
+                  <span className="inline-block max-w-[50%] origin-center" style={{ transform: 'scaleX(2)' }}>
+                    {line.text}
+                  </span>
+                ) : (
+                  line.text
+                )}
               </p>
             );
         }
@@ -704,7 +716,18 @@ export function PrinterSetupPanel({ settings, canEdit = true }: { settings: Shop
                 />
               </label>
               <ToggleRow label={t('printerUpiQr')} checked={prefs.showUpiQr} onChange={(showUpiQr) => update({ showUpiQr })} />
-              <ToggleRow label={t('printerRobotoMono')} hint={t('printerRobotoMonoHint')} checked={prefs.robotoMono} onChange={(robotoMono) => update({ robotoMono })} />
+              <Segmented<BillFont>
+                label={t('billFontLabel')}
+                value={prefs.billFont}
+                options={[
+                  { value: 'printer', label: t('billFont_printer') },
+                  { value: 'roboto-mono', label: t('billFont_roboto') },
+                ]}
+                onChange={(billFont) => update({ billFont })}
+              />
+              <p className="text-sm text-slate-500 leading-relaxed -mt-2">
+                {t(prefs.billFont === 'printer' ? 'billFontPrinterHint' : 'billFontRobotoHint')}
+              </p>
               <ToggleRow label={t('printerHindi')} hint={t('printerHindiHint')} checked={prefs.hindi} onChange={(hindi) => update({ hindi })} />
               <ToggleRow label={t('printerCutter')} checked={prefs.cutter} onChange={(cutter) => update({ cutter })} />
             </>

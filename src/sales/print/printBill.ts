@@ -7,7 +7,7 @@ import { loadBillFont, renderReceiptPixels, renderSideText } from './raster';
 import { layoutReceipt, type ReceiptLine } from './receipt';
 
 // Fetch the bill font now, so the first print does not wait for it.
-void loadBillFont();
+if (getPrinterPrefs().billFont === 'roboto-mono') void loadBillFont();
 
 /** item id -> Hindi name, from the items kept on this phone. */
 function hindiNames(): Record<string, string> {
@@ -36,9 +36,10 @@ async function encode(lines: ReceiptLine[], widthMm: 58 | 80): Promise<Uint8Arra
     renderSide: renderSideText,
   };
   // The printer only has its own two fonts: Hindi and Roboto Mono go as a picture.
-  if (!prefs.hindi && !prefs.robotoMono) return encodeReceipt(lines, options);
-  if (prefs.robotoMono) await loadBillFont();
-  return encodeImageReceipt(renderReceiptPixels(lines, widthMm, prefs.robotoMono), options);
+  const robotoMono = prefs.billFont === 'roboto-mono';
+  if (!prefs.hindi && !robotoMono) return encodeReceipt(lines, options);
+  if (robotoMono) await loadBillFont();
+  return encodeImageReceipt(renderReceiptPixels(lines, widthMm, robotoMono), options);
 }
 
 export async function printBill(bill: ShopInvoice, settings: ShopSettings): Promise<PrintResult> {

@@ -63,7 +63,8 @@ const toHex = (bytes: Uint8Array) => Array.from(bytes, (b) => b.toString(16).pad
 /** Every row fits its font's line: the normal font's, or the small font's (more letters). */
 function expectInsidePaper(lines: ReceiptLine[], width: 58 | 80) {
   for (const line of lines) {
-    const max = charsPerLine(width, 'small' in line && Boolean(line.small));
+    // Rules are printed in small-font dashes.
+    const max = charsPerLine(width, line.kind === 'rule' || ('small' in line && Boolean(line.small)));
     for (const row of receiptToTextRows([line], width)) expect(row.length).toBeLessThanOrEqual(max);
   }
 }
@@ -229,7 +230,7 @@ describe('printed UPI QR is small', () => {
   });
 });
 
-describe('small letters for the items and totals', () => {
+describe('Vyapar-like letters: wide shop name, small font everywhere else', () => {
   const lines = layoutReceipt(bill, settings, { hindi: false, showUpiQr: false, widthMm: 58 });
   const bytes = Array.from(encodeReceipt(lines, { widthMm: 58, cutter: false, qrStyle: 'picture' }));
   /** The last value set by `ESC <command>` before the given text is printed. */
@@ -237,6 +238,13 @@ describe('small letters for the items and totals', () => {
     const at = new TextDecoder().decode(Uint8Array.from(bytes)).indexOf(text);
     let value: number | undefined;
     for (let i = 0; i < at; i++) if (bytes[i] === 0x1b && bytes[i + 1] === command) value = bytes[i + 2];
+    return value;
+  };
+  /** The character size (`GS !`) in force when the given text is printed. */
+  const sizeBefore = (text: string) => {
+    const at = new TextDecoder().decode(Uint8Array.from(bytes)).indexOf(text);
+    let value: number | undefined;
+    for (let i = 0; i < at; i++) if (bytes[i] === 0x1d && bytes[i + 1] === 0x21) value = bytes[i + 2];
     return value;
   };
 
@@ -249,11 +257,19 @@ describe('small letters for the items and totals', () => {
     expect(rows.find((r) => r.startsWith('2 '))).toMatch(/ 2 {5}140 {6}280$/);
   });
 
-  it('prints the shop name in the normal font and the item rows in the small font, not bold', () => {
+  it('prints the shop name in the normal font at double width, not bold', () => {
     expect(settingBefore('Akshay Traders', 0x4d)).toBe(0); // ESC M 0: normal font
-    expect(settingBefore('Lux Soap', 0x4d)).toBe(1); // ESC M 1: small font
-    expect(settingBefore('Lux Soap', 0x45)).toBe(0); // ESC E 0: not bold
-    expect(settingBefore('Total', 0x45)).toBe(1); // the total stays bold
+    expect(sizeBefore('Akshay Traders')).toBe(0x10); // GS ! 0x10: double width only
+    expect(settingBefore('Akshay Traders', 0x45)).toBe(0); // ESC E 0: not bold
+  });
+
+  it('prints everything else in the small font, not bold, 32 dots a row', () => {
+    for (const text of ['Ph.No.', 'Tax Invoice', 'Lux Soap', 'Total']) {
+      expect(settingBefore(text, 0x4d)).toBe(1); // ESC M 1: small font
+      expect(settingBefore(text, 0x45)).toBe(0); // ESC E 0: not bold
+      expect(sizeBefore(text)).toBe(0); // normal size
+      expect(settingBefore(text, 0x33)).toBe(32); // ESC 3 32: row spacing
+    }
   });
 });
 

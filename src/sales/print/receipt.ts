@@ -14,9 +14,19 @@ export type ReceiptAlign = 'left' | 'center' | 'right';
 
 export type ReceiptLine =
   /** `mono`: a pre-spaced table row, printed exactly as it is (no wrapping). */
-  /** `big`: double size. `tall`: double height only (normal width). */
+  /** `big`: double size. `tall`: double height only. `wide`: double width only. */
   /** `small`: the printer's small font (more letters per line). */
-  | { kind: 'text'; text: string; align?: ReceiptAlign; bold?: boolean; big?: boolean; tall?: boolean; mono?: boolean; small?: boolean }
+  | {
+      kind: 'text';
+      text: string;
+      align?: ReceiptAlign;
+      bold?: boolean;
+      big?: boolean;
+      tall?: boolean;
+      wide?: boolean;
+      mono?: boolean;
+      small?: boolean;
+    }
   /** Left text and right text on one line, e.g. "Total" ... "Rs 789.00". */
   | { kind: 'pair'; left: string; right: string; bold?: boolean; big?: boolean; small?: boolean }
   /** A dashed rule across the paper. */
@@ -134,19 +144,19 @@ function fit(text: string, width: number): string {
 
 export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options: ReceiptOptions): ReceiptLine[] {
   const lines: ReceiptLine[] = [];
-  // The heading uses the normal font; the details, items and totals the small
-  // font, so the numbers stay small and the columns have room between them.
+  // Like the Vyapar bill: the shop name in the normal font at double width,
+  // everything else in the small font, not bold, with room between the rows.
   const width = charsPerLine(options.widthMm ?? 58, true);
   const col = columns(width);
   const due = bill.billType === 'quotation' ? 0 : bill.total - bill.paidAmount;
   const mono = (text: string, bold = false): ReceiptLine => ({ kind: 'text', text, mono: true, small: true, bold });
 
-  // Shop name: bold and double height (normal width), one fixed size.
-  lines.push({ kind: 'text', text: options.billName?.trim() || settings.shopName, align: 'center', bold: true, tall: true });
-  if (options.billSubtitle?.trim()) lines.push({ kind: 'text', text: options.billSubtitle.trim(), align: 'center' });
-  if (settings.address) lines.push({ kind: 'text', text: settings.address, align: 'center' });
-  if (settings.phone) lines.push({ kind: 'text', text: `Ph.No.: ${settings.phone}`, align: 'center' });
-  if (bill.isGst && settings.gstin) lines.push({ kind: 'text', text: `GSTIN: ${settings.gstin}`, align: 'center' });
+  const centred = (text: string): Extract<ReceiptLine, { kind: 'text' }> => ({ kind: 'text', text, align: 'center', small: true });
+  lines.push({ kind: 'text', text: options.billName?.trim() || settings.shopName, align: 'center', wide: true });
+  if (options.billSubtitle?.trim()) lines.push(centred(options.billSubtitle.trim()));
+  if (settings.address) lines.push(centred(settings.address));
+  if (settings.phone) lines.push(centred(`Ph.No.: ${settings.phone}`));
+  if (bill.isGst && settings.gstin) lines.push(centred(`GSTIN: ${settings.gstin}`));
   lines.push({ kind: 'rule' });
 
   // Bill details
@@ -158,8 +168,8 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
         : bill.isGst
           ? 'Tax Invoice'
           : 'Invoice';
-  lines.push({ kind: 'text', text: title, align: 'center', bold: true });
-  if (bill.status === 'cancelled') lines.push({ kind: 'text', text: '*** CANCELLED ***', align: 'center', bold: true });
+  lines.push(centred(title));
+  if (bill.status === 'cancelled') lines.push({ ...centred('*** CANCELLED ***'), bold: true });
   lines.push({ kind: 'pair', left: bill.partyName || 'Cash Sale', right: `Date: ${slashDate(bill.billDate)}`, small: true });
   lines.push({ kind: 'pair', left: `Bill No: ${billLabel(bill.billNumber) ?? 'pending'}`, right: formatIstTime(bill.createdAt), small: true });
   if (bill.partyGstin) lines.push({ kind: 'text', text: `GSTIN: ${bill.partyGstin}`, small: true });
@@ -172,8 +182,7 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
         'Name'.padEnd(col.name) +
         'Qty'.padStart(col.qty) +
         'Price'.padStart(col.price) +
-        'Amount'.padStart(col.amount),
-      true
+        'Amount'.padStart(col.amount)
     )
   );
   lines.push({ kind: 'rule' });
@@ -229,7 +238,7 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
     }
   }
   if (bill.roundOff !== 0) total('Round off', `${bill.roundOff > 0 ? '+' : ''}${plainAmount(bill.roundOff)}`);
-  total('Total', plainAmount(bill.total), true);
+  total('Total', plainAmount(bill.total));
   // With a QR, Received and Balance go beside it; without one, under the total.
   const qrShown = Boolean(options.showUpiQr && settings.upiId && bill.billType === 'sale' && bill.status !== 'cancelled');
   const side: SideItem[] =
@@ -295,7 +304,7 @@ export function receiptToTextRows(lines: ReceiptLine[], widthMm: 58 | 80): strin
     const width = charsPerLine(widthMm, 'small' in line && Boolean(line.small));
     switch (line.kind) {
       case 'rule':
-        rows.push('-'.repeat(width));
+        rows.push('-'.repeat(charsPerLine(widthMm, true)));
         break;
       case 'feed':
         for (let i = 0; i < line.lines; i++) rows.push('');
@@ -315,7 +324,7 @@ export function receiptToTextRows(lines: ReceiptLine[], widthMm: 58 | 80): strin
           rows.push(line.text);
           break;
         }
-        const w = line.big ? Math.floor(width / 2) : width;
+        const w = line.big || line.wide ? Math.floor(width / 2) : width;
         for (const r of wrapText(line.text, w)) {
           rows.push(line.align === 'center' ? centre(r, w) : line.align === 'right' ? r.padStart(w) : r);
         }
