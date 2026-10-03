@@ -145,7 +145,9 @@ export function blockQr(data: string, widthMm: 58 | 80): number[] | null {
   if (matrix.length + 2 > cols) matrix = qrMatrix(data, 'L');
   const size = matrix.length;
   if (size > cols) return null;
-  const quiet = Math.min(2, Math.floor((cols - size) / 2));
+  // One white square around it is enough: centring and the blank lines above
+  // and below leave more white paper around the QR anyway.
+  const quiet = Math.min(1, Math.floor((cols - size) / 2));
   const total = size + quiet * 2;
   const dark = (r: number, c: number) => {
     const y = r - quiet;

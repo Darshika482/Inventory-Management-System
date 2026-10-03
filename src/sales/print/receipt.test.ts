@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { blockQr, encodeReceipt, rasterBytes, testPageLines } from './escpos';
-import { charsPerLine, layoutReceipt, receiptMoney, receiptToTextRows, upiLink } from './receipt';
+import { charsPerLine, layoutReceipt, printedUpiLink, receiptMoney, receiptToTextRows, upiLink } from './receipt';
+import { qrMatrix } from './qr';
 import type { ShopInvoice, ShopSettings } from '../types';
 
 const settings: ShopSettings = {
@@ -98,7 +99,8 @@ describe('receipt layout', () => {
     const credit = { ...bill, paymentMode: 'partial' as const, paidMode: 'cash' as const, paidAmount: 50000 };
     const lines = layoutReceipt(credit, settings, { hindi: false, showUpiQr: true });
     const qr = lines.find((l) => l.kind === 'qr');
-    expect(qr && qr.kind === 'qr' && qr.data).toBe(upiLink('akshaytraders@upi', 'Akshay Traders', 28900));
+    expect(qr && qr.kind === 'qr' && qr.data).toMatch(/^upi:\/\/pay\?pa=akshaytraders@upi&am=289(&pn=Akshay%20Traders)?$/);
+    expect(qr && qr.kind === 'qr' && qr.caption).toBe('Scan to pay Rs 289');
     expect(receiptToTextRows(lines, 32).join('\n')).toMatch(/Balance\s+:\s+289/);
   });
 
@@ -137,8 +139,8 @@ describe('UPI QR on every sale bill', () => {
   it('puts the bill total in the QR of a bill already marked received', () => {
     const cash = { ...bill, paymentMode: 'cash' as const };
     const qr = layoutReceipt(cash, settings, { hindi: false, showUpiQr: true }).find((l) => l.kind === 'qr');
-    expect(qr && qr.kind === 'qr' && qr.data).toBe('upi://pay?pa=akshaytraders%40upi&pn=Akshay+Traders&am=789.00&cu=INR');
-    expect(qr && qr.kind === 'qr' && qr.caption).toBe('Scan this QR code to pay');
+    expect(qr && qr.kind === 'qr' && qr.data).toMatch(/^upi:\/\/pay\?pa=akshaytraders@upi&am=789(&pn=Akshay%20Traders)?$/);
+    expect(qr && qr.kind === 'qr' && qr.caption).toBe('Scan to pay Rs 789');
   });
 
   it('leaves the QR off a cancelled bill', () => {
@@ -199,5 +201,14 @@ describe('QR drawn with block letters', () => {
     const lines = [{ kind: 'qr' as const, data: `upi://pay?pa=shop%40upi&pn=${'x'.repeat(400)}`, caption: 'Scan' }];
     const text = new TextDecoder().decode(encodeReceipt(lines, { widthMm: 58, cutter: false, qrStyle: 'blocks' }));
     expect(text).toContain('UPI: shop@upi');
+  });
+});
+
+describe('printed UPI QR is small', () => {
+  it('needs fewer squares than the full link', () => {
+    const full = qrMatrix(upiLink('9131297397@ybl', 'Surbhi Fall', 1850)).length;
+    const short = qrMatrix(printedUpiLink('9131297397@ybl', 'Surbhi Fall', 1850)).length;
+    expect(short).toBeLessThan(full);
+    expect(short).toBeLessThanOrEqual(29);
   });
 });

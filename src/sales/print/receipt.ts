@@ -8,6 +8,7 @@
 import { formatQty, mulDivRound, type Paise } from '../money';
 import { formatIstTime } from '../fy';
 import type { ShopInvoice, ShopSettings } from '../types';
+import { qrMatrix } from './qr';
 
 export type ReceiptAlign = 'left' | 'center' | 'right';
 
@@ -68,6 +69,18 @@ export function upiLink(upiId: string, shopName: string, amount?: Paise | null):
   if (amount && amount > 0) params.set('am', (amount / 100).toFixed(2));
   params.set('cu', 'INR');
   return `upi://pay?${params.toString()}`;
+}
+
+/**
+ * The shortest UPI link that still fills in the amount, for the printed QR:
+ * fewer letters make a QR with fewer, so smaller, squares. The UPI ID keeps a
+ * plain "@" and the currency is left out (UPI is always rupees). The payee
+ * name is kept only when it does not make the QR any bigger.
+ */
+export function printedUpiLink(upiId: string, name: string, amount?: Paise | null): string {
+  const base = `upi://pay?pa=${upiId.trim()}${amount && amount > 0 ? `&am=${plainAmount(amount)}` : ''}`;
+  const withName = `${base}&pn=${encodeURIComponent(name.trim())}`;
+  return name.trim() && qrMatrix(withName).length <= qrMatrix(base).length ? withName : base;
 }
 
 /**
@@ -215,8 +228,8 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
     lines.push({ kind: 'feed', lines: 1 });
     lines.push({
       kind: 'qr',
-      data: upiLink(settings.upiId, settings.shopName, qrAmount),
-      caption: 'Scan this QR code to pay',
+      data: printedUpiLink(settings.upiId, options.billName?.trim() || settings.shopName, qrAmount),
+      caption: qrAmount ? `Scan to pay Rs ${plainAmount(qrAmount)}` : 'Scan this QR code to pay',
     });
   }
 

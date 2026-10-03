@@ -13,6 +13,12 @@ interface AppModalProps {
   description?: string;
   icon: React.ReactNode;
   accent?: ModalAccent;
+  /** Stays put under the title while the rest scrolls (e.g. a search box). */
+  pinned?: React.ReactNode;
+  /** Phones: the sheet fills the screen above the keyboard instead of shrinking to its content. */
+  fullHeight?: boolean;
+  /** The scrolling area, e.g. to jump back to the top. */
+  bodyRef?: React.Ref<HTMLDivElement>;
   children: React.ReactNode;
 }
 
@@ -78,6 +84,33 @@ function useIsSheet() {
   return isSheet;
 }
 
+/**
+ * The part of the screen the keyboard does not cover. Android Chrome slides the
+ * keyboard over fixed boxes instead of shrinking them, so a sheet sized to the
+ * whole screen would hide its lower half behind the keyboard.
+ */
+function useVisibleArea(enabled: boolean) {
+  const [area, setArea] = useState<{ top: number; height: number } | null>(null);
+
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!enabled || !vv) {
+      setArea(null);
+      return;
+    }
+    const update = () => setArea({ top: vv.offsetTop, height: vv.height });
+    update();
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, [enabled]);
+
+  return area;
+}
+
 export function AppModal({
   open,
   onClose,
@@ -85,11 +118,16 @@ export function AppModal({
   description,
   icon,
   accent = 'amber',
+  pinned,
+  fullHeight = false,
+  bodyRef,
   children,
 }: AppModalProps) {
   const styles = accentMap[accent];
   const isSheet = useIsSheet();
   const reduceMotion = useReducedMotion();
+  const tallSheet = fullHeight && isSheet;
+  const visibleArea = useVisibleArea(open && tallSheet);
 
   // Device / browser Back closes the modal instead of leaving the app.
   useBackDismiss(open, onClose);
@@ -134,7 +172,10 @@ export function AppModal({
   return createPortal(
     <AnimatePresence>
       {open && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4">
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4"
+          style={visibleArea ? { top: visibleArea.top, bottom: 'auto', height: visibleArea.height } : undefined}
+        >
           <motion.button
             type="button"
             aria-label="Close dialog"
@@ -154,7 +195,9 @@ export function AppModal({
             animate={panelMotion.animate}
             exit={panelMotion.exit}
             style={{ willChange: 'transform, opacity' }}
-            className="relative z-10 w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl overflow-hidden shadow-2xl shadow-slate-900/20 border border-slate-200/80 max-h-[92dvh] sm:max-h-[min(92vh,760px)] flex flex-col"
+            className={`relative z-10 w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl overflow-hidden shadow-2xl shadow-slate-900/20 border border-slate-200/80 sm:max-h-[min(92vh,760px)] flex flex-col ${
+              tallSheet ? 'h-[calc(100%-1rem)]' : 'max-h-[92dvh]'
+            }`}
           >
             <div className={`h-1.5 shrink-0 rounded-t-3xl sm:rounded-t-2xl ${styles.bar}`} />
 
@@ -184,7 +227,14 @@ export function AppModal({
               </button>
             </div>
 
-            <div className="min-w-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6 sm:py-6">
+            {pinned && <div className="shrink-0 px-4 pt-3 sm:px-6 sm:pt-4">{pinned}</div>}
+
+            <div
+              ref={bodyRef}
+              className={`min-w-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] sm:px-6 sm:pb-6 ${
+                pinned ? 'pt-3' : 'pt-5 sm:pt-6'
+              }`}
+            >
               {children}
             </div>
           </motion.div>

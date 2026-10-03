@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, PackageSearch, Plus, Star, Trash2 } from 'lucide-react';
 import { AppModal } from '../../components/AppModal';
 import { useT } from '../i18n';
@@ -57,6 +57,7 @@ export function ItemPickerSheet({
   const { t, language } = useT();
   const [search, setSearch] = useState('');
   const [chip, setChip] = useState(ALL);
+  const bodyRef = useRef<HTMLDivElement>(null);
 
   const activeCategories = categories.filter((c) => c.isActive);
   const hasFrequent = Object.keys(saleCounts).length > 0;
@@ -86,29 +87,44 @@ export function ItemPickerSheet({
     ...activeCategories.map((c) => ({ id: c.id, label: displayName(c, language) })),
   ];
 
+  // Each new search starts at the top, so the best match sits right under the search box.
+  useEffect(() => {
+    bodyRef.current?.scrollTo({ top: 0 });
+  }, [search, chip]);
+
   return (
-    <AppModal open={open} onClose={onClose} title={t('addItems')} icon={<PackageSearch className="h-5 w-5" />}>
+    <AppModal
+      open={open}
+      onClose={onClose}
+      title={t('addItems')}
+      icon={<PackageSearch className="h-5 w-5" />}
+      fullHeight
+      bodyRef={bodyRef}
+      pinned={
+        <div className="space-y-3">
+          <SearchBox value={search} onChange={setSearch} placeholder={t('searchItems')} />
+
+          {!search.trim() && chips.length > 1 && (
+            <div className="flex gap-1.5 overflow-x-auto -mx-1 px-1 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {chips.map((c) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setChip(c.id)}
+                  className={`shrink-0 min-h-12 px-4 flex items-center gap-1.5 rounded-full text-sm font-semibold cursor-pointer whitespace-nowrap transition-colors ${
+                    chip === c.id ? 'bg-[#0F172A] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {c.id === FREQUENT && <Star className="h-4 w-4" />}
+                  {c.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      }
+    >
       <div className="space-y-3">
-        <SearchBox value={search} onChange={setSearch} placeholder={t('searchItems')} />
-
-        {!search.trim() && chips.length > 1 && (
-          <div className="flex gap-1.5 overflow-x-auto -mx-1 px-1 pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {chips.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                onClick={() => setChip(c.id)}
-                className={`shrink-0 min-h-12 px-4 flex items-center gap-1.5 rounded-full text-sm font-semibold cursor-pointer whitespace-nowrap transition-colors ${
-                  chip === c.id ? 'bg-[#0F172A] text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                {c.id === FREQUENT && <Star className="h-4 w-4" />}
-                {c.label}
-              </button>
-            ))}
-          </div>
-        )}
-
         {items.length === 0 ? (
           <p className="px-4 py-8 text-center text-base text-slate-500">{t('noItemsToPick')}</p>
         ) : shown.length === 0 ? (
