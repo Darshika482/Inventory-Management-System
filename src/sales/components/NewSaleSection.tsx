@@ -42,6 +42,7 @@ import { getDeviceSeries, queueSale, refreshCounter, syncOutbox } from '../outbo
 import type { PaidMode, PaymentMode, ShopCategory, ShopInvoice, ShopItem, ShopParty, ShopSettings } from '../types';
 import { ItemPickerSheet, type PickerLine } from './ItemPickerSheet';
 import { usePhoneKeyboardOpen } from '../keyboard';
+import { NumberBox, NumberPad, NumberPadSpacer, PadSummary, PadWarning, type PadView } from './NumberPad';
 import { ShareBillButton } from './ShareBill';
 import { PrinterChip, QrSvg, ReceiptPreviewModal, connectAndPrint, openPrinterHelp, printDetail, printMessageKey } from './PrintUi';
 import { upiLink } from '../print/receipt';
@@ -114,6 +115,9 @@ interface SavedBill {
   uploaded: boolean;
 }
 
+/** Which number the shop keypad is changing. */
+type PadTarget = { kind: 'line'; key: string; field: 'qty' | 'rate' } | { kind: 'discount' } | { kind: 'received' };
+
 export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSectionProps) {
   const { t, language } = useT();
   const isOwner = currentUser.role === 'Admin';
@@ -136,7 +140,8 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
   const [saved, setSaved] = useState<SavedBill | null>(null);
   const [printState, setPrintState] = useState<'idle' | 'printing' | PrintResult>('idle');
   const [previewOpen, setPreviewOpen] = useState(false);
-  // The Save bar steps aside while the phone keyboard is up, so it never covers a box.
+  const [pad, setPad] = useState<PadTarget | null>(null);
+  // The Save bar steps aside while a keyboard is up, so it never covers a box.
   const keyboardOpen = usePhoneKeyboardOpen();
 
   const load = async () => {
@@ -282,14 +287,17 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
     setConfirmClear(false);
   };
 
+  const discountTooBig = Boolean(
+    discount && (discount.kind === 'amount' ? discount.amount > bill.itemsTotal : discount.basisPoints > 10_000)
+  );
+
   const validate = (): string | null => {
     if (draft.lines.length === 0) return t('needLines');
     for (const { line, qty, rate } of parsedLines) {
       if (qty === null || qty <= 0) return t('qtyInvalid', { name: line.name });
       if (rate === null || rate < 0) return t('rateInvalidLine', { name: line.name });
     }
-    if (discount && discount.kind === 'amount' && discount.amount > bill.itemsTotal) return t('discountInvalid');
-    if (discount && discount.kind === 'percent' && discount.basisPoints > 10_000) return t('discountInvalid');
+    if (discountTooBig) return t('discountInvalid');
     if (!receivedOk) return t('receivedInvalid');
     if (balance > 0 && !party) return t('needCustomerForCredit');
     return null;
@@ -481,6 +489,118 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
 
   const showTaxOnTop = isGst && !ratesIncludeGst && bill.tax > 0;
 
+  // The shop keypad shows what it is changing in big letters above its keys.
+  const padLineIndex = pad?.kind === 'line' ? parsedLines.findIndex(({ line }) => line.key === pad.key) : -1;
+  let padView: PadView | null = null;
+  if (pad?.kind === 'line' && padLineIndex !== -1) {
+    const { line, qty, rate } = parsedLines[padLineIndex];
+    padView = {
+      target: `line:${line.key}`,
+      title: displayName({ name: line.name, nameHi: line.nameHi } as ShopItem, language),
+      subtitle: isGst ? `GST ${line.gstRate}%` : undefined,
+      fields: [
+        {
+          id: 'qty',
+          label: t('qty'),
+          value: line.qtyText,
+          decimals: 3,
+          suffix: unitLabel(t, line.unit),
+          required: true,
+          invalid: qty === null || qty <= 0,
+        },
+        { id: 'rate', label: t('rate'), value: line.rateText, decimals: 2, prefix: '₹', required: true, invalid: rate === null || rate < 0 },
+      ],
+      activeId: pad.field,
+      onActiveChange: (id) => setPad({ kind: 'line', key: line.key, field: id === 'rate' ? 'rate' : 'qty' }),
+      onChange: (id, value) => updateLine(line.key, id === 'rate' ? { rateText: value } : { qtyText: value }),
+      summary: (
+        <PadSummary
+          items={[
+            { label: t('amount'), value: formatRupees(bill.lines[padLineIndex]?.gross ?? 0, true) },
+            { label: t('total'), value: formatRupees(bill.total, true), tone: 'muted' },
+          ]}
+        />
+      ),
+    };
+  } else if (pad?.kind === 'discount') {
+    padView = {
+      target: 'discount',
+      title: `${t('itemsTotal')} ${formatRupees(bill.itemsTotal, true)}`,
+      fields: [
+        {
+          id: 'discount',
+          label: t('discount'),
+          value: draft.discountText,
+          decimals: 2,
+          prefix: draft.discountMode === 'amount' ? '₹' : undefined,
+          suffix: draft.discountMode === 'percent' ? '%' : undefined,
+          placeholder: '0',
+        },
+      ],
+      activeId: 'discount',
+      onChange: (_id, value) => updateDraft({ discountText: value }),
+      extra: (
+        <div className="flex w-16 shrink-0 flex-col gap-1.5" role="radiogroup" aria-label={t('discount')}>
+          {(['percent', 'amount'] as const).map((mode) => {
+            const selected = draft.discountMode === mode;
+            return (
+              <button
+                key={mode}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => updateDraft({ discountMode: mode })}
+                className={`flex-1 rounded-xl border-2 text-lg font-bold cursor-pointer transition-colors ${
+                  selected ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-500'
+                }`}
+              >
+                {mode === 'percent' ? t('discountInPercent') : t('discountInRupees')}
+              </button>
+            );
+          })}
+        </div>
+      ),
+      summary: discountTooBig ? (
+        <PadWarning message={t('discountInvalid')} />
+      ) : (
+        <PadSummary
+          items={[
+            { label: t('discount'), value: `− ${formatRupees(bill.discount, true)}`, tone: 'green' },
+            { label: t('total'), value: formatRupees(bill.total, true) },
+          ]}
+        />
+      ),
+    };
+  } else if (pad?.kind === 'received') {
+    padView = {
+      target: 'received',
+      title: `${t('grandTotal')} ${formatRupees(bill.total, true)}`,
+      fields: [
+        {
+          id: 'received',
+          label: t('amountReceived'),
+          value: draft.paidText,
+          decimals: 2,
+          prefix: '₹',
+          placeholder: paiseToInput(bill.total),
+          invalid: !receivedOk,
+        },
+      ],
+      activeId: 'received',
+      onChange: (_id, value) => updateDraft({ paidText: value }),
+      summary: !receivedOk ? (
+        <PadWarning message={t('receivedInvalid')} />
+      ) : (
+        <PadSummary
+          items={[
+            { label: t('receivedLabel'), value: formatRupees(received!, true), tone: 'green' },
+            { label: t('balanceLeft'), value: formatRupees(balance, true), tone: balance > 0 ? 'red' : 'muted' },
+          ]}
+        />
+      ),
+    };
+  }
+
   return (
     <PageShell fill>
       <PageHeader
@@ -570,6 +690,8 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
                     onChange={(patch) => updateLine(line.key, patch)}
                     onRemove={() => updateDraft({ lines: draft.lines.filter((l) => l.key !== line.key) })}
                     isGst={isGst}
+                    padField={pad?.kind === 'line' && pad.key === line.key ? pad.field : null}
+                    onOpenPad={(field) => setPad({ kind: 'line', key: line.key, field })}
                   />
                 ))}
               </ul>
@@ -591,17 +713,22 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
               {/* Discount: the % or ₹ toggle sits inside the field */}
               <div className="space-y-2">
                 <p className="text-sm font-bold text-slate-700">{t('discount')}</p>
-                <div className="flex h-12 rounded-xl border border-slate-200 bg-slate-50 overflow-hidden focus-within:border-amber-500 focus-within:bg-white transition-colors">
+                <div
+                  className={`flex h-12 rounded-xl border overflow-hidden transition-colors ${
+                    pad?.kind === 'discount' ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-300' : 'border-slate-200 bg-slate-50'
+                  }`}
+                >
                   <span className="pl-3.5 flex items-center text-base font-semibold text-slate-400" aria-hidden="true">
                     {draft.discountMode === 'percent' ? '%' : '₹'}
                   </span>
-                  <input
-                    inputMode="decimal"
+                  <NumberBox
+                    bare
                     value={draft.discountText}
-                    onChange={(e) => updateDraft({ discountText: e.target.value })}
                     placeholder="0"
-                    aria-label={t('discount')}
-                    className="min-w-0 flex-1 bg-transparent px-2 text-base font-semibold text-slate-900 placeholder-slate-400 focus:outline-none"
+                    label={t('discount')}
+                    active={pad?.kind === 'discount'}
+                    onOpen={() => setPad({ kind: 'discount' })}
+                    className="h-full min-w-0 flex-1 rounded-none text-base"
                   />
                   <div className="flex border-l border-slate-200" role="radiogroup" aria-label={t('discount')}>
                     {(['percent', 'amount'] as const).map((mode) => {
@@ -717,20 +844,26 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
 
             {/* Received now and balance left: a balance makes this an udhaar bill. */}
             <div className="border-t border-slate-200 pt-3 space-y-2.5">
-              <label className="block space-y-1.5">
+              <div className="space-y-1.5">
                 <span className="block text-sm font-bold text-slate-700">{t('amountReceived')}</span>
                 <div className="flex gap-2">
-                  <div className="flex min-w-0 flex-1 h-12 rounded-xl border border-slate-200 bg-slate-50 overflow-hidden focus-within:border-amber-500 focus-within:bg-white transition-colors">
+                  <div
+                    className={`flex min-w-0 flex-1 h-12 rounded-xl border overflow-hidden transition-colors ${
+                      pad?.kind === 'received' ? 'border-amber-500 bg-amber-50 ring-2 ring-amber-300' : 'border-slate-200 bg-slate-50'
+                    }`}
+                  >
                     <span className="pl-3.5 flex items-center text-base font-semibold text-slate-400" aria-hidden="true">
                       ₹
                     </span>
-                    <input
-                      inputMode="decimal"
+                    <NumberBox
+                      bare
                       value={draft.paidText}
-                      onChange={(e) => updateDraft({ paidText: e.target.value })}
                       placeholder={paiseToInput(bill.total)}
+                      label={t('amountReceived')}
+                      active={pad?.kind === 'received'}
+                      onOpen={() => setPad({ kind: 'received' })}
                       data-testid="amount-received"
-                      className="min-w-0 flex-1 bg-transparent px-2 text-base font-semibold text-slate-900 placeholder-slate-400 focus:outline-none"
+                      className="h-full min-w-0 flex-1 rounded-none text-base"
                     />
                   </div>
                   <button
@@ -752,7 +885,7 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
                     {t('receivedNone')}
                   </button>
                 </div>
-              </label>
+              </div>
 
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-xl bg-[#DCFCE7] px-3 py-2">
@@ -797,9 +930,11 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
         </div>
       </div>
 
+      {pad && <NumberPadSpacer />}
+
       {/* Always-visible total and save buttons */}
       {/* Phones: total on one line, buttons below. Wider screens: all in one row. */}
-      <div className={`${keyboardOpen ? 'hidden' : ''} sticky bottom-0 mt-auto shrink-0 -mx-3 sm:-mx-6 md:-mx-8 px-3 sm:px-6 md:px-8 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] bg-white/95 backdrop-blur border-t border-slate-200 shadow-[0_-8px_24px_-12px_rgba(15,23,42,0.25)]`}>
+      <div className={`${keyboardOpen || pad ? 'hidden' : ''} sticky bottom-0 mt-auto shrink-0 -mx-3 sm:-mx-6 md:-mx-8 px-3 sm:px-6 md:px-8 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] bg-white/95 backdrop-blur border-t border-slate-200 shadow-[0_-8px_24px_-12px_rgba(15,23,42,0.25)]`}>
         <div className="max-w-3xl @4xl:max-w-none flex flex-col gap-1.5 @lg:flex-row @lg:items-center @lg:gap-3">
           <div className="flex items-baseline justify-between gap-3 @lg:mr-auto @lg:justify-start">
             <span className="text-base font-bold text-slate-600">{t('total')}</span>
@@ -827,6 +962,8 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
           </div>
         </div>
       </div>
+
+      <NumberPad view={padView} onClose={() => setPad(null)} />
 
       <ItemPickerSheet
         open={pickerOpen}
@@ -898,6 +1035,8 @@ function SaleLineRow({
   onChange,
   onRemove,
   isGst,
+  padField,
+  onOpenPad,
 }: {
   line: DraftLine;
   qtyValid: boolean;
@@ -908,48 +1047,43 @@ function SaleLineRow({
   onChange: (patch: Partial<DraftLine>) => void;
   onRemove: () => void;
   isGst: boolean;
+  /** The keypad is open for this line's quantity or rate. */
+  padField: 'qty' | 'rate' | null;
+  onOpenPad: (field: 'qty' | 'rate') => void;
 }) {
   const { t, language } = useT();
   const asItem = { name: line.name, nameHi: line.nameHi } as ShopItem;
   const subtitle = [unitLabel(t, line.unit), isGst ? `GST ${line.gstRate}%` : ''].filter(Boolean).join(' · ');
   return (
-    <li className="px-3 py-2 space-y-1">
+    <li className={`px-3 py-2 space-y-1 transition-colors ${padField ? 'bg-amber-50/70' : ''}`}>
       {/* Wide screens: one row. Phones: name on top, boxes below. */}
       <div className="flex flex-wrap @lg:flex-nowrap items-center gap-x-2 gap-y-1">
         <div className="min-w-0 flex-1 basis-full @lg:basis-auto">
           <p className="text-sm font-semibold text-slate-900 leading-tight truncate">{displayName(asItem, language)}</p>
           {subtitle && <p className="text-[11px] text-slate-500 truncate">{subtitle}</p>}
         </div>
-        <input
-          inputMode="decimal"
+        <NumberBox
           value={line.qtyText}
-          onChange={(e) => onChange({ qtyText: e.target.value })}
-          onFocus={(e) => e.target.select()}
-          aria-label={t('qty')}
-          className={`h-8 w-14 rounded-lg border text-center text-sm font-bold text-slate-900 focus:outline-none focus:border-amber-500 ${
-            qtyValid ? 'border-slate-200 bg-white' : 'border-red-300 bg-red-50'
-          }`}
+          label={t('qty')}
+          active={padField === 'qty'}
+          invalid={!qtyValid}
+          center
+          onOpen={() => onOpenPad('qty')}
+          className="h-10 w-16 text-base"
         />
         <span className="text-xs text-slate-400" aria-hidden="true">
           ×
         </span>
-        <div
-          className={`flex h-8 w-24 items-center rounded-lg border focus-within:border-amber-500 ${
-            rateValid ? (rateChanged ? 'border-amber-400 bg-amber-50' : 'border-slate-200 bg-white') : 'border-red-300 bg-red-50'
-          }`}
-        >
-          <span className="pl-2 text-xs font-semibold text-slate-400" aria-hidden="true">
-            ₹
-          </span>
-          <input
-            inputMode="decimal"
-            value={line.rateText}
-            onChange={(e) => onChange({ rateText: e.target.value })}
-            onFocus={(e) => e.target.select()}
-            aria-label={t('rate')}
-            className="h-full min-w-0 flex-1 bg-transparent px-1 text-sm font-bold text-slate-900 focus:outline-none"
-          />
-        </div>
+        <NumberBox
+          value={line.rateText}
+          label={t('rate')}
+          prefix="₹"
+          active={padField === 'rate'}
+          invalid={!rateValid}
+          changed={rateChanged}
+          onOpen={() => onOpenPad('rate')}
+          className="h-10 w-28 text-base"
+        />
         <p className="ml-auto @lg:ml-0 @lg:w-28 shrink-0 text-right text-sm font-bold text-slate-900 tabular-nums">
           {formatRupees(amount, true)}
         </p>
@@ -958,9 +1092,9 @@ function SaleLineRow({
           onClick={onRemove}
           aria-label={t('remove')}
           title={t('remove')}
-          className="h-8 w-8 shrink-0 flex items-center justify-center rounded-lg text-red-600 hover:bg-red-50 cursor-pointer"
+          className="h-10 w-10 shrink-0 flex items-center justify-center rounded-lg text-red-600 hover:bg-red-50 cursor-pointer"
         >
-          <Trash2 className="h-4 w-4" />
+          <Trash2 className="h-5 w-5" />
         </button>
       </div>
 

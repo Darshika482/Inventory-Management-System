@@ -5,6 +5,7 @@ import { useT } from '../i18n';
 import { displayName, matchesSearch, secondaryName, unitLabel } from '../labels';
 import { formatRupees, type Paise } from '../money';
 import type { ShopCategory, ShopItem } from '../types';
+import { NumberBox, NumberPad, NumberPadSpacer, PadSummary, type PadView } from './NumberPad';
 import { ActionButton, SearchBox } from './ui';
 
 /** What the picker needs to show and edit an item that is already on the bill. */
@@ -58,6 +59,12 @@ export function ItemPickerSheet({
   const [search, setSearch] = useState('');
   const [chip, setChip] = useState(ALL);
   const bodyRef = useRef<HTMLDivElement>(null);
+  // The shop keypad, open for one item's quantity or rate.
+  const [pad, setPad] = useState<{ itemId: string; field: 'qty' | 'rate' } | null>(null);
+
+  useEffect(() => {
+    if (!open) setPad(null);
+  }, [open]);
 
   const activeCategories = categories.filter((c) => c.isActive);
   const hasFrequent = Object.keys(saleCounts).length > 0;
@@ -91,6 +98,40 @@ export function ItemPickerSheet({
   useEffect(() => {
     bodyRef.current?.scrollTo({ top: 0 });
   }, [search, chip]);
+
+  const padItem = pad ? items.find((i) => i.id === pad.itemId) : undefined;
+  const padLine = pad ? lines[pad.itemId] : undefined;
+  const padView: PadView | null =
+    pad && padItem && padLine
+      ? {
+          target: padItem.id,
+          title: displayName(padItem, language),
+          subtitle: secondaryName(padItem, language) || undefined,
+          fields: [
+            {
+              id: 'qty',
+              label: t('qty'),
+              value: padLine.qtyText,
+              decimals: 3,
+              suffix: unitLabel(t, padItem.unit),
+              required: true,
+              invalid: !padLine.qtyValid,
+            },
+            { id: 'rate', label: t('rate'), value: padLine.rateText, decimals: 2, prefix: '₹', required: true, invalid: !padLine.rateValid },
+          ],
+          activeId: pad.field,
+          onActiveChange: (id) => setPad({ itemId: padItem.id, field: id === 'rate' ? 'rate' : 'qty' }),
+          onChange: (id, value) => onChangeLine(padItem.id, id === 'rate' ? { rateText: value } : { qtyText: value }),
+          summary: (
+            <PadSummary
+              items={[
+                { label: t('amount'), value: formatRupees(padLine.amount, true) },
+                { label: t('total'), value: formatRupees(billTotal, true), tone: 'muted' },
+              ]}
+            />
+          ),
+        }
+      : null;
 
   return (
     <AppModal
@@ -137,12 +178,15 @@ export function ItemPickerSheet({
                 item={item}
                 line={lines[item.id]}
                 onPick={() => onPick(item)}
-                onChange={(patch) => onChangeLine(item.id, patch)}
+                padField={pad?.itemId === item.id ? pad.field : null}
+                onOpenPad={(field) => setPad({ itemId: item.id, field })}
                 onRemove={() => onRemove(item.id)}
               />
             ))}
           </ul>
         )}
+
+        {pad && <NumberPadSpacer />}
 
         <div className="sticky bottom-0 -mx-1 px-1 pt-2 bg-white">
           <ActionButton
@@ -157,6 +201,7 @@ export function ItemPickerSheet({
           />
         </div>
       </div>
+      <NumberPad view={padView} onClose={() => setPad(null)} />
     </AppModal>
   );
 }
@@ -165,11 +210,13 @@ interface PickerRowProps {
   item: ShopItem;
   line: PickerLine | undefined;
   onPick: () => void;
-  onChange: (patch: { qtyText?: string; rateText?: string }) => void;
+  /** The keypad is open for this item's quantity or rate. */
+  padField: 'qty' | 'rate' | null;
+  onOpenPad: (field: 'qty' | 'rate') => void;
   onRemove: () => void;
 }
 
-function PickerRow({ item, line, onPick, onChange, onRemove }: PickerRowProps) {
+function PickerRow({ item, line, onPick, padField, onOpenPad, onRemove }: PickerRowProps) {
   const { t, language } = useT();
   const subtitle = [secondaryName(item, language), unitLabel(t, item.unit)].filter(Boolean).join(' · ');
 
@@ -197,7 +244,7 @@ function PickerRow({ item, line, onPick, onChange, onRemove }: PickerRowProps) {
 
   // On the bill: quantity and rate can be changed right here.
   return (
-    <li className="bg-emerald-50/60 px-3 py-2 space-y-1.5">
+    <li className={`px-3 py-2 space-y-1.5 transition-colors ${padField ? 'bg-amber-50' : 'bg-emerald-50/60'}`}>
       <div className="flex items-center gap-2">
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-slate-900 truncate leading-tight">{displayName(item, language)}</p>
@@ -207,44 +254,36 @@ function PickerRow({ item, line, onPick, onChange, onRemove }: PickerRowProps) {
       </div>
       {/* qty  ×  ₹ rate, with delete at the right end */}
       <div className="flex items-center gap-1.5">
-        <input
-          inputMode="decimal"
+        <NumberBox
           value={line.qtyText}
-          onChange={(e) => onChange({ qtyText: e.target.value })}
-          onFocus={(e) => e.target.select()}
-          aria-label={t('qty')}
-          className={`h-8 w-14 rounded-lg border bg-white text-center text-sm font-bold text-slate-900 focus:outline-none focus:border-amber-500 ${
-            line.qtyValid ? 'border-slate-200' : 'border-red-300 bg-red-50'
-          }`}
+          label={t('qty')}
+          active={padField === 'qty'}
+          invalid={!line.qtyValid}
+          center
+          onOpen={() => onOpenPad('qty')}
+          className="h-10 w-16 text-base"
         />
         <span className="text-xs text-slate-400" aria-hidden="true">
           ×
         </span>
-        <div
-          className={`flex h-8 w-24 items-center rounded-lg border bg-white focus-within:border-amber-500 ${
-            !line.rateValid ? 'border-red-300 bg-red-50' : line.rateChanged ? 'border-amber-400' : 'border-slate-200'
-          }`}
-        >
-          <span className="pl-2 text-xs font-semibold text-slate-400" aria-hidden="true">
-            ₹
-          </span>
-          <input
-            inputMode="decimal"
-            value={line.rateText}
-            onChange={(e) => onChange({ rateText: e.target.value })}
-            onFocus={(e) => e.target.select()}
-            aria-label={t('rate')}
-            className="h-full min-w-0 flex-1 bg-transparent px-1 text-sm font-bold text-slate-900 focus:outline-none"
-          />
-        </div>
+        <NumberBox
+          value={line.rateText}
+          label={t('rate')}
+          prefix="₹"
+          active={padField === 'rate'}
+          invalid={!line.rateValid}
+          changed={line.rateChanged}
+          onOpen={() => onOpenPad('rate')}
+          className="h-10 w-28 text-base"
+        />
         <button
           type="button"
           onClick={onRemove}
           aria-label={t('remove')}
           title={t('remove')}
-          className="ml-auto h-8 w-8 flex items-center justify-center rounded-lg text-red-600 hover:bg-red-50 cursor-pointer transition-colors"
+          className="ml-auto h-10 w-10 flex items-center justify-center rounded-lg text-red-600 hover:bg-red-50 cursor-pointer transition-colors"
         >
-          <Trash2 className="h-4 w-4" />
+          <Trash2 className="h-5 w-5" />
         </button>
       </div>
     </li>
