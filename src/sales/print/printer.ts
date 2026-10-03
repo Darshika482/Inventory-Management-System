@@ -25,6 +25,8 @@ export interface PrinterPrefs {
   hindi: boolean;
   /** UPI QR for the amount due. */
   showUpiQr: boolean;
+  /** Printer's small font in bold: smaller, clear letters. */
+  smallFont: boolean;
   /** Name printed at the top of the bill. */
   billName: string;
   /** Small line under the name. */
@@ -41,12 +43,14 @@ const DEFAULT_PREFS: PrinterPrefs = {
   cutter: false,
   // The shop printer prints GS ( k as text and garbles pictures, but prints
   // plain text perfectly, so the QR is drawn with block letters.
-  qrStyle: 'blocks',
+  // A small QR picture (about 2 KB, sent slowly, printed last on the bill).
+  qrStyle: 'picture',
+  smallFont: true,
   hindi: false,
   showUpiQr: true,
   billName: 'Surbhi Fall',
   billSubtitle: 'wholesale',
-  version: 4,
+  version: 5,
 };
 
 export function getPrinterPrefs(): PrinterPrefs {
@@ -66,6 +70,12 @@ export function getPrinterPrefs(): PrinterPrefs {
     if (saved.version < 4) {
       saved.qrStyle = 'blocks';
       saved.version = 4;
+    }
+    // Version 5: the picture QR is now small enough to print safely; small clear letters.
+    if (saved.version < 5) {
+      saved.qrStyle = 'picture';
+      saved.smallFont = true;
+      saved.version = 5;
     }
     return { ...DEFAULT_PREFS, ...saved };
   } catch {

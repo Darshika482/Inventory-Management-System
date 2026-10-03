@@ -212,3 +212,29 @@ describe('printed UPI QR is small', () => {
     expect(short).toBeLessThanOrEqual(29);
   });
 });
+
+describe('small clear letters', () => {
+  it('fits 42 letters per line on 58mm and keeps every row inside the paper', () => {
+    const lines = layoutReceipt(bill, settings, { hindi: false, showUpiQr: true, widthMm: 58, smallFont: true });
+    const rows = receiptToTextRows(lines, charsPerLine(58, true));
+    expect(charsPerLine(58, true)).toBe(42);
+    for (const row of rows) expect(row.length).toBeLessThanOrEqual(42);
+    expect(rows.join('\n')).toMatch(/#\s+Name\s+Qty\s+Price\s+Amount/);
+  });
+
+  it('switches the printer to the small font in bold, and the name back to the big normal font', () => {
+    const lines = layoutReceipt(bill, settings, { hindi: false, showUpiQr: false, widthMm: 58, smallFont: true });
+    const bytes = Array.from(encodeReceipt(lines, { widthMm: 58, cutter: false, qrStyle: 'picture', smallFont: true }));
+    const has = (seq: number[]) => bytes.some((_, i) => seq.every((b, j) => bytes[i + j] === b));
+    expect(has([0x1b, 0x4d, 1, 0x1b, 0x45, 1])).toBe(true); // small font, bold
+    expect(has([0x1b, 0x4d, 0])).toBe(true); // normal font for the big name
+  });
+});
+
+describe('small picture QR', () => {
+  it('stays around 2 KB so the printer can never overflow', () => {
+    const lines = [{ kind: 'qr' as const, data: printedUpiLink('9131297397@ybl', 'Surbhi Fall', 1850), caption: 'Scan' }];
+    const bytes = encodeReceipt(lines, { widthMm: 58, cutter: false, qrStyle: 'picture' });
+    expect(bytes.length).toBeLessThan(2600);
+  });
+});

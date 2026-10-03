@@ -35,10 +35,13 @@ export interface ReceiptOptions {
   billName?: string;
   /** Small line under the name (e.g. "wholesale"). */
   billSubtitle?: string;
+  /** Printer's small font (more letters per line). */
+  smallFont?: boolean;
 }
 
-/** Characters per line in the printer's normal font. */
-export function charsPerLine(widthMm: 58 | 80): number {
+/** Characters per line: normal font 12 dots wide, small font 9 dots wide. */
+export function charsPerLine(widthMm: 58 | 80, smallFont = false): number {
+  if (smallFont) return widthMm === 80 ? 64 : 42;
   return widthMm === 80 ? 48 : 32;
 }
 
@@ -110,9 +113,9 @@ function slashDate(iso: string): string {
 
 /** Item table column widths (characters) for the paper width. */
 function columns(width: number) {
-  return width >= 48
-    ? { no: 3, qty: 7, price: 9, amount: 10, name: width - 3 - 7 - 9 - 10 }
-    : { no: 2, qty: 5, price: 6, amount: 7, name: width - 2 - 5 - 6 - 7 };
+  if (width >= 48) return { no: 3, qty: 7, price: 9, amount: 10, name: width - 3 - 7 - 9 - 10 };
+  if (width >= 40) return { no: 3, qty: 6, price: 8, amount: 9, name: width - 3 - 6 - 8 - 9 };
+  return { no: 2, qty: 5, price: 6, amount: 7, name: width - 2 - 5 - 6 - 7 };
 }
 
 function fit(text: string, width: number): string {
@@ -121,7 +124,7 @@ function fit(text: string, width: number): string {
 
 export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options: ReceiptOptions): ReceiptLine[] {
   const lines: ReceiptLine[] = [];
-  const width = charsPerLine(options.widthMm ?? 58);
+  const width = charsPerLine(options.widthMm ?? 58, options.smallFont);
   const col = columns(width);
   const due = bill.billType === 'quotation' ? 0 : bill.total - bill.paidAmount;
   const mono = (text: string, bold = false): ReceiptLine => ({ kind: 'text', text, mono: true, bold });
@@ -222,6 +225,12 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
   if (bill.isGst && bill.ratesIncludeGst) lines.push({ kind: 'text', text: '(GST included in rates)', align: 'center' });
 
   // UPI QR on every sale bill: with the amount due (or the UPI total), else plain.
+  if (settings.receiptFooter) {
+    lines.push({ kind: 'feed', lines: 1 });
+    lines.push({ kind: 'text', text: settings.receiptFooter, align: 'center' });
+  }
+
+  // The QR comes last, so the bill itself is complete whatever the printer does with it.
   const qrAmount = upiQrAmount(bill);
   if (options.showUpiQr && settings.upiId && bill.billType === 'sale' && bill.status !== 'cancelled') {
     lines.push({ kind: 'feed', lines: 1 });
@@ -230,11 +239,6 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
       data: printedUpiLink(settings.upiId, options.billName?.trim() || settings.shopName, qrAmount),
       caption: qrAmount ? `Scan to pay Rs ${plainAmount(qrAmount)}` : 'Scan this QR code to pay',
     });
-  }
-
-  if (settings.receiptFooter) {
-    lines.push({ kind: 'feed', lines: 1 });
-    lines.push({ kind: 'text', text: settings.receiptFooter, align: 'center' });
   }
   lines.push({ kind: 'feed', lines: 3 });
   return lines;

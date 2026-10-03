@@ -50,10 +50,14 @@ export function QrSvg({ data, className = 'mx-auto h-36 w-36' }: { data: string;
 
 /** The bill drawn like the paper roll, from the same lines the printer gets. */
 export function ReceiptPaper({ lines, widthMm }: { lines: ReceiptLine[]; widthMm: 58 | 80 }) {
+  // Size the letters so the widest table row fits, like on the paper.
+  const paper = widthMm === 80 ? 380 : 280;
+  const widest = Math.max(32, ...lines.map((l) => (l.kind === 'text' && l.mono ? l.text.length : 0)));
+  const fontSize = Math.min(12, Math.floor(((paper - 24) / (widest * 0.6)) * 10) / 10);
   return (
     <div
-      className="mx-auto bg-white text-black shadow-md border border-slate-200 px-3 py-4 font-mono text-[12px] leading-snug"
-      style={{ width: widthMm === 80 ? 380 : 280, maxWidth: '100%' }}
+      className="mx-auto bg-white text-black shadow-md border border-slate-200 px-3 py-4 font-mono leading-snug"
+      style={{ width: paper, maxWidth: '100%', fontSize }}
       data-testid="receipt-paper"
     >
       {lines.map((line, i) => {
@@ -65,7 +69,10 @@ export function ReceiptPaper({ lines, widthMm }: { lines: ReceiptLine[]; widthMm
           case 'qr':
             return (
               <div key={i} className="my-2 text-center">
-                <QrSvg data={line.data} />
+                {/* Same share of the paper as on the printout: small picture ~1/3, blocks ~3/4. */}
+                <div className="mx-auto" style={{ width: `${getPrinterPrefs().qrStyle === 'picture' ? 34 : 74}%` }}>
+                  <QrSvg data={line.data} className="w-full h-auto" />
+                </div>
                 <p className="mt-1 text-[11px]">{line.caption}</p>
               </div>
             );
@@ -605,8 +612,8 @@ export function PrinterSetupPanel({ settings, canEdit = true }: { settings: Shop
                     value={prefs.qrStyle}
                     columns={3}
                     options={[
-                      { value: 'blocks', label: t('qrStyle_blocks') },
                       { value: 'picture', label: t('qrStyle_picture') },
+                      { value: 'blocks', label: t('qrStyle_blocks') },
                       { value: 'native', label: t('qrStyle_native') },
                     ]}
                     onChange={(qrStyle) => update({ qrStyle })}
@@ -614,6 +621,12 @@ export function PrinterSetupPanel({ settings, canEdit = true }: { settings: Shop
                   <p className="text-sm text-slate-500 leading-relaxed -mt-2">{t('printerQrStyleHint')}</p>
                 </>
               )}
+              <ToggleRow
+                label={t('printerSmallFont')}
+                hint={t('printerSmallFontHint')}
+                checked={prefs.smallFont}
+                onChange={(smallFont) => update({ smallFont })}
+              />
               <ToggleRow label={t('printerHindi')} hint={t('printerHindiHint')} checked={prefs.hindi} onChange={(hindi) => update({ hindi })} />
               <ToggleRow label={t('printerCutter')} checked={prefs.cutter} onChange={(cutter) => update({ cutter })} />
             </>
