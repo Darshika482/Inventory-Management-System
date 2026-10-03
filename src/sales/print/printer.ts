@@ -188,8 +188,12 @@ async function connect(target: BluetoothDevice): Promise<void> {
   setState('connected');
 }
 
+/** True while this app lets go of the printer on purpose (not "printer off"). */
+let releasing = false;
+
 function onDisconnected() {
   channel = null;
+  if (releasing) return;
   if (status.method === 'bluetooth') setState('disconnected');
 }
 
@@ -244,18 +248,44 @@ async function ensureConnected(ms: number): Promise<'connected' | 'unknown' | 'f
 
 /** Tries to reconnect in the background (e.g. when the bill screen opens). */
 export function warmUpPrinter(): void {
-  if (getPrinterPrefs().method === 'bluetooth' && status.state !== 'connected') void ensureConnected(5000);
+  // Deliberately does nothing now: holding the link open blocks the other
+  // phones in the shop, so each print connects only for as long as it prints.
 }
 
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Sends in small pieces at a pace the printer can keep up with. Sending too
+ * fast loses bytes, and a lost byte in a picture makes the printer print the
+ * rest as endless strange letters.
+ */
 async function writeBluetooth(bytes: Uint8Array): Promise<void> {
   if (!channel) throw new Error('not connected');
-  const fast = channel.properties.writeWithoutResponse && channel.writeValueWithoutResponse;
-  const chunk = 100;
+  // "With response" waits for the printer to accept each piece: slower but safe.
+  const confirmed = channel.properties.write;
+  const chunk = confirmed ? 100 : 20;
   for (let i = 0; i < bytes.length; i += chunk) {
     const part = bytes.slice(i, i + chunk);
-    if (fast) await channel.writeValueWithoutResponse!(part);
-    else await channel.writeValue(part);
+    if (confirmed) await channel.writeValue(part);
+    else {
+      await channel.writeValueWithoutResponse!(part);
+      await pause(12);
+    }
   }
+  // Let the printer finish its buffer before the link is let go.
+  await pause(800);
+}
+
+/** Lets go of the printer so other phones in the shop can print too. */
+function releasePrinter() {
+  releasing = true;
+  setTimeout(() => (releasing = false), 2000);
+  try {
+    device?.gatt?.disconnect();
+  } catch {
+    // Already gone.
+  }
+  channel = null;
 }
 
 // --- RawBT ---
@@ -317,6 +347,8 @@ export async function printBytes(bytes: Uint8Array): Promise<PrintResult> {
   setState('printing');
   try {
     await writeBluetooth(bytes);
+    releasePrinter();
+    // Still "ready": the next print connects again in a moment.
     setState('connected');
     return { ok: true };
   } catch (err) {

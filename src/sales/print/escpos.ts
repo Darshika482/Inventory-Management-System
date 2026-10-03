@@ -70,6 +70,18 @@ function nativeQr(data: string, moduleSize: number): number[] {
  * Width is padded to whole bytes.
  */
 export function rasterBytes(pixels: boolean[][]): number[] {
+  // Small bands: if the Bluetooth link drops a byte, only one thin strip is
+  // spoiled instead of the printer reading the rest of the picture as text.
+  const band = 24;
+  if (pixels.length > band) {
+    const out: number[] = [];
+    for (let y = 0; y < pixels.length; y += band) out.push(...rasterBand(pixels.slice(y, y + band)));
+    return out;
+  }
+  return rasterBand(pixels);
+}
+
+function rasterBand(pixels: boolean[][]): number[] {
   const height = pixels.length;
   const width = height ? pixels[0].length : 0;
   const bytesPerRow = Math.ceil(width / 8);
@@ -88,7 +100,7 @@ export function rasterBytes(pixels: boolean[][]): number[] {
 }
 
 /** QR code as an image, `scale` dots per module, centred on the paper. */
-export function qrRaster(data: string, widthMm: 58 | 80, scale = 6): number[] {
+export function qrRaster(data: string, widthMm: 58 | 80, scale = 5): number[] {
   const matrix = qrMatrix(data);
   const size = matrix.length;
   const quiet = 2;
@@ -152,10 +164,7 @@ export function encodeReceipt(lines: ReceiptLine[], options: EscPosOptions): Uin
 
 /** A full receipt drawn as one image (used for Hindi text), followed by feed and cut. */
 export function encodeImageReceipt(pixels: boolean[][], options: EscPosOptions): Uint8Array {
-  // Send in bands so cheap printers with small buffers keep up.
-  const band = 255;
-  const out = new Bytes().push(...init(), ...align('left'));
-  for (let y = 0; y < pixels.length; y += band) out.push(...rasterBytes(pixels.slice(y, y + band)));
+  const out = new Bytes().push(...init(), ...align('left'), ...rasterBytes(pixels));
   out.push(...feed(3));
   if (options.cutter) out.push(...cut());
   return out.done();
