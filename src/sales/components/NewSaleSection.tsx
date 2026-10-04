@@ -924,7 +924,7 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
                     {t('inclTax', {
                       taxes: isInterstate
                         ? `IGST ${formatRupees(bill.igst, true)}`
-                        : `CGST ${formatRupees(bill.cgst, true)} + SGST ${formatRupees(bill.sgst, true)}`,
+                        : `GST ${formatRupees(bill.tax, true)}`,
                     })}
                   </p>
                 )}

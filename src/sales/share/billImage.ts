@@ -184,11 +184,8 @@ export async function drawBillCanvas(bill: ShopInvoice, settings: ShopSettings):
   if (bill.isGst) {
     row('Taxable value', formatRupees(bill.subtotal, true));
     for (const [rate, e] of gstByRate(bill)) {
-      if (bill.isInterstate) row(`IGST @${rate}%`, formatRupees(e.igst, true));
-      else {
-        row(`CGST @${rate / 2}%`, formatRupees(e.cgst, true));
-        row(`SGST @${rate / 2}%`, formatRupees(e.sgst, true));
-      }
+      // One line per rate, not split into CGST and SGST.
+      row(`${bill.isInterstate ? 'IGST' : 'GST'} @${rate}%`, formatRupees(e.igst + e.cgst + e.sgst, true));
     }
   }
   if (bill.roundOff !== 0) {

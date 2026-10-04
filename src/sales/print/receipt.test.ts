@@ -96,8 +96,11 @@ describe('receipt layout', () => {
     expect(rows).toMatch(/#\s+Name\s+Qty\s+Price\s+Amount/);
     expect(rows).toMatch(/1\s+Lux Soap 100g\s+3\s+40\s+120/);
     expect(rows).toMatch(/Total\s+:\s+789/);
-    expect(rows).toContain('CGST 9%');
-    expect(rows).toContain('CGST 6%');
+    // One GST line per rate, not split into CGST and SGST.
+    expect(rows).toContain('GST 18%');
+    expect(rows).toContain('GST 12%');
+    expect(rows).not.toContain('CGST');
+    expect(rows).not.toContain('SGST');
     expect(rows).toContain('Discount 5%');
     expect(rows).not.toContain('Rs ');
     expect(rows).not.toContain('[QR]');
@@ -271,7 +274,15 @@ describe('Vyapar-like letters: wide shop name, small font everywhere else', () =
     const gap = '1b4a0c'; // ESC J 12: feed 12 dots
     expect(hex.slice(at('Lux Soap'), at('Surf Excel'))).toContain(gap);
     expect(hex.slice(at('Classmate'), at('Notebook'))).not.toContain(gap);
-    expect(hex.slice(0, at('Lux Soap'))).not.toContain(gap); // none above the first item
+    expect(hex.slice(at('Amount'), at('Lux Soap'))).not.toContain(gap); // none above the first item
+  });
+
+  it('leaves a small gap between heading lines and between total lines', () => {
+    const hex = toHex(Uint8Array.from(bytes));
+    const at = (text: string) => hex.indexOf(toHex(new TextEncoder().encode(text)));
+    const gap = '1b4a0c';
+    expect(hex.slice(at('Main Bazaar'), at('Ph.No.'))).toContain(gap);
+    expect(hex.slice(at('Taxable'), at('Total'))).toContain(gap);
   });
 
   it('prints the shop name in the normal font at double width, not bold', () => {

@@ -142,6 +142,9 @@ function columns(width: number) {
 /** White space between two products in the item table, in dots (about 1.5 mm). */
 export const ITEM_GAP = 12;
 
+/** White space between the heading, bill detail and total lines, in dots (about 1.5 mm), so they never run together. */
+export const LINE_GAP = 12;
+
 /** Spaces kept in front of every number, so Qty, Price and Amount never run together. */
 const NUMBER_GAP = '  ';
 
@@ -157,13 +160,19 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
   const col = columns(width);
   const due = bill.billType === 'quotation' ? 0 : bill.total - bill.paidAmount;
   const mono = (text: string, bold = false): ReceiptLine => ({ kind: 'text', text, mono: true, small: true, bold });
+  /** Adds a line with a little white space above it when it follows another line of text. */
+  const spaced = (line: ReceiptLine) => {
+    const prev = lines[lines.length - 1];
+    if (prev && (prev.kind === 'text' || prev.kind === 'pair')) lines.push({ kind: 'gap', dots: LINE_GAP });
+    lines.push(line);
+  };
 
   const centred = (text: string): Extract<ReceiptLine, { kind: 'text' }> => ({ kind: 'text', text, align: 'center', small: true });
   lines.push({ kind: 'text', text: options.billName?.trim() || settings.shopName, align: 'center', wide: true });
-  if (options.billSubtitle?.trim()) lines.push(centred(options.billSubtitle.trim()));
-  if (settings.address) lines.push(centred(settings.address));
-  if (settings.phone) lines.push(centred(`Ph.No.: ${settings.phone}`));
-  if (bill.isGst && settings.gstin) lines.push(centred(`GSTIN: ${settings.gstin}`));
+  if (options.billSubtitle?.trim()) spaced(centred(options.billSubtitle.trim()));
+  if (settings.address) spaced(centred(settings.address));
+  if (settings.phone) spaced(centred(`Ph.No.: ${settings.phone}`));
+  if (bill.isGst && settings.gstin) spaced(centred(`GSTIN: ${settings.gstin}`));
   lines.push({ kind: 'rule' });
 
   // Bill details
@@ -176,10 +185,10 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
           ? 'Tax Invoice'
           : 'Invoice';
   lines.push(centred(title));
-  if (bill.status === 'cancelled') lines.push({ ...centred('*** CANCELLED ***'), bold: true });
-  lines.push({ kind: 'pair', left: bill.partyName || 'Cash Sale', right: `Date: ${slashDate(bill.billDate)}`, small: true });
-  lines.push({ kind: 'pair', left: `Bill No: ${billLabel(bill.billNumber) ?? 'pending'}`, right: formatIstTime(bill.createdAt), small: true });
-  if (bill.partyGstin) lines.push({ kind: 'text', text: `GSTIN: ${bill.partyGstin}`, small: true });
+  if (bill.status === 'cancelled') spaced({ ...centred('*** CANCELLED ***'), bold: true });
+  spaced({ kind: 'pair', left: bill.partyName || 'Cash Sale', right: `Date: ${slashDate(bill.billDate)}`, small: true });
+  spaced({ kind: 'pair', left: `Bill No: ${billLabel(bill.billNumber) ?? 'pending'}`, right: formatIstTime(bill.createdAt), small: true });
+  if (bill.partyGstin) spaced({ kind: 'text', text: `GSTIN: ${bill.partyGstin}`, small: true });
   lines.push({ kind: 'rule' });
 
   // Item table:  # Name   Qty  Price  Amount
@@ -216,7 +225,7 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
   // Totals:   label   :   amount
   const label = width >= 48 ? 20 : 14;
   const total = (name: string, amount: string, bold = false) =>
-    lines.push(mono(`  ${name.padEnd(label)}:${amount.padStart(width - 3 - label)}`, bold));
+    spaced(mono(`  ${name.padEnd(label)}:${amount.padStart(width - 3 - label)}`, bold));
 
   lines.push(mono(plainAmount(bill.itemsTotal).padStart(width)));
   if (bill.discount > 0) {
@@ -224,26 +233,15 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
     total(`Discount${pct}`, `-${plainAmount(bill.discount)}`);
   }
   if (bill.isGst) {
-    // Rate-wise split, worked out the same way as the bill.
-    const byRate = new Map<number, { cgst: number; sgst: number; igst: number }>();
+    // One tax line per rate (not split into CGST and SGST), worked out the same way as the bill.
+    const byRate = new Map<number, number>();
     for (const line of bill.lines) {
       if (line.taxAmount === 0) continue;
-      const entry = byRate.get(line.gstRate) ?? { cgst: 0, sgst: 0, igst: 0 };
-      if (bill.isInterstate) entry.igst += line.taxAmount;
-      else {
-        const sgst = Math.floor(line.taxAmount / 2);
-        entry.sgst += sgst;
-        entry.cgst += line.taxAmount - sgst;
-      }
-      byRate.set(line.gstRate, entry);
+      byRate.set(line.gstRate, (byRate.get(line.gstRate) ?? 0) + line.taxAmount);
     }
     total('Taxable', plainAmount(bill.subtotal));
-    for (const [rate, e] of Array.from(byRate.entries()).sort((a, b) => a[0] - b[0])) {
-      if (bill.isInterstate) total(`IGST ${rate}%`, plainAmount(e.igst));
-      else {
-        total(`CGST ${rate / 2}%`, plainAmount(e.cgst));
-        total(`SGST ${rate / 2}%`, plainAmount(e.sgst));
-      }
+    for (const [rate, tax] of Array.from(byRate.entries()).sort((a, b) => a[0] - b[0])) {
+      total(`${bill.isInterstate ? 'IGST' : 'GST'} ${rate}%`, plainAmount(tax));
     }
   }
   if (bill.roundOff !== 0) total('Round off', `${bill.roundOff > 0 ? '+' : ''}${plainAmount(bill.roundOff)}`);
@@ -258,7 +256,7 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
           { label: 'Balance', value: plainAmount(Math.max(0, due)), strong: due > 0 },
         ];
   if (!qrShown) for (const item of side) total(item.label, item.value, item.strong);
-  if (bill.isGst && bill.ratesIncludeGst) lines.push({ kind: 'text', text: '(GST included in rates)', align: 'center', small: true });
+  if (bill.isGst && bill.ratesIncludeGst) spaced({ kind: 'text', text: '(GST included in rates)', align: 'center', small: true });
 
   // UPI QR on every sale bill: with the amount due (or the UPI total), else plain.
   // The QR comes last, so the bill itself is complete whatever the printer does with it.
