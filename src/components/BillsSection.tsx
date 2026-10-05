@@ -29,7 +29,6 @@ import {
   insertBillPayment,
   insertBillPayments,
   insertPurchaseBill,
-  updatePurchaseBillInDb,
   uploadBillPhoto,
 } from '../lib/database';
 import {
@@ -114,6 +113,31 @@ function normalizeParty(name: string): string {
 /** "INV 1042" and "inv1042" are the same bill number. */
 function normalizeBillNo(billNo: string): string {
   return billNo.toLowerCase().replace(/\s+/g, '');
+}
+
+function splitBillVariant(billNo: string): { base: string; variant: number | null } {
+  const value = billNo.trim();
+  const match = value.match(/^(.*?)(?:\s*\(v(\d+)\))$/i);
+  if (!match) return { base: value, variant: null };
+  const base = match[1].trim();
+  const variant = Number(match[2]);
+  return { base: base || value, variant: Number.isFinite(variant) ? variant : null };
+}
+
+function nextBillVariantNo(firmName: string, billNo: string, bills: PurchaseBill[]): string {
+  const party = normalizeParty(firmName);
+  const source = splitBillVariant(billNo);
+  const base = source.base || billNo.trim();
+  const normalizedBase = normalizeBillNo(base);
+  let maxVariant = 1;
+  for (const existing of bills) {
+    if (normalizeParty(existing.firmName) !== party) continue;
+    const parsed = splitBillVariant(existing.billNo);
+    if (normalizeBillNo(parsed.base) !== normalizedBase) continue;
+    const variant = parsed.variant ?? 1;
+    if (variant > maxVariant) maxVariant = variant;
+  }
+  return `${base} (v${maxVariant + 1})`;
 }
 
 function todayISO(): string {
@@ -296,13 +320,13 @@ export function BillsSection({ showToast }: BillsSectionProps) {
 
   const billNoOf = (billId: string) => bills.find((b) => b.id === billId)?.billNo || '—';
 
-  const handleBillSaved = (bill: PurchaseBill, wasEdited: boolean) => {
-    if (wasEdited) {
-      setBills((prev) => prev.map((b) => (b.id === bill.id ? bill : b)));
+  const handleBillSaved = (bill: PurchaseBill, mode: 'new' | 'variant') => {
+    if (mode === 'variant') {
+      setBills((prev) => [bill, ...prev]);
       setEditingBillId(null);
-      // Back to the detail view so the corrected bill can be checked right away.
+      // Open the newly created variant so it can be checked right away.
       setDetailBillId(bill.id);
-      showToast(`Bill from "${bill.firmName}" updated.`, 'success');
+      showToast(`Bill variant saved as "${bill.billNo}".`, 'success');
       return;
     }
     setBills((prev) => [bill, ...prev]);
@@ -1162,7 +1186,7 @@ interface BillFormModalProps {
   firmNames: string[];
   /** Every saved bill, to stop the same bill being entered twice. */
   existingBills: PurchaseBill[];
-  onSaved: (bill: PurchaseBill, wasEdited: boolean) => void;
+  onSaved: (bill: PurchaseBill, mode: 'new' | 'variant') => void;
   showToast: BillsSectionProps['showToast'];
 }
 
@@ -1379,7 +1403,7 @@ function BillFormModal({
       setProblem(fieldProblem('Please enter the bill number.'));
       return;
     }
-    if (duplicateOf) {
+    if (!isEditing && duplicateOf) {
       setProblem(fieldProblem(duplicateMessage));
       return;
     }
@@ -1422,9 +1446,9 @@ function BillFormModal({
     }
 
     const saved: PurchaseBill = {
-      id: bill?.id ?? `pb-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      id: `pb-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       firmName: firmName.trim(),
-      billNo: billNo.trim(),
+      billNo: isEditing ? nextBillVariantNo(firmName.trim(), billNo.trim(), existingBills) : billNo.trim(),
       billDate,
       gstNumber: gstNumber.trim().toUpperCase(),
       lrNo: lrNo.trim(),
@@ -1436,14 +1460,13 @@ function BillFormModal({
       gstAmount: Math.round(gst * 100) / 100,
       netAmount: Math.round(net * 100) / 100,
       photoUrl,
-      createdAt: bill?.createdAt ?? new Date().toISOString(),
+      createdAt: new Date().toISOString(),
     };
 
     try {
-      if (bill) await updatePurchaseBillInDb(saved);
-      else await insertPurchaseBill(saved);
+      await insertPurchaseBill(saved);
       reset();
-      onSaved(saved, Boolean(bill));
+      onSaved(saved, isEditing ? 'variant' : 'new');
     } catch (err) {
       console.error('Saving the bill failed:', err);
       setIsSaving(false);
@@ -1458,7 +1481,10 @@ function BillFormModal({
         return;
       }
       setProblem(
-        saveProblem(err, bill ? 'Your changes could not be saved' : 'The bill could not be saved')
+        saveProblem(
+          err,
+          bill ? 'The bill variant could not be saved' : 'The bill could not be saved'
+        )
       );
     }
   };
@@ -1470,7 +1496,7 @@ function BillFormModal({
       title={isEditing ? 'Edit this bill' : 'Add party bill'}
       description={
         isEditing
-          ? 'Correct anything that is wrong and save again'
+          ? 'Change items and save to create a new variant; the old bill stays unchanged'
           : 'Save a bill of goods you bought from a party'
       }
       icon={<FileText className="h-5 w-5" />}
@@ -1576,7 +1602,7 @@ function BillFormModal({
             }}
             disabled={isSaving}
             accent="amber"
-            aria-invalid={Boolean(duplicateOf)}
+            aria-invalid={Boolean(!isEditing && duplicateOf)}
           />
           <DateField
             label="Bill date"
@@ -1587,7 +1613,7 @@ function BillFormModal({
           />
         </div>
 
-        {duplicateOf && (
+        {!isEditing && duplicateOf && (
           <p
             role="alert"
             className="-mt-2 text-sm font-semibold text-red-700 bg-red-50 border border-red-200 rounded-xl px-3.5 py-2.5 leading-relaxed"
@@ -1849,7 +1875,7 @@ function BillFormModal({
 
         <ModalActions
           onCancel={handleClose}
-          submitLabel={isEditing ? 'Save changes' : 'Save bill'}
+          submitLabel={isEditing ? 'Save as variant' : 'Save bill'}
           submitAccent="amber"
           isSubmitting={isSaving}
         />
