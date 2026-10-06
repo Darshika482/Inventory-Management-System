@@ -275,8 +275,8 @@ export async function billPdfFile(bill: ShopInvoice, settings: ShopSettings): Pr
   return new File([blob], billFileName(bill, 'pdf'), { type: 'application/pdf' });
 }
 
-/** Short message to go with the file, or on its own in WhatsApp. */
-export function billShareText(bill: ShopInvoice, settings: ShopSettings): string {
+/** Short message to go with the file, or on its own in WhatsApp (with a link to the bill picture). */
+export function billShareText(bill: ShopInvoice, settings: ShopSettings, link?: string): string {
   const due = bill.billType === 'quotation' ? 0 : bill.total - bill.paidAmount;
   const lines = [
     `*${settings.shopName || 'Akshay Traders'}*`,
@@ -287,6 +287,7 @@ export function billShareText(bill: ShopInvoice, settings: ShopSettings): string
     lines.push(`Balance due: ${formatRupees(due, true)}`);
     if (settings.upiId) lines.push(`Pay by UPI: ${settings.upiId}`);
   }
+  if (link) lines.push('', `See the bill: ${link}`, '');
   lines.push('Thank you!');
   return lines.join('\n');
 }

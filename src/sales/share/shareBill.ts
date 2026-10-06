@@ -4,6 +4,7 @@
  * can be attached by hand.
  */
 import type { ShopInvoice, ShopSettings } from '../types';
+import { uploadSharedBill } from '../db';
 import { billImageFile, billPdfFile, billShareText } from './billImage';
 
 export type ShareFormat = 'image' | 'pdf';
@@ -51,9 +52,21 @@ export async function saveBillFile(bill: ShopInvoice, settings: ShopSettings, fo
   download(await makeBillFile(bill, settings, format));
 }
 
-/** WhatsApp chat with the bill details as text (to the customer's number when known). */
-export function whatsAppLink(bill: ShopInvoice, settings: ShopSettings, phone: string): string {
-  const text = encodeURIComponent(billShareText(bill, settings));
-  const digits = phone.replace(/\D/g, '').slice(-10);
-  return digits.length === 10 ? `https://wa.me/91${digits}?text=${text}` : `https://wa.me/?text=${text}`;
+/** Bill pictures already online this session, so opening the share sheet again does not upload again. */
+const billLinks = new Map<string, Promise<string>>();
+
+/**
+ * A link to the bill picture, for the WhatsApp message. A bill that changed
+ * since (a payment received, cancelled) gets a fresh picture.
+ */
+export function billLink(bill: ShopInvoice, settings: ShopSettings): Promise<string> {
+  const key = [bill.clientId, bill.total, bill.paidAmount, bill.status].join('|');
+  let link = billLinks.get(key);
+  if (!link) {
+    link = billImageFile(bill, settings).then(uploadSharedBill);
+    billLinks.set(key, link);
+    // A failed upload (no internet) is tried again next time.
+    link.catch(() => billLinks.delete(key));
+  }
+  return link;
 }

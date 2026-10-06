@@ -5,6 +5,7 @@
 import { assertSupabase, fetchAllRows, runDb } from '../lib/database';
 import { dbToMilli, dbToPaise, milliToDecimal, paiseToDecimal } from './money';
 import type { BillType } from './fy';
+import { newId } from './ids';
 import type {
   Language,
   PaidMode,
@@ -661,4 +662,25 @@ export async function fetchRecentSales(limit: number): Promise<ShopInvoice[]> {
       .abortSignal(signal)
   );
   return (data ?? []).map(mapInvoice);
+}
+
+const SHARED_BILL_UPLOAD_MS = 25_000;
+
+/**
+ * Puts a bill picture online for the WhatsApp message and returns its link.
+ * Each bill gets its own random folder, so one link cannot be guessed from
+ * another; the file keeps its bill-number name for whoever downloads it.
+ */
+export async function uploadSharedBill(file: File): Promise<string> {
+  const path = `shop-bills/${newId()}/${file.name}`;
+  const storage = assertSupabase().storage.from('bill-photos');
+  // A storage upload cannot be aborted, but the person must not wait forever.
+  const { error } = await Promise.race([
+    storage.upload(path, file, { contentType: file.type || 'image/png', cacheControl: '31536000' }),
+    new Promise<{ error: { message: string } }>((resolve) =>
+      setTimeout(() => resolve({ error: { message: 'The bill took too long to upload.' } }), SHARED_BILL_UPLOAD_MS)
+    ),
+  ]);
+  if (error) throw new Error(error.message);
+  return storage.getPublicUrl(path).data.publicUrl;
 }
