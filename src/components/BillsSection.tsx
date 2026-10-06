@@ -356,12 +356,14 @@ export function BillsSection({ showToast }: BillsSectionProps) {
 
   const handleCombinedSaved = (saved: BillPayment[], firmName: string) => {
     const total = saved.reduce((sum, p) => sum + toPaise(p.amount), 0) / 100;
+    const billCount = new Set(saved.map((p) => p.billId)).size;
+    const paymentCount = new Set(saved.map((p) => p.groupId ?? p.id)).size;
     setPayments((prev) => [...saved, ...prev]);
     setCombinedPayFirm(null);
     showToast(
-      `Payment of ${formatMoney(total)} to "${firmName}" saved against ${saved.length} ${
-        saved.length === 1 ? 'bill' : 'bills'
-      }.`,
+      `${paymentCount > 1 ? `${paymentCount} payments` : 'Payment'} of ${formatMoney(
+        total
+      )} to "${firmName}" saved against ${billCount} ${billCount === 1 ? 'bill' : 'bills'}.`,
       'success'
     );
   };
@@ -2119,18 +2121,51 @@ interface CombinedPaymentModalProps {
   showToast: BillsSectionProps['showToast'];
 }
 
-interface Share {
+/** One payment as it left the shop: its own amount, date, method and proof. */
+interface PaymentEntry {
+  key: string;
+  amount: string;
+  /** Typed (or read from a screenshot); otherwise the app fills in what is left to pay. */
+  amountTouched: boolean;
+  paidOn: string;
+  method: PaymentMethod;
+  reference: string;
+  bankName: string;
+  photoFile: File | null;
+}
+
+let entryCounter = 0;
+
+function newPaymentEntry(from?: PaymentEntry): PaymentEntry {
+  entryCounter += 1;
+  return {
+    key: `entry-${entryCounter}`,
+    amount: '',
+    amountTouched: false,
+    // Two transfers to one party are usually made the same way, often the same day.
+    paidOn: from?.paidOn ?? todayISO(),
+    method: from?.method ?? 'Bank transfer',
+    reference: '',
+    bankName: from?.bankName ?? '',
+    photoFile: null,
+  };
+}
+
+/** The part of one payment that goes to one bill. */
+interface Part {
+  entryIndex: number;
   bill: PurchaseBill;
-  balance: number; // paise
-  share: number; // paise
+  amount: number; // paise
 }
 
 /**
  * Paying five bills with one transfer used to mean adding five payments by
  * hand, adding the balances up on a calculator, and attaching the same
  * screenshot five times. One wrong sum there sent ₹50,000 too much. Here the
- * app adds the ticked bills up itself, refuses an amount larger than that
- * total, and saves every bill's share with the one proof photo in a single go.
+ * app adds the ticked bills up itself, refuses payments larger than that
+ * total, and saves every bill's share with its proof photo in a single go.
+ * Bills are often paid in several goes (two transfers and some cash), so one
+ * save can hold several payments; they clear the oldest bills first.
  */
 function CombinedPaymentModal({
   initialFirm,
@@ -2143,16 +2178,10 @@ function CombinedPaymentModal({
 }: CombinedPaymentModalProps) {
   const [firm, setFirm] = useState(initialFirm);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [amount, setAmount] = useState('');
-  const [amountTouched, setAmountTouched] = useState(false);
-  const [paidOn, setPaidOn] = useState(todayISO());
-  const [method, setMethod] = useState<PaymentMethod>('Bank transfer');
-  const [reference, setReference] = useState('');
-  const [bankName, setBankName] = useState('');
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [entries, setEntries] = useState<PaymentEntry[]>(() => [newPaymentEntry()]);
   const [problem, setProblem] = useState<FormProblem | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractingKey, setExtractingKey] = useState<string | null>(null);
   const problemRef = useProblemScroll(problem);
 
   // Oldest bill first: when the money does not cover everything, the oldest
@@ -2171,28 +2200,45 @@ function CombinedPaymentModal({
 
   const selectedBills = dueBills.filter((b) => selected.has(b.id));
   const selectedTotal = selectedBills.reduce((sum, b) => sum + toPaise(getBalance(b)), 0);
-  const amountPaise = toPaise(parseNum(amount));
 
-  const shares: Share[] = [];
-  let remaining = amountPaise;
-  for (const bill of selectedBills) {
-    const balance = toPaise(getBalance(bill));
-    const share = Math.min(balance, Math.max(0, remaining));
-    remaining -= share;
-    shares.push({ bill, balance, share });
-  }
-  const overBy = amountPaise - selectedTotal;
-  const uncovered = shares.filter((s) => s.share === 0);
+  // A typed amount is kept; one left untyped (the newest) is what is still to pay.
+  const typedTotal = entries.reduce(
+    (sum, e) => sum + (e.amountTouched ? toPaise(parseNum(e.amount)) : 0),
+    0
+  );
+  const amounts = entries.map((e) =>
+    e.amountTouched ? toPaise(parseNum(e.amount)) : Math.max(0, selectedTotal - typedTotal)
+  );
+  const paidTotal = amounts.reduce((sum, a) => sum + a, 0);
+  const isMulti = entries.length > 1;
 
-  // Keep the amount in step with the ticked bills until it is typed by hand.
-  useEffect(() => {
-    if (!amountTouched) setAmount(selectedTotal > 0 ? String(selectedTotal / 100) : '');
-  }, [selectedTotal, amountTouched]);
+  // Each payment fills the ticked bills oldest first, carrying on where the one before stopped.
+  const parts: Part[] = [];
+  let billIndex = 0;
+  let leftOnBill = selectedBills.length > 0 ? toPaise(getBalance(selectedBills[0])) : 0;
+  amounts.forEach((amount, entryIndex) => {
+    let remaining = amount;
+    while (remaining > 0 && billIndex < selectedBills.length) {
+      const take = Math.min(remaining, leftOnBill);
+      parts.push({ entryIndex, bill: selectedBills[billIndex], amount: take });
+      remaining -= take;
+      leftOnBill -= take;
+      if (leftOnBill === 0) {
+        billIndex += 1;
+        leftOnBill = billIndex < selectedBills.length ? toPaise(getBalance(selectedBills[billIndex])) : 0;
+      }
+    }
+  });
+
+  const paidOnBill = (billId: string) =>
+    parts.filter((p) => p.bill.id === billId).reduce((sum, p) => sum + p.amount, 0);
+  const overBy = paidTotal - selectedTotal;
+  const uncovered = selectedBills.filter((b) => paidOnBill(b.id) === 0);
 
   const changeFirm = (next: string) => {
     setFirm(next);
     setSelected(new Set());
-    setAmountTouched(false);
+    setEntries((prev) => prev.map((e) => ({ ...e, amount: '', amountTouched: false })));
     setProblem(null);
   };
 
@@ -2208,21 +2254,46 @@ function CombinedPaymentModal({
 
   const allTicked = dueBills.length > 0 && selectedBills.length === dueBills.length;
 
-  const handleAutoFill = async () => {
-    if (!photoFile) return;
+  const updateEntry = (key: string, change: Partial<PaymentEntry>) => {
+    setProblem(null);
+    setEntries((prev) => prev.map((e) => (e.key === key ? { ...e, ...change } : e)));
+  };
+
+  const addEntry = () => {
+    setProblem(null);
+    setEntries((prev) => [
+      // Amounts shown so far stay as they are; the new payment gets what is left.
+      ...prev.map((e, i) =>
+        e.amountTouched
+          ? e
+          : { ...e, amount: amounts[i] > 0 ? String(amounts[i] / 100) : '', amountTouched: true }
+      ),
+      newPaymentEntry(prev[prev.length - 1]),
+    ]);
+  };
+
+  const removeEntry = (key: string) => {
+    setProblem(null);
+    setEntries((prev) => prev.filter((e) => e.key !== key));
+  };
+
+  const handleAutoFill = async (entry: PaymentEntry) => {
+    if (!entry.photoFile) return;
     unlockSound();
-    setIsExtracting(true);
+    setExtractingKey(entry.key);
     setProblem(null);
     try {
-      const extracted = await extractPaymentFromImage(photoFile);
+      const extracted = await extractPaymentFromImage(entry.photoFile);
+      const change: Partial<PaymentEntry> = {};
       if (extracted.amount > 0) {
-        setAmount(String(extracted.amount));
-        setAmountTouched(true);
+        change.amount = String(extracted.amount);
+        change.amountTouched = true;
       }
-      if (extracted.paidOn) setPaidOn(extracted.paidOn);
-      if (extracted.method) setMethod(extracted.method);
-      if (extracted.reference) setReference(extracted.reference);
-      if (extracted.bankName) setBankName(extracted.bankName);
+      if (extracted.paidOn) change.paidOn = extracted.paidOn;
+      if (extracted.method) change.method = extracted.method;
+      if (extracted.reference) change.reference = extracted.reference;
+      if (extracted.bankName) change.bankName = extracted.bankName;
+      updateEntry(entry.key, change);
       playSuccessChime();
       showToast(
         'Details filled from the screenshot. Check that the amount matches the ticked bills before saving.',
@@ -2236,7 +2307,7 @@ function CombinedPaymentModal({
         'error'
       );
     } finally {
-      setIsExtracting(false);
+      setExtractingKey(null);
     }
   };
 
@@ -2252,14 +2323,23 @@ function CombinedPaymentModal({
       setProblem(fieldProblem('Tick the bills this payment is for.'));
       return;
     }
-    if (amountPaise <= 0) {
-      setProblem(fieldProblem('Please enter the amount you paid.'));
+    const emptyIndex = amounts.findIndex((a) => a <= 0);
+    if (emptyIndex !== -1) {
+      setProblem(
+        fieldProblem(
+          isMulti
+            ? `Payment ${emptyIndex + 1} has no amount. Enter it, or remove that payment.`
+            : 'Please enter the amount you paid.'
+        )
+      );
       return;
     }
     if (overBy > 0) {
       setProblem(
         fieldProblem(
-          `The amount is ${formatMoney(overBy / 100)} more than the ticked bills add up to (${formatMoney(
+          `${isMulti ? 'The payments add up to' : 'The amount is'} ${formatMoney(
+            overBy / 100
+          )} more than the ticked bills add up to (${formatMoney(
             selectedTotal / 100
           )}). Check the amount, or tick the bill that is missing.`
         )
@@ -2270,7 +2350,7 @@ function CombinedPaymentModal({
       setProblem(
         fieldProblem(
           `The amount does not reach ${uncovered.length === 1 ? 'bill' : 'bills'} ${uncovered
-            .map((s) => s.bill.billNo || '—')
+            .map((b) => b.billNo || '—')
             .join(', ')}. Untick ${uncovered.length === 1 ? 'it' : 'them'}, or check the amount.`
         )
       );
@@ -2278,31 +2358,36 @@ function CombinedPaymentModal({
     }
 
     setIsSaving(true);
-    let photoUrl: string | null = null;
-    if (photoFile) {
-      photoUrl = await uploadBillPhoto(photoFile, 'payments');
-      if (!photoUrl) {
-        showToast('The screenshot could not be uploaded, but the payment will still be saved.', 'info');
-      }
+    const photoUrls = await Promise.all(
+      entries.map((entry) => (entry.photoFile ? uploadBillPhoto(entry.photoFile, 'payments') : null))
+    );
+    if (entries.some((entry, i) => entry.photoFile && !photoUrls[i])) {
+      showToast('A screenshot could not be uploaded, but the payment will still be saved.', 'info');
     }
 
     const stamp = Date.now();
-    const groupId = `grp-${stamp}-${Math.floor(Math.random() * 100000)}`;
     const createdAt = new Date().toISOString();
-    const payments: BillPayment[] = shares.map((s, i) => ({
-      id: `pay-${stamp}-${i}-${Math.floor(Math.random() * 1000)}`,
-      billId: s.bill.id,
-      paidOn,
-      amount: s.share / 100,
-      method,
-      reference: reference.trim(),
-      bankName: bankName.trim(),
-      photoUrl,
-      groupId,
-      createdAt,
-    }));
+    // Each payment keeps its own group, so it shows (and is removed) as the one payment it was.
+    const groupIds = entries.map((_, i) => `grp-${stamp}-${i}-${Math.floor(Math.random() * 100000)}`);
+    const payments: BillPayment[] = parts.map((part, i) => {
+      const entry = entries[part.entryIndex];
+      return {
+        id: `pay-${stamp}-${i}-${Math.floor(Math.random() * 1000)}`,
+        billId: part.bill.id,
+        paidOn: entry.paidOn,
+        amount: part.amount / 100,
+        method: entry.method,
+        reference: entry.method === 'Cash' ? '' : entry.reference.trim(),
+        bankName:
+          entry.method === 'Cheque' || entry.method === 'Bank transfer' ? entry.bankName.trim() : '',
+        photoUrl: photoUrls[part.entryIndex],
+        groupId: groupIds[part.entryIndex],
+        createdAt,
+      };
+    });
 
     try {
+      // One request: either every payment is saved on every bill, or none is.
       await insertBillPayments(payments);
       onSaved(payments, firm);
     } catch (err) {
@@ -2323,14 +2408,14 @@ function CombinedPaymentModal({
   };
 
   const partyOptions = parties.map((name) => ({ value: name, label: name }));
-  const isShort = selectedTotal > 0 && amountPaise > 0 && amountPaise < selectedTotal;
+  const isShort = selectedTotal > 0 && paidTotal > 0 && paidTotal < selectedTotal;
 
   return (
     <AppModal
       open
       onClose={onClose}
       title="Pay bills together"
-      description="One payment for several bills of the same party"
+      description="One or more payments for several bills of the same party"
       icon={<Layers className="h-5 w-5" />}
       accent="emerald"
     >
@@ -2357,7 +2442,7 @@ function CombinedPaymentModal({
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-3">
               <label className="block text-sm font-semibold text-slate-700">
-                Tick the bills this payment is for
+                Tick the bills you are paying
               </label>
               {dueBills.length > 1 && (
                 <button
@@ -2381,8 +2466,11 @@ function CombinedPaymentModal({
               <div className="space-y-2">
                 {dueBills.map((bill) => {
                   const isOn = selected.has(bill.id);
-                  const share = shares.find((s) => s.bill.id === bill.id);
-                  const partial = share && share.share > 0 && share.share < share.balance;
+                  const balance = toPaise(getBalance(bill));
+                  const paid = paidOnBill(bill.id);
+                  const payers = Array.from(
+                    new Set(parts.filter((p) => p.bill.id === bill.id).map((p) => p.entryIndex + 1))
+                  );
                   return (
                     <button
                       key={bill.id}
@@ -2411,12 +2499,17 @@ function CombinedPaymentModal({
                         <span className="block text-xs text-slate-500">
                           {formatDate(bill.billDate)} · Bill amount {formatMoney(bill.netAmount)}
                         </span>
-                        {partial && (
-                          <span className="block text-xs font-semibold text-amber-700 mt-0.5">
-                            Only {formatMoney(share.share / 100)} of this bill gets paid
+                        {isOn && isMulti && payers.length > 0 && (
+                          <span className="block text-xs font-semibold text-emerald-800 mt-0.5">
+                            Paid by payment {payers.join(' + ')}
                           </span>
                         )}
-                        {isOn && share && share.share === 0 && amountPaise > 0 && (
+                        {isOn && paid > 0 && paid < balance && (
+                          <span className="block text-xs font-semibold text-amber-700 mt-0.5">
+                            Only {formatMoney(paid / 100)} of this bill gets paid
+                          </span>
+                        )}
+                        {isOn && paid === 0 && paidTotal > 0 && (
                           <span className="block text-xs font-semibold text-red-700 mt-0.5">
                             The amount does not reach this bill
                           </span>
@@ -2450,50 +2543,179 @@ function CombinedPaymentModal({
             <p className="text-xs text-slate-400 mt-1 break-words">
               Bills {selectedBills.map((b) => b.billNo || '—').join(', ')}
             </p>
+            {isMulti && (
+              <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t border-white/10">
+                <span className="text-sm text-slate-300">{entries.length} payments add up to</span>
+                <span
+                  className={`text-base font-bold tabular-nums ${
+                    paidTotal === selectedTotal ? 'text-emerald-400' : 'text-white'
+                  }`}
+                >
+                  {formatMoney(paidTotal / 100)}
+                </span>
+              </div>
+            )}
           </div>
         )}
 
-        <PhotoPicker
-          label="Add payment screenshot or cheque photo (one for all bills)"
-          file={photoFile}
-          onSelect={setPhotoFile}
-          onAutoFill={handleAutoFill}
-          isExtracting={isExtracting}
-          autoFillLabel="Fill details from screenshot"
-          inputId="combined-payment-photo-input"
-        />
-
-        <div>
-          <FormInput
-            label="Amount paid ₹"
-            type="number"
-            inputMode="decimal"
-            required
-            min={0}
-            step="any"
-            placeholder="0"
-            value={amount}
-            onChange={(e) => {
-              setAmount(e.target.value);
-              setAmountTouched(true);
-            }}
-            disabled={isSaving}
-            accent="emerald"
-          />
-          {selectedTotal > 0 && amountPaise !== selectedTotal && (
-            <button
-              type="button"
-              onClick={() => {
-                setAmount(String(selectedTotal / 100));
-                setAmountTouched(false);
-              }}
-              disabled={isSaving}
-              className="mt-2 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-full cursor-pointer transition-colors"
+        {entries.map((entry, index) => {
+          const shown = entry.amountTouched
+            ? entry.amount
+            : amounts[index] > 0
+              ? String(amounts[index] / 100)
+              : '';
+          // What this payment would be to settle everything ticked, given the others.
+          const fillTo = selectedTotal - (paidTotal - amounts[index]);
+          const myParts = parts.filter((p) => p.entryIndex === index);
+          return (
+            <div
+              key={entry.key}
+              className={isMulti ? 'space-y-4 rounded-2xl border border-slate-200 p-3.5' : 'space-y-4'}
             >
-              Use total of ticked bills — {formatMoney(selectedTotal / 100)}
-            </button>
-          )}
-        </div>
+              {isMulti && (
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-bold text-slate-900">
+                    Payment {index + 1}
+                    {amounts[index] > 0 && (
+                      <span className="ml-2 font-semibold text-emerald-700 tabular-nums">
+                        {formatMoney(amounts[index] / 100)}
+                      </span>
+                    )}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => removeEntry(entry.key)}
+                    disabled={isSaving}
+                    aria-label={`Remove payment ${index + 1}`}
+                    className="flex items-center gap-1 px-2 py-1 text-xs font-bold text-red-700 hover:bg-red-50 rounded-lg cursor-pointer"
+                  >
+                    <X className="h-4 w-4" />
+                    Remove
+                  </button>
+                </div>
+              )}
+
+              <PhotoPicker
+                label={
+                  isMulti
+                    ? 'Screenshot or cheque photo of this payment'
+                    : 'Add payment screenshot or cheque photo (one for all bills)'
+                }
+                file={entry.photoFile}
+                onSelect={(file) => updateEntry(entry.key, { photoFile: file })}
+                onAutoFill={() => handleAutoFill(entry)}
+                isExtracting={extractingKey === entry.key}
+                autoFillLabel="Fill details from screenshot"
+                inputId={`combined-payment-photo-input-${entry.key}`}
+              />
+
+              <div>
+                <FormInput
+                  label="Amount paid ₹"
+                  type="number"
+                  inputMode="decimal"
+                  required
+                  min={0}
+                  step="any"
+                  placeholder="0"
+                  value={shown}
+                  onChange={(e) => updateEntry(entry.key, { amount: e.target.value, amountTouched: true })}
+                  disabled={isSaving}
+                  accent="emerald"
+                />
+                {fillTo > 0 && fillTo !== amounts[index] && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      updateEntry(
+                        entry.key,
+                        // The last payment keeps following what is left; an earlier one is fixed.
+                        index === entries.length - 1
+                          ? { amount: '', amountTouched: false }
+                          : { amount: String(fillTo / 100), amountTouched: true }
+                      )
+                    }
+                    disabled={isSaving}
+                    className="mt-2 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-full cursor-pointer transition-colors"
+                  >
+                    {isMulti ? 'Use what is left' : 'Use total of ticked bills'} — {formatMoney(fillTo / 100)}
+                  </button>
+                )}
+                {isMulti && myParts.length > 0 && (
+                  <p className="mt-2 text-xs text-slate-500 break-words">
+                    Goes to{' '}
+                    {myParts
+                      .map((p) => `bill ${p.bill.billNo || '—'} ${formatMoney(p.amount / 100)}`)
+                      .join(' · ')}
+                  </p>
+                )}
+              </div>
+
+              <DateField
+                label="Payment date"
+                value={entry.paidOn}
+                onChange={(paidOn) => updateEntry(entry.key, { paidOn })}
+                disabled={isSaving}
+                accent="emerald"
+              />
+
+              <div className="space-y-1.5">
+                <label className="block text-sm font-semibold text-slate-700">How did you pay?</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {PAYMENT_METHODS.map(({ value, label }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => updateEntry(entry.key, { method: value })}
+                      disabled={isSaving}
+                      className={`px-3 py-3 text-sm font-semibold rounded-xl border transition-all cursor-pointer ${
+                        entry.method === value
+                          ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
+                          : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {entry.method !== 'Cash' && (
+                <FormInput
+                  label={referenceLabel(entry.method)}
+                  type="text"
+                  placeholder={entry.method === 'Cheque' ? 'e.g. 004512' : 'e.g. 415223987654'}
+                  value={entry.reference}
+                  onChange={(e) => updateEntry(entry.key, { reference: e.target.value })}
+                  disabled={isSaving}
+                  accent="emerald"
+                />
+              )}
+
+              {(entry.method === 'Cheque' || entry.method === 'Bank transfer') && (
+                <FormInput
+                  label="Bank name"
+                  type="text"
+                  placeholder="e.g. SBI, HDFC"
+                  value={entry.bankName}
+                  onChange={(e) => updateEntry(entry.key, { bankName: e.target.value })}
+                  disabled={isSaving}
+                  accent="emerald"
+                />
+              )}
+            </div>
+          );
+        })}
+
+        <button
+          type="button"
+          onClick={addEntry}
+          disabled={isSaving}
+          className="w-full flex items-center justify-center gap-2 px-4 py-3.5 text-sm font-bold text-emerald-700 bg-white hover:bg-emerald-50 border-2 border-dashed border-emerald-300 rounded-xl cursor-pointer transition-colors"
+        >
+          <Plus className="h-4 w-4" />
+          Add another payment
+        </button>
 
         {/* Mismatch checks — the exact mistake this screen exists to stop */}
         {selectedTotal > 0 && overBy > 0 && (
@@ -2501,75 +2723,24 @@ function CombinedPaymentModal({
             role="alert"
             className="bg-red-50 border-2 border-red-300 text-red-800 p-3.5 text-sm rounded-xl leading-relaxed font-semibold"
           >
-            This is {formatMoney(overBy / 100)} MORE than the ticked bills add up to (
-            {formatMoney(selectedTotal / 100)}). It cannot be saved like this — check the amount, or
-            tick the bill that is missing.
+            {isMulti ? 'The payments add up to' : 'This is'} {formatMoney(overBy / 100)} MORE than the
+            ticked bills add up to ({formatMoney(selectedTotal / 100)}). It cannot be saved like this —
+            check the amounts, or tick the bill that is missing.
           </div>
         )}
         {isShort && uncovered.length === 0 && (
           <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3.5 text-sm rounded-xl leading-relaxed">
-            This is {formatMoney((selectedTotal - amountPaise) / 100)} less than the ticked bills. The
-            oldest bills are cleared first; the rest stays as balance on the last bill.
+            {isMulti ? 'The payments are' : 'This is'} {formatMoney((selectedTotal - paidTotal) / 100)} less
+            than the ticked bills. The oldest bills are cleared first; the rest stays as balance on the
+            last bill.
           </div>
         )}
-        {amountPaise > 0 && amountPaise === selectedTotal && (
+        {paidTotal > 0 && paidTotal === selectedTotal && (
           <p className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
             <CheckCircle2 className="h-4 w-4 shrink-0" />
-            Amount matches the ticked bills exactly. All of them will be marked fully paid.
+            {isMulti ? 'The payments match' : 'Amount matches'} the ticked bills exactly. All of them will
+            be marked fully paid.
           </p>
-        )}
-
-        <DateField
-          label="Payment date"
-          value={paidOn}
-          onChange={setPaidOn}
-          disabled={isSaving}
-          accent="emerald"
-        />
-
-        <div className="space-y-1.5">
-          <label className="block text-sm font-semibold text-slate-700">How did you pay?</label>
-          <div className="grid grid-cols-2 gap-2">
-            {PAYMENT_METHODS.map(({ value, label }) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => setMethod(value)}
-                disabled={isSaving}
-                className={`px-3 py-3 text-sm font-semibold rounded-xl border transition-all cursor-pointer ${
-                  method === value
-                    ? 'bg-emerald-600 text-white border-emerald-700 shadow-xs'
-                    : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {method !== 'Cash' && (
-          <FormInput
-            label={referenceLabel(method)}
-            type="text"
-            placeholder={method === 'Cheque' ? 'e.g. 004512' : 'e.g. 415223987654'}
-            value={reference}
-            onChange={(e) => setReference(e.target.value)}
-            disabled={isSaving}
-            accent="emerald"
-          />
-        )}
-
-        {(method === 'Cheque' || method === 'Bank transfer') && (
-          <FormInput
-            label="Bank name"
-            type="text"
-            placeholder="e.g. SBI, HDFC"
-            value={bankName}
-            onChange={(e) => setBankName(e.target.value)}
-            disabled={isSaving}
-            accent="emerald"
-          />
         )}
 
         {problem?.near === 'save' && (
@@ -2584,10 +2755,10 @@ function CombinedPaymentModal({
         <ModalActions
           onCancel={onClose}
           submitLabel={
-            selectedBills.length > 0 && amountPaise > 0
-              ? `Save ${formatMoney(amountPaise / 100)} for ${selectedBills.length} ${
-                  selectedBills.length === 1 ? 'bill' : 'bills'
-                }`
+            selectedBills.length > 0 && paidTotal > 0
+              ? `Save ${isMulti ? `${entries.length} payments, ` : ''}${formatMoney(paidTotal / 100)} for ${
+                  selectedBills.length
+                } ${selectedBills.length === 1 ? 'bill' : 'bills'}`
               : 'Save payment'
           }
           submitAccent="emerald"
