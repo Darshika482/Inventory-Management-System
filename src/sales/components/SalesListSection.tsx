@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   CalendarDays,
+  ChevronDown,
   CloudOff,
   Loader2,
   ReceiptText,
@@ -17,6 +18,7 @@ import { DateRangePicker, type DateRangeValue } from '../../components/DateRange
 import { describeDbError, type FriendlyError } from '../../lib/dbErrors';
 import {
   fetchBillPayments,
+  fetchBillVersions,
   fetchDueSales,
   fetchRecentSales,
   fetchSaleByClientId,
@@ -24,11 +26,12 @@ import {
   fetchShopParties,
   fetchUserNames,
   type BillPayment,
+  type BillVersion,
 } from '../db';
 import { ReceivePaymentModal } from './ReceivePayment';
 import { loadWithCache } from '../cache';
 import { loadLocalFirst, localCopy } from '../../lib/localFirst';
-import { billLabel, formatBillDate, formatIstTime, istToday } from '../fy';
+import { billLabel, billTitle, formatBillDate, formatIstTime, istToday } from '../fy';
 import { useT } from '../i18n';
 import { unitLabel } from '../labels';
 import { formatQty, formatRupees, mulDivRound, paiseToInput } from '../money';
@@ -36,17 +39,18 @@ import { listQueuedSales, onBillsSynced, syncOutbox } from '../outbox';
 import type { ShopInvoice, ShopParty } from '../types';
 import { ActionButton, ErrorState, InfoRow, LoadingState, PageHeader, PageShell, PickerField } from './ui';
 import { ShowMoreButton, useShowMore } from '../../components/ShowMore';
-import { OPEN_BILL_KEY } from './NewSaleSection';
+import { EDIT_BILL_KEY, OPEN_BILL_KEY } from './NewSaleSection';
 import { ReceiptPreviewModal, openPrinterHelp, printDetail, printMessageKey } from './PrintUi';
 import { ShareBillButton } from './ShareBill';
 import { printBill, receiptLinesFor } from '../print/printBill';
 import { connectPrinter } from '../print/printer';
 import { fetchShopSettings } from '../db';
 import type { ShopSettings } from '../types';
-import { Eye, HandCoins, MoreVertical, NotebookPen, Printer } from 'lucide-react';
+import { Eye, HandCoins, MoreVertical, NotebookPen, Pencil, Printer } from 'lucide-react';
 
 interface SalesListSectionProps {
   currentUser: User;
+  onNavigate: (section: string) => void;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
@@ -84,7 +88,7 @@ const savedList = localCopy<{ view: string; bills: ShopInvoice[] }>('shop-sales-
 /** Staff see only this many of the newest bills. */
 const STAFF_BILL_LIMIT = 5;
 
-export function SalesListSection({ currentUser, showToast }: SalesListSectionProps) {
+export function SalesListSection({ currentUser, onNavigate, showToast }: SalesListSectionProps) {
   const isStaff = currentUser.role !== 'Admin';
   const { t } = useT();
   const [preset, setPreset] = useState<Preset>('today');
@@ -390,6 +394,16 @@ export function SalesListSection({ currentUser, showToast }: SalesListSectionPro
         bill={openBill}
         userNames={userNames}
         partyPhone={openBill?.partyId ? parties.find((p) => p.id === openBill.partyId)?.phone : undefined}
+        canEdit={!isStaff}
+        onEdit={(bill) => {
+          // The New Sale screen opens it for changing.
+          try {
+            sessionStorage.setItem(EDIT_BILL_KEY, bill.clientId);
+          } catch {
+            return;
+          }
+          onNavigate('shop-new-sale');
+        }}
         showToast={showToast}
         onClose={() => setOpenClientId(null)}
         onPaid={(clientId, paidAmount) =>
@@ -446,7 +460,7 @@ function BillCard({ bill, settings, phone, showToast, onOpen }: BillCardProps) {
   const [printing, setPrinting] = useState(false);
   const status = payStatus(bill);
   const balance = bill.status === 'cancelled' ? 0 : Math.max(0, bill.total - bill.paidAmount);
-  const seq = billLabel(bill.billNumber);
+  const seq = billTitle(bill);
 
   const print = async () => {
     if (!settings) return;
@@ -583,13 +597,16 @@ interface BillDetailModalProps {
   userNames: Record<string, string>;
   /** Customer phone for the WhatsApp message. */
   partyPhone?: string;
+  /** Owner (Manager): the bill can be changed. */
+  canEdit: boolean;
+  onEdit: (bill: ShopInvoice) => void;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   onClose: () => void;
   /** A payment was received: the bill's new paid amount, for the list. */
   onPaid: (clientId: string, paidAmount: number) => void;
 }
 
-function BillDetailModal({ bill, userNames, partyPhone, showToast, onClose, onPaid }: BillDetailModalProps) {
+function BillDetailModal({ bill, userNames, partyPhone, canEdit, onEdit, showToast, onClose, onPaid }: BillDetailModalProps) {
   const { t } = useT();
   const [full, setFull] = useState<ShopInvoice | null>(null);
   const [problem, setProblem] = useState<FriendlyError | null>(null);
@@ -599,6 +616,7 @@ function BillDetailModal({ bill, userNames, partyPhone, showToast, onClose, onPa
   const [printMessage, setPrintMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const [payOpen, setPayOpen] = useState(false);
   const [payments, setPayments] = useState<BillPayment[]>([]);
+  const [versions, setVersions] = useState<BillVersion[]>([]);
 
   // Payments received later, shown under the bill.
   const loadPayments = (invoiceId: string | null) => {
@@ -609,6 +627,15 @@ function BillDetailModal({ bill, userNames, partyPhone, showToast, onClose, onPa
       .catch(() => {});
   };
   useEffect(() => loadPayments(full?.id ?? null), [full?.id]);
+
+  // An edited bill: its earlier versions, as they were.
+  useEffect(() => {
+    setVersions([]);
+    if (!full?.id || (full.version ?? 1) <= 1) return;
+    fetchBillVersions(full.id)
+      .then(setVersions)
+      .catch(() => {});
+  }, [full?.id, full?.version]);
 
   useEffect(() => {
     loadWithCache('settings', fetchShopSettings)
@@ -664,7 +691,7 @@ function BillDetailModal({ bill, userNames, partyPhone, showToast, onClose, onPa
     <AppModal
       open={Boolean(bill)}
       onClose={onClose}
-      title={billLabel(bill?.billNumber) ?? t('numberOnUpload')}
+      title={(full && billTitle(full)) ?? (bill && billTitle(bill)) ?? t('numberOnUpload')}
       description={bill ? `${formatBillDate(bill.billDate)} · ${formatIstTime(bill.createdAt)}` : undefined}
       icon={<ReceiptText className="h-5 w-5" />}
     >
@@ -700,6 +727,19 @@ function BillDetailModal({ bill, userNames, partyPhone, showToast, onClose, onPa
             showToast={showToast}
             className="w-full"
           />
+          {canEdit && full.billType === 'sale' && full.status === 'active' && (
+            <div className="space-y-1.5">
+              <ActionButton
+                tone="secondary"
+                icon={<Pencil className="h-5 w-5" />}
+                label={t('editBill')}
+                disabled={full.syncState !== 'synced' || !full.id}
+                onClick={() => onEdit(full)}
+                className="w-full"
+              />
+              {full.syncState !== 'synced' && <p className="text-sm text-slate-500 text-center">{t('editNeedsUpload')}</p>}
+            </div>
+          )}
           {printMessage && (
             <p
               role="status"
@@ -723,7 +763,7 @@ function BillDetailModal({ bill, userNames, partyPhone, showToast, onClose, onPa
               {full.syncState !== 'synced' && <p className="text-sm text-slate-500 text-center">{t('receivePaymentUploadFirst')}</p>}
             </div>
           )}
-          <BillDetailBody bill={full} userNames={userNames} payments={payments} />
+          <BillDetailBody bill={full} userNames={userNames} payments={payments} versions={versions} />
         </div>
       )}
       {full && settings && (
@@ -759,14 +799,21 @@ function BillDetailModal({ bill, userNames, partyPhone, showToast, onClose, onPa
   );
 }
 
+/** "6 Oct 2026, 4:15 pm" in India time. */
+function whenText(timestamp: string): string {
+  return `${formatBillDate(istToday(new Date(timestamp)))}, ${formatIstTime(timestamp)}`;
+}
+
 function BillDetailBody({
   bill,
   userNames,
   payments,
+  versions,
 }: {
   bill: ShopInvoice;
   userNames: Record<string, string>;
   payments: BillPayment[];
+  versions: BillVersion[];
 }) {
   const { t } = useT();
   const udhaar = bill.total - bill.paidAmount;
@@ -819,6 +866,16 @@ function BillDetailBody({
         />
         <InfoRow label={t('gstBill')} value={bill.isGst ? (bill.isInterstate ? `${t('yes')} · IGST` : t('yes')) : t('no')} />
         {bill.createdBy && userNames[bill.createdBy] && <InfoRow label={t('madeBy')} value={userNames[bill.createdBy]} />}
+        {(bill.version ?? 1) > 1 && bill.editedAt && (
+          <InfoRow
+            label={t('versionLabel')}
+            value={
+              bill.editedBy && userNames[bill.editedBy]
+                ? t('versionChangedBy', { version: bill.version!, when: whenText(bill.editedAt), name: userNames[bill.editedBy] })
+                : t('versionChanged', { version: bill.version!, when: whenText(bill.editedAt) })
+            }
+          />
+        )}
       </div>
 
       {payments.length > 0 && (
@@ -898,6 +955,7 @@ function BillDetailBody({
           <span className="text-3xl font-extrabold text-slate-900 tabular-nums">{formatRupees(bill.total)}</span>
         </div>
         {bill.isGst && bill.ratesIncludeGst && <p className="text-xs text-slate-500">{t('gstIncluded')}</p>}
+        {versions.length > 0 && <EarlierVersions versions={versions} userNames={userNames} />}
       </div>
 
       {byRate.size > 0 && (
@@ -964,6 +1022,56 @@ function Row({ label, value, muted = false }: { label: string; value: string; mu
     <div className="flex items-center justify-between gap-3">
       <span className={muted ? 'text-slate-500 text-sm' : 'text-slate-700'}>{label}</span>
       <span className={`tabular-nums font-semibold ${muted ? 'text-slate-500 text-sm' : 'text-slate-900'}`}>{value}</span>
+    </div>
+  );
+}
+
+/** An edited bill's earlier versions, newest first; tap one to see its items. */
+function EarlierVersions({ versions, userNames }: { versions: BillVersion[]; userNames: Record<string, string> }) {
+  const { t } = useT();
+  return (
+    <div className="pt-4" data-testid="bill-versions">
+      <p className="text-sm font-semibold text-slate-700 mb-2">{t('earlierVersions')}</p>
+      <div className="space-y-2">
+        {versions
+          .slice()
+          .reverse()
+          .map((v) => (
+            <details key={v.version} className="group border border-slate-200 rounded-xl bg-slate-50 overflow-hidden">
+              <summary className="flex items-center justify-between gap-3 px-3 py-2.5 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+                <span className="min-w-0">
+                  <span className="block text-sm font-bold text-slate-900 tabular-nums">
+                    {t('versionRow', { version: v.version, total: formatRupees(v.bill.total) })}
+                  </span>
+                  <span className="block text-xs text-slate-500">
+                    {t('versionReplaced', { when: whenText(v.changedAt) })}
+                    {v.changedBy && userNames[v.changedBy] ? ` · ${userNames[v.changedBy]}` : ''}
+                  </span>
+                </span>
+                <ChevronDown className="h-4 w-4 shrink-0 text-slate-400 transition-transform group-open:rotate-180" />
+              </summary>
+              <ul className="divide-y divide-slate-100 border-t border-slate-200 bg-white">
+                {v.bill.lines.map((line, i) => (
+                  <li key={i} className="flex items-start justify-between gap-3 px-3 py-2 text-sm">
+                    <span className="min-w-0">
+                      <span className="block font-semibold text-slate-900">{line.itemName}</span>
+                      <span className="block text-slate-500 tabular-nums">
+                        {formatQty(line.qty)} {unitLabel(t, line.unit)} × {formatRupees(line.rate, true)}
+                      </span>
+                    </span>
+                    <span className="shrink-0 font-semibold text-slate-900 tabular-nums">
+                      {formatRupees(mulDivRound(line.qty, line.rate, 1000), true)}
+                    </span>
+                  </li>
+                ))}
+                <li className="flex items-center justify-between gap-3 px-3 py-2 text-sm font-bold text-slate-900">
+                  <span>{t('total')}</span>
+                  <span className="tabular-nums">{formatRupees(v.bill.total)}</span>
+                </li>
+              </ul>
+            </details>
+          ))}
+      </div>
     </div>
   );
 }

@@ -111,6 +111,10 @@ interface DbShopInvoice {
   notes: string;
   created_by: string | null;
   created_at: string;
+  /** Missing until supabase/shop/12-edit-sale-bills.sql is run. */
+  version?: number;
+  edited_at?: string | null;
+  edited_by?: string | null;
   shop_invoice_items?: DbShopInvoiceLine[];
 }
 
@@ -494,6 +498,9 @@ function mapInvoice(row: DbShopInvoice): ShopInvoice {
     notes: row.notes,
     createdBy: row.created_by,
     createdAt: row.created_at,
+    version: row.version ?? 1,
+    editedAt: row.edited_at ?? null,
+    editedBy: row.edited_by ?? null,
     lines: (row.shop_invoice_items ?? [])
       .slice()
       .sort((a, b) => a.line_no - b.line_no)
@@ -596,6 +603,61 @@ export async function receivePaymentRpc(input: {
   );
   if (!data) throw new Error('The server did not confirm the payment.');
   return dbToPaise(data.paid_amount);
+}
+
+export interface EditSaleResult {
+  id: string;
+  version: number;
+  already_saved: boolean;
+}
+
+/**
+ * Saves the owner's change to a bill as its next version (shop_edit_sale,
+ * from supabase/shop/12-edit-sale-bills.sql). The bill keeps its number; the
+ * version being replaced is kept on the server. `editId` is new for each
+ * change, so a change sent twice is saved once.
+ */
+export async function editSaleRpc(
+  payload: SaleRpcPayload,
+  edit: { invoiceId: string; expectedVersion: number; editId: string }
+): Promise<EditSaleResult> {
+  const data = await runDb<EditSaleResult>((signal) =>
+    assertSupabase()
+      .rpc('shop_edit_sale', {
+        p: { ...payload, invoice_id: edit.invoiceId, expected_version: edit.expectedVersion, edit_id: edit.editId },
+      })
+      .abortSignal(signal)
+  );
+  if (!data) throw new Error('The server did not confirm the change.');
+  return data;
+}
+
+export interface BillVersion {
+  version: number;
+  /** The bill as it was in this version, with its lines. */
+  bill: ShopInvoice;
+  /** When this version was replaced by the next one, and by whom. */
+  changedAt: string;
+  changedBy: string | null;
+}
+
+/** The earlier versions of an edited bill, oldest first. */
+export async function fetchBillVersions(invoiceId: string): Promise<BillVersion[]> {
+  const data = await runDb<{ version: number; data: DbShopInvoice; changed_at: string; changed_by: string | null }[]>(
+    (signal) =>
+      assertSupabase()
+        .from('shop_invoice_versions')
+        .select('version, data, changed_at, changed_by')
+        .eq('invoice_id', invoiceId)
+        .order('version', { ascending: true })
+        .abortSignal(signal)
+  );
+  return (data ?? []).map((row) => ({
+    version: row.version,
+    bill: mapInvoice(row.data),
+    changedAt: row.changed_at,
+    changedBy: row.changed_by,
+  }));
 }
 
 /** One bill with all its lines. */

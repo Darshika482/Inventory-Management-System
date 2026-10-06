@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   Eraser,
   Eye,
+  Pencil,
   Plus,
   Printer,
   ReceiptText,
@@ -23,7 +24,10 @@ import { FormError } from '../../components/FormInput';
 import { describeDbError, type FriendlyError } from '../../lib/dbErrors';
 import { playSuccessChime, unlockSound } from '../../lib/sounds';
 import {
+  editSaleRpc,
+  fetchBillPayments,
   fetchItemSaleCounts,
+  fetchSaleByClientId,
   fetchShopCategories,
   fetchShopItems,
   fetchShopParties,
@@ -34,7 +38,7 @@ import {
 import { loadWithCache, readCache, shopListsCache, writeCache, type ShopLists } from '../cache';
 import { loadLocalFirst } from '../../lib/localFirst';
 import { computeBill, GST_RATES, type BillDiscount } from '../gst';
-import { billLabel, fyFor, istToday } from '../fy';
+import { billLabel, billTitle, fyFor, istToday } from '../fy';
 import { useT } from '../i18n';
 import { newId } from '../ids';
 import { displayName, unitLabel } from '../labels';
@@ -87,7 +91,34 @@ interface Draft {
    * amounts. Null (or missing in older drafts): each item's own rate.
    */
   billGstRate?: number | null;
+  /** Set while the owner changes a saved bill (it keeps its number and becomes the next version). */
+  editOf?: EditTarget | null;
 }
+
+/** The saved bill being changed. */
+interface EditTarget {
+  invoiceId: string;
+  clientId: string;
+  billNumber: string | null;
+  series: string;
+  fy: string;
+  billDate: string;
+  createdBy: string | null;
+  createdAt: string;
+  /** The version that was opened; saving makes the next one. */
+  version: number;
+  isGst: boolean;
+  ratesIncludeGst: boolean;
+  /** Received on the bill so far: at the sale plus payments received later. */
+  oldPaid: Paise;
+  /** Received later through "Receive payment"; the new amount cannot go below it. */
+  laterPaid: Paise;
+  /** New for each change, so a change sent twice is saved once. */
+  editId: string;
+}
+
+/** Lines whose item was deleted since the bill was made carry this id. */
+const MISSING_ITEM = 'missing-item:';
 
 const EMPTY_DRAFT: Draft = {
   partyId: null,
@@ -103,6 +134,10 @@ const EMPTY_DRAFT: Draft = {
 const WHOLE_BILL_GST_RATES = GST_RATES.filter((rate) => rate > 0);
 
 const DRAFT_KEY = 'sale_draft';
+/** A change to a saved bill, kept apart so the bill being made meanwhile is not lost. */
+const EDIT_DRAFT_KEY = 'sale_edit_draft';
+/** Lets the Sale bills page open a bill here for changing. */
+export const EDIT_BILL_KEY = 'shop_edit_bill';
 const LAST_GST_KEY = 'shop_last_is_gst';
 /** Lets the Sale bills page open the bill that was just saved. */
 export const OPEN_BILL_KEY = 'shop_open_bill';
@@ -114,6 +149,59 @@ function readLastIsGst(fallback: boolean): boolean {
   } catch {
     return fallback;
   }
+}
+
+/** A saved bill, ready to be changed on this screen. Rates and GST stay as they were on the bill. */
+function draftFromBill(bill: ShopInvoice, items: ShopItem[], settings: ShopSettings | null, laterPaid: Paise): Draft {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const shopRatesIncludeGst = settings?.ratesIncludeGst ?? true;
+  const rates = new Set(bill.lines.map((line) => line.gstRate));
+  const [onlyRate] = [...rates];
+  // "GST on whole bill": one rate added on top, on a shop whose rates otherwise include GST.
+  const wholeBillGst =
+    bill.isGst && !bill.ratesIncludeGst && shopRatesIncludeGst && rates.size === 1 && onlyRate > 0 ? onlyRate : null;
+  return {
+    partyId: bill.partyId,
+    lines: bill.lines.map((line, i) => {
+      const item = line.itemId ? byId.get(line.itemId) : undefined;
+      return {
+        key: newId(),
+        itemId: line.itemId ?? `${MISSING_ITEM}${i}`,
+        name: line.itemName,
+        nameHi: item?.nameHi ?? '',
+        hsn: line.hsn,
+        unit: line.unit,
+        // A bill without GST kept no rates; the item's own rate is ready if GST is turned on.
+        gstRate: bill.isGst ? line.gstRate : (item?.gstRate ?? 0),
+        savedRate: item?.saleRate ?? line.rate,
+        qtyText: formatQty(line.qty),
+        rateText: paiseToInput(line.rate),
+        updateRate: false,
+      };
+    }),
+    discountMode: bill.discountPercent !== null ? 'percent' : 'amount',
+    discountText:
+      bill.discountPercent !== null ? paiseToInput(bill.discountPercent) : bill.discount > 0 ? paiseToInput(bill.discount) : '',
+    paidText: bill.paidAmount === bill.total ? '' : paiseToInput(bill.paidAmount),
+    paidMode: bill.paidMode ?? (bill.paymentMode === 'upi' ? 'upi' : 'cash'),
+    billGstRate: wholeBillGst,
+    editOf: {
+      invoiceId: bill.id as string,
+      clientId: bill.clientId,
+      billNumber: bill.billNumber,
+      series: bill.series,
+      fy: bill.fy,
+      billDate: bill.billDate,
+      createdBy: bill.createdBy,
+      createdAt: bill.createdAt,
+      version: bill.version ?? 1,
+      isGst: bill.isGst,
+      ratesIncludeGst: wholeBillGst !== null ? shopRatesIncludeGst : bill.ratesIncludeGst,
+      oldPaid: bill.paidAmount,
+      laterPaid,
+      editId: newId(),
+    },
+  };
 }
 
 function wait(ms: number) {
@@ -163,6 +251,8 @@ async function fetchShopLists(): Promise<ShopLists> {
 interface SavedBill {
   invoice: ShopInvoice;
   uploaded: boolean;
+  /** A change to a saved bill, not a new one. */
+  edited?: boolean;
 }
 
 /** Which number the shop keypad is changing. */
@@ -185,8 +275,12 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
   const [isLoading, setIsLoading] = useState(!savedLists);
   const [loadError, setLoadError] = useState<FriendlyError | null>(null);
 
-  const [draft, setDraft] = useState<Draft>(() => readCache<Draft>(DRAFT_KEY) ?? EMPTY_DRAFT);
-  const [isGst, setIsGst] = useState(() => readLastIsGst(Boolean(savedLists?.settings.gstin ?? true)));
+  const [draft, setDraft] = useState<Draft>(
+    // A change left half done opens again, but only for the owner.
+    () => (isOwner ? readCache<Draft>(EDIT_DRAFT_KEY) : null) ?? readCache<Draft>(DRAFT_KEY) ?? EMPTY_DRAFT
+  );
+  const [isGstSetting, setIsGstSetting] = useState(() => readLastIsGst(Boolean(savedLists?.settings.gstin ?? true)));
+  const [openingEdit, setOpeningEdit] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [partyPickerOpen, setPartyPickerOpen] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -208,12 +302,13 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
       await loadLocalFirst(shopListsCache, fetchShopLists, (lists, fresh) => {
         setSettings(lists.settings);
         setItems(lists.items);
-        if (fresh) setDraft((prev) => refreshDraftLines(prev, lists.items));
+        // A bill being changed keeps the rates and GST it was made with.
+        if (fresh) setDraft((prev) => (prev.editOf ? prev : refreshDraftLines(prev, lists.items)));
         setCategories(lists.categories);
         setParties(lists.parties);
         if (firstShow) {
           firstShow = false;
-          setIsGst(readLastIsGst(Boolean(lists.settings.gstin)));
+          setIsGstSetting(readLastIsGst(Boolean(lists.settings.gstin)));
           setIsLoading(false);
         }
       });
@@ -235,16 +330,67 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
     warmUpPrinter();
   }, []);
 
-  // Keep the unsaved bill if the page is left by mistake.
+  // Keep the unsaved bill if the page is left by mistake. A message about the
+  // bill goes once the bill is changed.
   useEffect(() => {
-    writeCache(DRAFT_KEY, draft);
+    writeCache(draft.editOf ? EDIT_DRAFT_KEY : DRAFT_KEY, draft);
+    setProblem(null);
   }, [draft]);
 
+  /** Opens a saved bill for changing (owner only). It must be on the server already. */
+  const startEdit = async (clientId: string) => {
+    setOpeningEdit(true);
+    try {
+      const bill = await fetchSaleByClientId(clientId);
+      if (!bill?.id) {
+        showToast(t('editNeedsUpload'), 'error');
+        return;
+      }
+      const later = await fetchBillPayments(bill.id);
+      const laterPaid = later.reduce((sum, payment) => sum + payment.amount, 0);
+      setDraft(draftFromBill(bill, items, settings, laterPaid));
+      setSaved(null);
+      setPrintState('idle');
+      setProblem(null);
+      setPad(null);
+    } catch (err) {
+      showToast(describeDbError(err, t('editOpenFailed')).message, 'error');
+    } finally {
+      setOpeningEdit(false);
+    }
+  };
+
+  /** Back to the bill that was being made before the change was opened. */
+  const finishEditing = () => {
+    writeCache(EDIT_DRAFT_KEY, null);
+    setDraft(readCache<Draft>(DRAFT_KEY) ?? EMPTY_DRAFT);
+    setProblem(null);
+    setPad(null);
+  };
+
+  // "Edit bill" on the Sale bills page opens the bill here.
+  useEffect(() => {
+    if (!settings) return;
+    let clientId: string | null = null;
+    try {
+      clientId = sessionStorage.getItem(EDIT_BILL_KEY);
+      sessionStorage.removeItem(EDIT_BILL_KEY);
+    } catch {
+      // Nothing was asked for.
+    }
+    if (clientId && isOwner) void startEdit(clientId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings]);
+
+  const edit = draft.editOf ?? null;
+  // A bill being changed has its own GST setting; a new bill follows the last one made.
+  const isGst = edit ? edit.isGst : isGstSetting;
   const party = draft.partyId ? parties.find((p) => p.id === draft.partyId) ?? null : null;
   const isInterstate = Boolean(isGst && party && settings && party.stateCode !== settings.stateCode);
   // "GST on whole bill": one rate for every line, added on top of the amounts.
   const wholeBillGst = isGst ? (draft.billGstRate ?? null) : null;
-  const ratesIncludeGst = wholeBillGst !== null ? false : (settings?.ratesIncludeGst ?? true);
+  const ratesIncludeGst =
+    wholeBillGst !== null ? false : edit ? edit.ratesIncludeGst : (settings?.ratesIncludeGst ?? true);
   const lineGstRate = (line: DraftLine) => wholeBillGst ?? line.gstRate;
 
   const parsedLines = draft.lines.map((line) => ({
@@ -332,7 +478,11 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
     setDraft((prev) => ({ ...prev, lines: prev.lines.filter((l) => l.itemId !== itemId) }));
 
   const setGst = (value: boolean) => {
-    setIsGst(value);
+    if (edit) {
+      updateDraft({ editOf: { ...edit, isGst: value } });
+      return;
+    }
+    setIsGstSetting(value);
     try {
       localStorage.setItem(LAST_GST_KEY, value ? '1' : '0');
     } catch {
@@ -341,6 +491,12 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
   };
 
   const resetBill = () => {
+    // After saving a change, the bill that was being made before is still there.
+    if (saved?.edited) {
+      setSaved(null);
+      setPrintState('idle');
+      return;
+    }
     setDraft(EMPTY_DRAFT);
     setProblem(null);
     setSaved(null);
@@ -360,6 +516,9 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
     }
     if (discountTooBig) return t('discountInvalid');
     if (!receivedOk) return t('receivedInvalid');
+    if (edit && (received as number) < edit.laterPaid) {
+      return t('receivedBelowLater', { amount: formatRupees(edit.laterPaid) });
+    }
     if (balance > 0 && !party) return t('needCustomerForCredit');
     return null;
   };
@@ -373,21 +532,23 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
       return;
     }
 
-    const billDate = istToday();
+    const billDate = edit ? edit.billDate : istToday();
     const paidAmount = received as number;
     const updateRateIds = new Set(
       isOwner
-        ? parsedLines.filter(({ line, rate }) => line.updateRate && rate !== line.savedRate).map(({ line }) => line.itemId)
+        ? parsedLines
+            .filter(({ line, rate }) => line.updateRate && rate !== line.savedRate && !line.itemId.startsWith(MISSING_ITEM))
+            .map(({ line }) => line.itemId)
         : []
     );
 
     const invoice: ShopInvoice = {
-      id: null,
-      clientId: newId(),
+      id: edit?.invoiceId ?? null,
+      clientId: edit?.clientId ?? newId(),
       billType: 'sale',
-      series: getDeviceSeries(),
-      billNumber: null,
-      fy: fyFor(billDate),
+      series: edit?.series ?? getDeviceSeries(),
+      billNumber: edit?.billNumber ?? null,
+      fy: edit?.fy ?? fyFor(billDate),
       billDate,
       partyId: party?.id ?? null,
       partyName: party?.name ?? '',
@@ -409,10 +570,13 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
       paidAmount,
       status: 'active',
       notes: '',
-      createdBy: currentUser.id,
-      createdAt: new Date().toISOString(),
+      createdBy: edit ? edit.createdBy : currentUser.id,
+      createdAt: edit?.createdAt ?? new Date().toISOString(),
+      version: edit ? edit.version + 1 : 1,
+      editedAt: edit ? new Date().toISOString() : null,
+      editedBy: edit ? currentUser.id : null,
       lines: parsedLines.map(({ line, qty, rate }, i) => ({
-        itemId: line.itemId,
+        itemId: line.itemId.startsWith(MISSING_ITEM) ? null : line.itemId,
         itemName: line.name,
         hsn: line.hsn,
         unit: line.unit,
@@ -424,8 +588,13 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
         taxAmount: bill.lines[i].tax,
         lineTotal: bill.lines[i].lineTotal,
       })),
-      syncState: 'pending',
+      syncState: edit ? 'synced' : 'pending',
     };
+
+    if (edit) {
+      await saveEdit(invoice, edit, updateRateIds, print);
+      return;
+    }
 
     setIsSaving(true);
     setPrintState('idle');
@@ -465,15 +634,7 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
     }
     setIsSaving(false);
 
-    // The ticked rates are now the item's saved rate (the server does the same on upload).
-    if (updateRateIds.size > 0) {
-      const newRates = new Map(parsedLines.map(({ line, rate }) => [line.itemId, rate as number]));
-      setItems((prev) => {
-        const next = prev.map((item) => (updateRateIds.has(item.id) ? { ...item, saleRate: newRates.get(item.id)! } : item));
-        writeCache('items', next);
-        return next;
-      });
-    }
+    rememberRates(updateRateIds);
 
     const number = billLabel(result.invoice.billNumber) ?? t('numberOnUpload');
     playSuccessChime();
@@ -482,6 +643,42 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
     setSaved(result);
     // Printing comes after the bill is safely saved, and never undoes it.
     if (print && !printStarted) void doPrint(result.invoice);
+  };
+
+  /** The ticked rates are now the item's saved rate (the server does the same). */
+  const rememberRates = (updateRateIds: Set<string>) => {
+    if (updateRateIds.size === 0) return;
+    const newRates = new Map(parsedLines.map(({ line, rate }) => [line.itemId, rate as number]));
+    setItems((prev) => {
+      const next = prev.map((item) => (updateRateIds.has(item.id) ? { ...item, saleRate: newRates.get(item.id)! } : item));
+      writeCache('items', next);
+      return next;
+    });
+  };
+
+  /** Saves a change to a saved bill as its next version. Needs the internet. */
+  const saveEdit = async (invoice: ShopInvoice, target: EditTarget, updateRateIds: Set<string>, print: boolean) => {
+    setIsSaving(true);
+    setPrintState('idle');
+    try {
+      const response = await editSaleRpc(toSaleRpcPayload(invoice, updateRateIds), {
+        invoiceId: target.invoiceId,
+        expectedVersion: target.version,
+        editId: target.editId,
+      });
+      const result: SavedBill = { invoice: { ...invoice, version: response.version }, uploaded: true, edited: true };
+      setIsSaving(false);
+      rememberRates(updateRateIds);
+      playSuccessChime();
+      showToast(t('billEdited', { number: billLabel(invoice.billNumber) ?? '', version: response.version }), 'success');
+      finishEditing();
+      setSaved(result);
+      if (print) void doPrint(result.invoice);
+    } catch (err) {
+      setIsSaving(false);
+      const code = (err as { code?: string })?.code;
+      setProblem(code === 'PGRST202' ? { message: t('editSqlMissing'), detail: '' } : describeDbError(err, t('billEditFailed')));
+    }
   };
 
   const printNow = async (invoice: ShopInvoice): Promise<PrintResult> => {
@@ -505,12 +702,30 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
     void connectAndPrint(() => printNow(invoice)).then(setPrintState);
   };
 
+  if (openingEdit) {
+    return (
+      <PageShell>
+        <PageHeader title={t('editBill')} icon={<Pencil className="h-5 w-5" />} />
+        <LoadingState />
+      </PageShell>
+    );
+  }
+
   if (saved) {
     return (
       <PageShell>
         <PageHeader title={t('newSaleTitle')} icon={<ShoppingCart className="h-5 w-5" />} />
         <SavedPanel
           saved={saved}
+          onEdit={
+            isOwner
+              ? async () => {
+                  // Just saved: it may still be on its way to the server.
+                  if (!saved.uploaded) await syncOutbox().catch(() => []);
+                  void startEdit(saved.invoice.clientId);
+                }
+              : undefined
+          }
           printState={printState}
           onPrint={() =>
             typeof printState === 'object' && !printState.ok ? retryPrint(saved.invoice) : void doPrint(saved.invoice)
@@ -665,13 +880,13 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
   return (
     <PageShell fill>
       <PageHeader
-        title={t('newSaleTitle')}
-        icon={<ShoppingCart className="h-5 w-5" />}
+        title={edit ? t('editBillTitle', { number: billLabel(edit.billNumber) ?? '' }) : t('newSaleTitle')}
+        icon={edit ? <Pencil className="h-5 w-5" /> : <ShoppingCart className="h-5 w-5" />}
         hideLanguage
         actions={
           <>
             <PrinterChip settings={settings} canEdit={isOwner} />
-            {draft.lines.length > 0 && (
+            {!edit && draft.lines.length > 0 && (
               <ActionButton
                 tone="secondary"
                 icon={<Eraser className="h-5 w-5" />}
@@ -685,6 +900,21 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
           </>
         }
       />
+
+      {edit && (
+        <div className="max-w-3xl @4xl:max-w-none flex flex-col @lg:flex-row @lg:items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+          <div className="min-w-0 flex-1 flex items-start gap-3">
+            <Pencil className="h-5 w-5 shrink-0 text-amber-700" />
+            <p className="min-w-0 flex-1 text-sm font-semibold text-amber-900">
+              {t('editingBanner', {
+                number: billTitle({ billNumber: edit.billNumber, version: edit.version }) ?? '',
+                next: edit.version + 1,
+              })}
+            </p>
+          </div>
+          <ActionButton tone="secondary" icon={<X className="h-5 w-5" />} label={t('stopEditing')} onClick={finishEditing} className="@lg:shrink-0" />
+        </div>
+      )}
 
       {/* Sideways tablets and wider: items on the left, payment and totals on the right. */}
       <div className="max-w-3xl space-y-3 @4xl:max-w-none @4xl:space-y-0 @4xl:grid @4xl:grid-cols-[minmax(0,1fr)_24rem] @4xl:gap-4 @4xl:items-start">
@@ -992,6 +1222,24 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
                 </div>
               </div>
               {!receivedOk && <p className="text-sm font-semibold text-red-700">{t('receivedInvalid')}</p>}
+              {/* Changing a bill: what changes hands now, and money received later that stays. */}
+              {edit && receivedOk && received! !== edit.oldPaid && (
+                <p
+                  className={`text-sm font-bold rounded-xl px-3 py-2 border ${
+                    received! > edit.oldPaid
+                      ? 'text-[#166534] bg-[#DCFCE7] border-emerald-200'
+                      : 'text-red-700 bg-red-50 border-red-200'
+                  }`}
+                  data-testid="edit-money-note"
+                >
+                  {received! > edit.oldPaid
+                    ? t('editTakeMore', { amount: formatRupees(received! - edit.oldPaid, true) })
+                    : t('editGiveBack', { amount: formatRupees(edit.oldPaid - received!, true) })}
+                </p>
+              )}
+              {edit && edit.laterPaid > 0 && (
+                <p className="text-sm text-slate-600">{t('editLaterPaid', { amount: formatRupees(edit.laterPaid, true) })}</p>
+              )}
               {receivedOk && balance > 0 && !party && (
                 <p className="text-sm font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
                   {t('needCustomerForCredit')}
@@ -1046,7 +1294,7 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
             <ActionButton
               tone="primary"
               icon={<Save className="h-5 w-5" />}
-              label={t('saveOnly')}
+              label={edit ? t('saveChanges') : t('saveOnly')}
               busy={isSaving}
               onClick={() => handleSave(false)}
               className="@lg:min-w-36"
@@ -1243,9 +1491,12 @@ function SavedPanel({
   onPreview,
   onNewBill,
   onViewBill,
+  onEdit,
   shareSlot,
 }: {
   saved: SavedBill;
+  /** Owner only: change this bill (it keeps its number and becomes the next version). */
+  onEdit?: () => void;
   shareSlot: React.ReactNode;
   printState: 'idle' | 'printing' | PrintResult;
   onPrint: () => void;
@@ -1260,9 +1511,9 @@ function SavedPanel({
     <div className="max-w-xl bg-white border border-emerald-200 rounded-2xl p-6 text-center space-y-4 shadow-sm">
       <CheckCircle2 className="h-14 w-14 text-emerald-600 mx-auto" />
       <div>
-        <p className="text-xl font-bold text-slate-900">{t('savedTitle')}</p>
+        <p className="text-xl font-bold text-slate-900">{saved.edited ? t('editedTitle') : t('savedTitle')}</p>
         <p className="text-2xl font-extrabold text-slate-900 mt-1 tabular-nums" data-testid="saved-bill-number">
-          {billLabel(invoice.billNumber) ?? t('numberOnUpload')}
+          {billTitle(invoice) ?? t('numberOnUpload')}
         </p>
         <p className="text-4xl font-extrabold text-emerald-700 mt-2 tabular-nums">{formatRupees(invoice.total)}</p>
         <p className="text-base text-slate-600 mt-1">
@@ -1309,6 +1560,9 @@ function SavedPanel({
         <ActionButton size="lg" icon={<Plus className="h-6 w-6" />} label={t('newBill')} onClick={onNewBill} />
         <ActionButton size="lg" tone="secondary" icon={<ReceiptText className="h-5 w-5" />} label={t('viewBill')} onClick={onViewBill} />
       </div>
+      {onEdit && (
+        <ActionButton size="lg" tone="secondary" icon={<Pencil className="h-5 w-5" />} label={t('editBill')} onClick={onEdit} className="w-full" />
+      )}
       {shareSlot}
     </div>
   );

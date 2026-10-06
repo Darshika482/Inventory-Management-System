@@ -122,6 +122,13 @@ export function billLabel(billNumber: string | null | undefined): string | null 
   return billCode(billNumber) ?? billNumber ?? null;
 }
 
+/** A bill's code with its version once edited: 'KB7PP', then 'KB7PP (v2)'. Null before it has a number. */
+export function billTitle(bill: { billNumber: string | null; version?: number }): string | null {
+  const label = billLabel(bill.billNumber);
+  if (!label) return null;
+  return (bill.version ?? 1) > 1 ? `${label} (v${bill.version})` : label;
+}
+
 /** The running number at the end of a bill number: 'S-A/2026-27/0042' -> 42. */
 export function billSequence(billNumber: string): number | null {
   const match = /\/(\d+)$/.exec(billNumber);

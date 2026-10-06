@@ -103,6 +103,11 @@ export interface ShopInvoice {
   notes: string;
   createdBy: string | null;
   createdAt: string;
+  /** 1 for a bill as first saved; each edit by the owner makes the next one. */
+  version?: number;
+  /** When and by whom the bill was last edited (version 2 on). */
+  editedAt?: string | null;
+  editedBy?: string | null;
   lines: ShopInvoiceLine[];
   syncState: SyncState;
   syncError?: string;

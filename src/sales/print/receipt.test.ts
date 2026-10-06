@@ -106,6 +106,13 @@ describe('receipt layout', () => {
     expect(rows).not.toContain('[QR]');
   });
 
+  it('prints an edited bill with just its number, no version', () => {
+    const first = receiptToTextRows(layoutReceipt(bill, settings, { hindi: false, showUpiQr: false }), 58).join('\n');
+    const edited = receiptToTextRows(layoutReceipt({ ...bill, version: 2 }, settings, { hindi: false, showUpiQr: false }), 58).join('\n');
+    expect(edited).not.toContain('(v');
+    expect(edited.match(/Bill No: \S+/)?.[0]).toBe(first.match(/Bill No: \S+/)?.[0]);
+  });
+
   it('prints a UPI QR for the amount still due', () => {
     const credit = { ...bill, paymentMode: 'partial' as const, paidMode: 'cash' as const, paidAmount: 50000 };
     const lines = layoutReceipt(credit, settings, { hindi: false, showUpiQr: true });

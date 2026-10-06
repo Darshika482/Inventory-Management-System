@@ -161,7 +161,7 @@ function ShopPage({ section, currentUser, onNavigate, showToast }: ShopSectionPr
     case 'shop-new-sale':
       return <NewSaleSection currentUser={currentUser} onNavigate={onNavigate} showToast={showToast} />;
     case 'shop-sales':
-      return <SalesListSection currentUser={currentUser} showToast={showToast} />;
+      return <SalesListSection currentUser={currentUser} onNavigate={onNavigate} showToast={showToast} />;
     case 'shop-items':
       return <ShopItemsSection currentUser={currentUser} showToast={showToast} />;
     case 'shop-parties':
