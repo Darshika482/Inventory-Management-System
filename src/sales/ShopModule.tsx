@@ -67,10 +67,14 @@ interface ShopNavGroupProps {
   role: User['role'];
   activeSection: string;
   onNavigate: (section: string) => void;
+  /** False when a sidebar tab already names the group. */
+  showHeading?: boolean;
+  /** False while another sidebar tab is open. The group stays mounted so bills keep uploading. */
+  showPages?: boolean;
 }
 
 /** The "Shop sales" group in the sidebar menu, styled like the other menu buttons. */
-export function ShopNavGroup({ role, activeSection, onNavigate }: ShopNavGroupProps) {
+export function ShopNavGroup({ role, activeSection, onNavigate, showHeading = true, showPages = true }: ShopNavGroupProps) {
   const { t } = useT();
   // Uploads bills saved on this phone, from whichever page is open.
   useEffect(() => startOutboxSync(), []);
@@ -78,8 +82,10 @@ export function ShopNavGroup({ role, activeSection, onNavigate }: ShopNavGroupPr
   useEffect(() => installKeyboardDone(), []);
   return (
     <>
-      <p className="text-sm font-semibold text-slate-500 px-6 pt-5 mb-3">{t('menuGroup')}</p>
-      {pagesFor(role).map(({ id, labelKey, icon: Icon }) => (
+      {showPages && showHeading && (
+        <p className="text-sm font-semibold text-slate-500 px-6 pt-5 mb-3">{t('menuGroup')}</p>
+      )}
+      {showPages && pagesFor(role).map(({ id, labelKey, icon: Icon }) => (
         <button
           key={id}
           onClick={() => onNavigate(id)}
@@ -96,6 +102,12 @@ export function ShopNavGroup({ role, activeSection, onNavigate }: ShopNavGroupPr
       <SyncNotice onOpen={() => onNavigate('shop-sales')} />
     </>
   );
+}
+
+/** "Shop sales" in the phone's chosen language, for the sidebar tab. */
+export function ShopTabLabel() {
+  const { t } = useT();
+  return <>{t('menuGroup')}</>;
 }
 
 /** "3 bills waiting to upload" under the menu group; hidden when nothing waits. */
