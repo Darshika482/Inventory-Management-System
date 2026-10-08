@@ -5,7 +5,7 @@
 import { billLabel, formatBillDate, formatIstTime } from '../fy';
 import { formatQty, formatRupees, mulDivRound } from '../money';
 import { qrMatrix } from '../print/qr';
-import { upiLink, upiQrAmount } from '../print/receipt';
+import { upiLink, upiPayee, upiQrAmount } from '../print/receipt';
 import type { ShopInvoice, ShopSettings } from '../types';
 
 const NAVY = '#0F172A';
@@ -213,8 +213,9 @@ export async function drawBillCanvas(bill: ShopInvoice, settings: ShopSettings):
   }
 
   const qrAmount = upiQrAmount(bill);
-  if (settings.upiId && bill.billType === 'sale' && bill.status !== 'cancelled') {
-    const matrix = qrMatrix(upiLink(settings.upiId, settings.shopName, qrAmount));
+  const payee = upiPayee(settings);
+  if (payee && bill.billType === 'sale' && bill.status !== 'cancelled') {
+    const matrix = qrMatrix(upiLink(payee.upiId, payee.name, qrAmount, payee.merchantCode));
     const scale = Math.floor(250 / matrix.length);
     const size = matrix.length * scale;
     const qx = PAD + 10;

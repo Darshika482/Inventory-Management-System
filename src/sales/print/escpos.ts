@@ -334,7 +334,7 @@ export function encodeImageReceipt(pixels: boolean[][], options: EscPosOptions):
 }
 
 /** Short test page: shop name, width check (normal and small font) and a QR. */
-export function testPageLines(shopName: string, widthMm: 58 | 80, upiId: string): ReceiptLine[] {
+export function testPageLines(shopName: string, widthMm: 58 | 80, upiId: string, merchantCode = ''): ReceiptLine[] {
   const width = charsPerLine(widthMm);
   const smallWidth = charsPerLine(widthMm, true);
   const digits = (n: number) => '1234567890'.repeat(Math.ceil(n / 10)).slice(0, n);
@@ -351,7 +351,9 @@ export function testPageLines(shopName: string, widthMm: 58 | 80, upiId: string)
   ];
   lines.push({ kind: 'text', text: 'If this looks right, printing works.', align: 'center' });
   // Last, like on a bill.
-  if (upiId) lines.push({ kind: 'feed', lines: 1 }, { kind: 'qr', data: printedUpiLink(upiId, ''), caption: upiId });
+  if (upiId) {
+    lines.push({ kind: 'feed', lines: 1 }, { kind: 'qr', data: printedUpiLink(upiId, '', null, merchantCode), caption: upiId });
+  }
   lines.push({ kind: 'feed', lines: 3 });
   return lines;
 }

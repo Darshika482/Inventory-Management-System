@@ -362,3 +362,35 @@ describe('Received and Balance beside the QR', () => {
     expect(rows).toMatch(/Balance\s+:\s+0/);
   });
 });
+
+describe('UPI account chosen in Shop settings', () => {
+  const pnb = { id: 'pnb', label: 'PNB', upiId: '9131297397m@pnb', payeeName: 'AKSHAY TRADERS', merchantCode: '8675' };
+  const phonepe = { id: 'pp', label: 'PhonePe', upiId: '9300106271@ybl', payeeName: '', merchantCode: '' };
+  const big = { ...bill, total: 1234550, paidAmount: 0 };
+
+  it('prints the QR of the ticked account with its merchant code and the amount', () => {
+    const lines = layoutReceipt(big, { ...settings, upiId: pnb.upiId, upiAccounts: [pnb, phonepe] }, { hindi: false, showUpiQr: true });
+    const qr = lines.find((l) => l.kind === 'qr');
+    expect(qr && qr.kind === 'qr' && qr.data).toMatch(/^upi:\/\/pay\?pa=9131297397m@pnb&am=12345\.5&mc=8675/);
+  });
+
+  it('switches to the other account when it is ticked instead', () => {
+    const lines = layoutReceipt(big, { ...settings, upiId: phonepe.upiId, upiAccounts: [pnb, phonepe] }, { hindi: false, showUpiQr: true });
+    const qr = lines.find((l) => l.kind === 'qr');
+    expect(qr && qr.kind === 'qr' && qr.data).toMatch(/^upi:\/\/pay\?pa=9300106271@ybl&am=12345\.5/);
+    expect(qr && qr.kind === 'qr' && qr.data).not.toContain('mc=');
+  });
+
+  it('puts the bank name and merchant code in the on-screen QR too', () => {
+    expect(upiLink(pnb.upiId, pnb.payeeName, 1850, pnb.merchantCode)).toBe(
+      'upi://pay?pa=9131297397m%40pnb&pn=AKSHAY+TRADERS&mc=8675&am=18.50&cu=INR'
+    );
+  });
+
+  it('keeps the merchant QR small enough for the printer', () => {
+    const link = printedUpiLink(pnb.upiId, pnb.payeeName, 1234550, pnb.merchantCode);
+    expect(qrMatrix(link).length).toBeLessThanOrEqual(33);
+    const bytes = encodeReceipt([{ kind: 'qr', data: link }], { widthMm: 58, cutter: false, qrStyle: 'picture' });
+    expect(bytes.length).toBeLessThan(2600);
+  });
+});

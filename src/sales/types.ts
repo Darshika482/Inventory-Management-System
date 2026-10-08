@@ -3,13 +3,28 @@ import type { BillType } from './fy';
 
 export type Language = 'hi' | 'en';
 
+/** A UPI account the shop can be paid into. */
+export interface UpiAccount {
+  id: string;
+  /** What the owner calls it, e.g. "PNB · Akshay Traders". */
+  label: string;
+  upiId: string;
+  /** The name on the bank's own QR; empty: the shop name is used. */
+  payeeName: string;
+  /** The bank's merchant code (mc on its QR); empty for a personal account. */
+  merchantCode: string;
+}
+
 export interface ShopSettings {
   shopName: string;
   address: string;
   phone: string;
   gstin: string;
   stateCode: string;
+  /** The UPI ID whose QR goes on bills. */
   upiId: string;
+  /** Saved UPI accounts to choose from; null until supabase/shop/13-upi-accounts.sql is run. */
+  upiAccounts?: UpiAccount[] | null;
   printerWidthMm: 58 | 80;
   ratesIncludeGst: boolean;
   receiptFooter: string;

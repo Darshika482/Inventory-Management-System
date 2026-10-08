@@ -6,7 +6,7 @@ import { receivePaymentRpc } from '../db';
 import { newId } from '../ids';
 import { useT } from '../i18n';
 import { formatRupees, paiseToInput, parsePaise } from '../money';
-import { upiLink } from '../print/receipt';
+import { upiLink, upiPayee } from '../print/receipt';
 import type { PaidMode, ShopInvoice, ShopSettings } from '../types';
 import { QrSvg } from './PrintUi';
 import { FormError } from '../../components/FormInput';
@@ -25,6 +25,7 @@ interface ReceivePaymentModalProps {
 export function ReceivePaymentModal({ bill, settings, onClose, onReceived }: ReceivePaymentModalProps) {
   const { t } = useT();
   const balance = bill ? Math.max(0, bill.total - bill.paidAmount) : 0;
+  const payee = settings ? upiPayee(settings) : null;
   const [amountText, setAmountText] = useState('');
   const [mode, setMode] = useState<PaidMode>('cash');
   const [saving, setSaving] = useState(false);
@@ -124,10 +125,10 @@ export function ReceivePaymentModal({ bill, settings, onClose, onReceived }: Rec
           ))}
         </div>
 
-        {mode === 'upi' && amountOk && settings?.upiId && (
+        {mode === 'upi' && amountOk && payee && (
           <div className="flex items-center gap-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3">
             <div className="shrink-0 rounded-lg bg-white p-1.5 border border-slate-200">
-              <QrSvg data={upiLink(settings.upiId, settings.shopName, amount)} className="h-32 w-32" />
+              <QrSvg data={upiLink(payee.upiId, payee.name, amount, payee.merchantCode)} className="h-32 w-32" />
             </div>
             <div className="min-w-0">
               <p className="text-sm font-semibold text-slate-600">{t('upiQrScan')}</p>

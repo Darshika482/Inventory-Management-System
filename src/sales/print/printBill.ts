@@ -4,7 +4,7 @@ import type { ShopInvoice, ShopItem, ShopSettings } from '../types';
 import { encodeImageReceipt, encodeReceipt, testPageLines } from './escpos';
 import { getPrinterPrefs, printBytes, type PrintResult } from './printer';
 import { loadBillFont, renderReceiptPixels, renderSideText } from './raster';
-import { layoutReceipt, type ReceiptLine } from './receipt';
+import { layoutReceipt, upiPayee, type ReceiptLine } from './receipt';
 
 // Fetch the bill font now, so the first print does not wait for it.
 if (getPrinterPrefs().billFont === 'roboto-mono') void loadBillFont();
@@ -52,7 +52,8 @@ export async function printBill(bill: ShopInvoice, settings: ShopSettings): Prom
 
 export async function printTestPage(settings: ShopSettings): Promise<PrintResult> {
   try {
-    const lines = testPageLines(settings.shopName, settings.printerWidthMm, settings.upiId);
+    const payee = upiPayee(settings);
+    const lines = testPageLines(settings.shopName, settings.printerWidthMm, payee?.upiId ?? '', payee?.merchantCode);
     return await printBytes(await encode(lines, settings.printerWidthMm));
   } catch (err) {
     return { ok: false, reason: 'failed', detail: err instanceof Error ? err.message : String(err) };

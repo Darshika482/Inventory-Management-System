@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Hash, MapPin, Printer, Save, Settings, ShieldAlert } from 'lucide-react';
+import { CheckCircle2, Hash, MapPin, Plus, Printer, QrCode, Save, Settings, ShieldAlert, Trash2, X } from 'lucide-react';
 import type { User } from '../../types';
 import { FormError, FormInput } from '../../components/FormInput';
 import { describeDbError, type FriendlyError } from '../../lib/dbErrors';
@@ -9,8 +9,10 @@ import { useT } from '../i18n';
 import { getDeviceSeries, setDeviceSeries } from '../outbox';
 import { GST_STATES, isValidGstin, stateFromGstin, toShopPhones } from '../states';
 import { formatBillNumber, fyFor, istToday } from '../fy';
-import type { ShopSettings } from '../types';
-import { PrinterSetupPanel } from './PrintUi';
+import { newId } from '../ids';
+import { upiLink, upiPayee } from '../print/receipt';
+import type { ShopSettings, UpiAccount } from '../types';
+import { PrinterSetupPanel, QrSvg } from './PrintUi';
 import {
   ActionButton,
   EmptyState,
@@ -29,6 +31,11 @@ interface ShopSettingsSectionProps {
 }
 
 const SERIES_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+
+/** name@bank */
+const UPI_ID = /^[\w.\-]+@[\w.\-]+$/;
+
+type UpdateSetting = <K extends keyof ShopSettings>(key: K, value: ShopSettings[K]) => void;
 
 export function ShopSettingsSection({ currentUser, showToast }: ShopSettingsSectionProps) {
   const { t } = useT();
@@ -151,13 +158,6 @@ export function ShopSettingsSection({ currentUser, showToast }: ShopSettingsSect
               onChange={(value) => update('stateCode', value)}
               searchable
             />
-            <FormInput
-              label={`${t('upiId')} ${t('optional')}`}
-              value={settings.upiId}
-              onChange={(e) => update('upiId', e.target.value.trim())}
-              placeholder="akshaytraders@upi"
-              autoCapitalize="none"
-            />
           </div>
           <ToggleRow
             label={t('ratesIncludeGst')}
@@ -166,6 +166,8 @@ export function ShopSettingsSection({ currentUser, showToast }: ShopSettingsSect
             onChange={(checked) => update('ratesIncludeGst', checked)}
           />
         </section>
+
+        <UpiAccountsSection settings={settings} update={update} />
 
         <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 space-y-4">
           <Segmented
@@ -223,5 +225,163 @@ export function ShopSettingsSection({ currentUser, showToast }: ShopSettingsSect
         <PrinterSetupPanel settings={settings} />
       </section>
     </PageShell>
+  );
+}
+
+/**
+ * The UPI accounts the shop is paid into, and which one's QR goes on bills.
+ * Saved with the page's Save button, like the rest of the shop details.
+ */
+function UpiAccountsSection({ settings, update }: { settings: ShopSettings; update: UpdateSetting }) {
+  const { t } = useT();
+  const [adding, setAdding] = useState(false);
+  const [label, setLabel] = useState('');
+  const [newUpiId, setNewUpiId] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const accounts = settings.upiAccounts;
+
+  // The database cannot keep a list yet: the single UPI ID, as before.
+  if (!accounts) {
+    return (
+      <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 space-y-2">
+        <FormInput
+          label={`${t('upiId')} ${t('optional')}`}
+          value={settings.upiId}
+          onChange={(e) => update('upiId', e.target.value.trim())}
+          placeholder="akshaytraders@upi"
+          autoCapitalize="none"
+        />
+        <p className="text-sm text-slate-500">{t('upiSqlMissing')}</p>
+      </section>
+    );
+  }
+
+  const selected = settings.upiId.trim().toLowerCase();
+  const payee = upiPayee(settings);
+
+  const closeForm = () => {
+    setAdding(false);
+    setLabel('');
+    setNewUpiId('');
+    setError(null);
+  };
+
+  const add = () => {
+    const upiId = newUpiId.trim();
+    if (!UPI_ID.test(upiId)) return setError(t('upiInvalid'));
+    if (accounts.some((a) => a.upiId.toLowerCase() === upiId.toLowerCase())) return setError(t('upiDuplicate'));
+    const account: UpiAccount = { id: newId(), label: label.trim() || upiId, upiId, payeeName: '', merchantCode: '' };
+    update('upiAccounts', [...accounts, account]);
+    if (!settings.upiId.trim()) update('upiId', upiId);
+    closeForm();
+  };
+
+  // Enter in these boxes adds the account; it must not save the whole page.
+  const addOnEnter = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    add();
+  };
+
+  return (
+    <section className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 space-y-3" data-testid="upi-accounts">
+      <h2 className="flex items-center gap-2 text-lg font-bold text-slate-900">
+        <QrCode className="h-5 w-5 text-amber-600" />
+        {t('upiOnBills')}
+      </h2>
+      <p className="text-sm text-slate-500">{t('upiOnBillsHint')}</p>
+
+      <div role="radiogroup" aria-label={t('upiOnBills')} className="space-y-2">
+        {accounts.map((account) => {
+          const on = account.upiId.toLowerCase() === selected;
+          return (
+            <div
+              key={account.id}
+              className={`flex items-center gap-1 rounded-xl border transition-colors ${
+                on ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500' : 'border-slate-200 bg-white hover:border-slate-300'
+              }`}
+            >
+              <button
+                type="button"
+                role="radio"
+                aria-checked={on}
+                onClick={() => update('upiId', account.upiId)}
+                className="min-w-0 flex-1 flex items-center gap-3 px-3 py-3 text-left cursor-pointer"
+              >
+                <span
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 ${
+                    on ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white'
+                  }`}
+                >
+                  {on && <CheckCircle2 className="h-4 w-4" />}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-base font-bold text-slate-900">{account.label}</span>
+                  <span className="block text-sm text-slate-500 break-words">
+                    {account.upiId}
+                    {account.payeeName && ` · ${account.payeeName}`}
+                  </span>
+                </span>
+              </button>
+              {on ? (
+                <span className="shrink-0 mr-3 rounded-full bg-emerald-600 px-2.5 py-1 text-xs font-bold text-white">
+                  {t('upiInUse')}
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => update('upiAccounts', accounts.filter((a) => a.id !== account.id))}
+                  aria-label={`${t('upiRemove')} ${account.label}`}
+                  title={t('upiRemove')}
+                  className="h-11 w-11 shrink-0 mr-1 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer"
+                >
+                  <Trash2 className="h-5 w-5" />
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {payee && (
+        <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <div className="shrink-0 rounded-lg bg-white p-1.5 border border-slate-200">
+            <QrSvg data={upiLink(payee.upiId, payee.name, null, payee.merchantCode)} className="h-28 w-28" />
+          </div>
+          <p className="text-sm text-slate-600 leading-relaxed">{t('upiScanCheck')}</p>
+        </div>
+      )}
+
+      {adding ? (
+        <div className="space-y-3 rounded-xl border border-slate-200 p-3">
+          <FormInput
+            label={`${t('upiLabel')} ${t('optional')}`}
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            onKeyDown={addOnEnter}
+            placeholder="PhonePe, PNB..."
+          />
+          <FormInput
+            label={t('upiIdField')}
+            value={newUpiId}
+            onChange={(e) => {
+              setNewUpiId(e.target.value.trim());
+              setError(null);
+            }}
+            onKeyDown={addOnEnter}
+            placeholder="name@bank"
+            autoCapitalize="none"
+          />
+          {error && <FormError message={error} />}
+          <div className="grid grid-cols-2 gap-2">
+            <ActionButton tone="secondary" icon={<X className="h-5 w-5" />} label={t('cancel')} onClick={closeForm} />
+            <ActionButton icon={<Plus className="h-5 w-5" />} label={t('upiAddButton')} onClick={add} />
+          </div>
+        </div>
+      ) : (
+        <ActionButton tone="secondary" icon={<Plus className="h-5 w-5" />} label={t('upiAdd')} onClick={() => setAdding(true)} className="w-full" />
+      )}
+      <p className="text-xs text-slate-500">{t('upiSaveHint')}</p>
+    </section>
   );
 }

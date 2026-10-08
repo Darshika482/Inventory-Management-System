@@ -50,7 +50,7 @@ import { usePhoneKeyboardOpen } from '../keyboard';
 import { NumberBox, NumberPad, NumberPadSpacer, PadSummary, PadWarning, type PadView } from './NumberPad';
 import { ShareBillButton } from './ShareBill';
 import { PrinterChip, QrSvg, ReceiptPreviewModal, connectAndPrint, openPrinterHelp, printDetail, printMessageKey } from './PrintUi';
-import { upiLink } from '../print/receipt';
+import { upiLink, upiPayee } from '../print/receipt';
 import { printBill, receiptLinesFor } from '../print/printBill';
 import { warmUpPrinter, type PrintResult } from '../print/printer';
 import { PartyFormModal } from './ShopPartiesSection';
@@ -202,6 +202,12 @@ function draftFromBill(bill: ShopInvoice, items: ShopItem[], settings: ShopSetti
       editId: newId(),
     },
   };
+}
+
+/** The on-screen QR for the amount received now, to the UPI account chosen in Shop settings. */
+function upiQrData(settings: ShopSettings, amount: Paise | null): string {
+  const payee = upiPayee(settings);
+  return payee ? upiLink(payee.upiId, payee.name, amount, payee.merchantCode) : '';
 }
 
 function wait(ms: number) {
@@ -1248,10 +1254,10 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
 
               {/* Customer scans this from the screen to pay by UPI. */}
               {draft.paidMode === 'upi' && receivedOk && received! > 0 && (
-                settings.upiId ? (
+                upiPayee(settings) ? (
                   <div className="flex items-center gap-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-3" data-testid="upi-qr">
                     <div className="shrink-0 rounded-lg bg-white p-1.5 border border-slate-200">
-                      <QrSvg data={upiLink(settings.upiId, settings.shopName, received)} className="h-36 w-36" />
+                      <QrSvg data={upiQrData(settings, received)} className="h-36 w-36" />
                     </div>
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-slate-600">{t('upiQrScan')}</p>

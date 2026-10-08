@@ -17,9 +17,18 @@ import type {
   ShopItem,
   ShopParty,
   ShopSettings,
+  UpiAccount,
 } from './types';
 
 type Num = number | string;
+
+interface DbUpiAccount {
+  id?: string;
+  label?: string;
+  upi_id: string;
+  payee_name?: string;
+  merchant_code?: string;
+}
 
 interface DbShopSettings {
   shop_name: string;
@@ -32,6 +41,8 @@ interface DbShopSettings {
   rates_include_gst: boolean;
   receipt_footer: string;
   language: Language;
+  /** Missing until supabase/shop/13-upi-accounts.sql is run. */
+  upi_accounts?: DbUpiAccount[];
 }
 
 interface DbShopCategory {
@@ -120,6 +131,25 @@ interface DbShopInvoice {
 
 // --- Settings ---
 
+function mapUpiAccounts(row: DbShopSettings): UpiAccount[] | null {
+  if (!Array.isArray(row.upi_accounts)) return null;
+  const accounts = row.upi_accounts
+    .filter((a) => a && typeof a.upi_id === 'string' && a.upi_id.trim())
+    .map((a, i) => ({
+      id: a.id || `upi-${i}`,
+      label: a.label?.trim() || a.upi_id.trim(),
+      upiId: a.upi_id.trim(),
+      payeeName: a.payee_name?.trim() ?? '',
+      merchantCode: a.merchant_code?.trim() ?? '',
+    }));
+  // A UPI ID typed in before the list existed stays on it.
+  const current = row.upi_id.trim();
+  if (current && !accounts.some((a) => a.upiId.toLowerCase() === current.toLowerCase())) {
+    accounts.unshift({ id: 'current', label: current, upiId: current, payeeName: '', merchantCode: '' });
+  }
+  return accounts;
+}
+
 function mapSettings(row: DbShopSettings): ShopSettings {
   return {
     shopName: row.shop_name,
@@ -128,6 +158,7 @@ function mapSettings(row: DbShopSettings): ShopSettings {
     gstin: row.gstin,
     stateCode: row.state_code,
     upiId: row.upi_id,
+    upiAccounts: mapUpiAccounts(row),
     printerWidthMm: row.printer_width_mm === 80 ? 80 : 58,
     ratesIncludeGst: row.rates_include_gst,
     receiptFooter: row.receipt_footer,
@@ -160,6 +191,18 @@ export async function updateShopSettings(settings: ShopSettings, userId: string 
         rates_include_gst: settings.ratesIncludeGst,
         receipt_footer: settings.receiptFooter,
         language: settings.language,
+        // Only once the database has the list (13-upi-accounts.sql).
+        ...(settings.upiAccounts
+          ? {
+              upi_accounts: settings.upiAccounts.map((a) => ({
+                id: a.id,
+                label: a.label.trim(),
+                upi_id: a.upiId.trim(),
+                payee_name: a.payeeName.trim(),
+                merchant_code: a.merchantCode.trim(),
+              })),
+            }
+          : {}),
         updated_by: userId,
       })
       .eq('id', 1)

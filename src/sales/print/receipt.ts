@@ -87,8 +87,9 @@ const PAYMENT_LABELS: Record<ShopInvoice['paymentMode'], string> = {
 };
 
 /** UPI payment link for the QR code. With no amount, the payer types it. */
-export function upiLink(upiId: string, shopName: string, amount?: Paise | null): string {
+export function upiLink(upiId: string, shopName: string, amount?: Paise | null, merchantCode = ''): string {
   const params = new URLSearchParams({ pa: upiId, pn: shopName });
+  if (merchantCode.trim()) params.set('mc', merchantCode.trim());
   if (amount && amount > 0) params.set('am', (amount / 100).toFixed(2));
   params.set('cu', 'INR');
   return `upi://pay?${params.toString()}`;
@@ -100,10 +101,31 @@ export function upiLink(upiId: string, shopName: string, amount?: Paise | null):
  * plain "@" and the currency is left out (UPI is always rupees). The payee
  * name is kept only when it does not make the QR any bigger.
  */
-export function printedUpiLink(upiId: string, name: string, amount?: Paise | null): string {
-  const base = `upi://pay?pa=${upiId.trim()}${amount && amount > 0 ? `&am=${plainAmount(amount)}` : ''}`;
+export function printedUpiLink(upiId: string, name: string, amount?: Paise | null, merchantCode = ''): string {
+  // A merchant account's code stays in, like on the bank's own QR, so apps treat it as a shop payment.
+  const mc = merchantCode.trim();
+  const base = `upi://pay?pa=${upiId.trim()}${amount && amount > 0 ? `&am=${plainAmount(amount)}` : ''}${
+    mc ? `&mc=${encodeURIComponent(mc)}` : ''
+  }`;
   const withName = `${base}&pn=${encodeURIComponent(name.trim())}`;
   return name.trim() && qrMatrix(withName).length <= qrMatrix(base).length ? withName : base;
+}
+
+export interface UpiPayee {
+  upiId: string;
+  name: string;
+  merchantCode: string;
+}
+
+/**
+ * Who a bill's QR pays: the UPI ID chosen in Shop settings, with the name and
+ * merchant code from that account's bank QR. Null when no UPI ID is set.
+ */
+export function upiPayee(settings: ShopSettings, fallbackName: string = settings.shopName): UpiPayee | null {
+  const upiId = settings.upiId.trim();
+  if (!upiId) return null;
+  const account = (settings.upiAccounts ?? []).find((a) => a.upiId.trim().toLowerCase() === upiId.toLowerCase());
+  return { upiId, name: account?.payeeName.trim() || fallbackName, merchantCode: account?.merchantCode.trim() ?? '' };
 }
 
 /**
@@ -247,7 +269,8 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
   if (bill.roundOff !== 0) total('Round off', `${bill.roundOff > 0 ? '+' : ''}${plainAmount(bill.roundOff)}`);
   total('Total', plainAmount(bill.total));
   // With a QR, Received and Balance go beside it; without one, under the total.
-  const qrShown = Boolean(options.showUpiQr && settings.upiId && bill.billType === 'sale' && bill.status !== 'cancelled');
+  const payee = upiPayee(settings, options.billName?.trim() || settings.shopName);
+  const qrShown = Boolean(options.showUpiQr && payee && bill.billType === 'sale' && bill.status !== 'cancelled');
   const side: SideItem[] =
     bill.billType === 'quotation'
       ? []
@@ -261,11 +284,11 @@ export function layoutReceipt(bill: ShopInvoice, settings: ShopSettings, options
   // UPI QR on every sale bill: with the amount due (or the UPI total), else plain.
   // The QR comes last, so the bill itself is complete whatever the printer does with it.
   // No line under it: the amount is already filled in when the customer scans.
-  if (qrShown) {
+  if (qrShown && payee) {
     lines.push({ kind: 'feed', lines: 1 });
     lines.push({
       kind: 'qr',
-      data: printedUpiLink(settings.upiId, options.billName?.trim() || settings.shopName, upiQrAmount(bill)),
+      data: printedUpiLink(payee.upiId, payee.name, upiQrAmount(bill), payee.merchantCode),
       side,
     });
   }
