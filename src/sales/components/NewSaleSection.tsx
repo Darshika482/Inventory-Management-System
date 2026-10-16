@@ -282,8 +282,8 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
   const [loadError, setLoadError] = useState<FriendlyError | null>(null);
 
   const [draft, setDraft] = useState<Draft>(
-    // A change left half done opens again, but only for the owner.
-    () => (isOwner ? readCache<Draft>(EDIT_DRAFT_KEY) : null) ?? readCache<Draft>(DRAFT_KEY) ?? EMPTY_DRAFT
+    // A change left half done opens again.
+    () => readCache<Draft>(EDIT_DRAFT_KEY) ?? readCache<Draft>(DRAFT_KEY) ?? EMPTY_DRAFT
   );
   const [isGstSetting, setIsGstSetting] = useState(() => readLastIsGst(Boolean(savedLists?.settings.gstin ?? true)));
   const [openingEdit, setOpeningEdit] = useState(false);
@@ -343,7 +343,7 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
     setProblem(null);
   }, [draft]);
 
-  /** Opens a saved bill for changing (owner only). It must be on the server already. */
+  /** Opens a saved bill for changing. It must be on the server already. */
   const startEdit = async (clientId: string) => {
     setOpeningEdit(true);
     try {
@@ -384,7 +384,7 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
     } catch {
       // Nothing was asked for.
     }
-    if (clientId && isOwner) void startEdit(clientId);
+    if (clientId) void startEdit(clientId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settings]);
 
@@ -683,7 +683,13 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
     } catch (err) {
       setIsSaving(false);
       const code = (err as { code?: string })?.code;
-      setProblem(code === 'PGRST202' ? { message: t('editSqlMissing'), detail: '' } : describeDbError(err, t('billEditFailed')));
+      setProblem(
+        code === 'PGRST202'
+          ? { message: t('editSqlMissing'), detail: '' }
+          : code === '42501' && !isOwner
+            ? { message: t('staffEditSqlMissing'), detail: '' }
+            : describeDbError(err, t('billEditFailed'))
+      );
     }
   };
 
@@ -723,15 +729,11 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
         <PageHeader title={t('newSaleTitle')} icon={<ShoppingCart className="h-5 w-5" />} />
         <SavedPanel
           saved={saved}
-          onEdit={
-            isOwner
-              ? async () => {
-                  // Just saved: it may still be on its way to the server.
-                  if (!saved.uploaded) await syncOutbox().catch(() => []);
-                  void startEdit(saved.invoice.clientId);
-                }
-              : undefined
-          }
+          onEdit={async () => {
+            // Just saved: it may still be on its way to the server.
+            if (!saved.uploaded) await syncOutbox().catch(() => []);
+            void startEdit(saved.invoice.clientId);
+          }}
           printState={printState}
           onPrint={() =>
             typeof printState === 'object' && !printState.ok ? retryPrint(saved.invoice) : void doPrint(saved.invoice)

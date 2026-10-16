@@ -655,7 +655,7 @@ export interface EditSaleResult {
 }
 
 /**
- * Saves the owner's change to a bill as its next version (shop_edit_sale,
+ * Saves a change to a bill as its next version (shop_edit_sale,
  * from supabase/shop/12-edit-sale-bills.sql). The bill keeps its number; the
  * version being replaced is kept on the server. `editId` is new for each
  * change, so a change sent twice is saved once.

@@ -394,7 +394,7 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
         bill={openBill}
         userNames={userNames}
         partyPhone={openBill?.partyId ? parties.find((p) => p.id === openBill.partyId)?.phone : undefined}
-        canEdit={!isStaff}
+        canEdit
         onEdit={(bill) => {
           // The New Sale screen opens it for changing.
           try {
@@ -597,7 +597,7 @@ interface BillDetailModalProps {
   userNames: Record<string, string>;
   /** Customer phone for the WhatsApp message. */
   partyPhone?: string;
-  /** Owner (Manager): the bill can be changed. */
+  /** The bill can be changed (owner, and staff for the bills they see here). */
   canEdit: boolean;
   onEdit: (bill: ShopInvoice) => void;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
