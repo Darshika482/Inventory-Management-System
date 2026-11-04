@@ -4,6 +4,30 @@
 -- that 08-staff-last-10-bills.sql lets them read). Only the owner can still
 -- change an item's saved rate. Each save is a new version, as before.
 -- Safe to re-run.
+--
+-- Until this runs, the database still has the owner-only version from
+-- 12-edit-sale-bills.sql, so a worker who saves a changed bill gets
+-- "Only the owner can do this" and the change is not saved. The app shows
+-- that as "Workers cannot change bills on the server yet".
+
+-- The newest sale bills a worker sees on Sale bills (also in
+-- 08-staff-last-10-bills.sql; repeated here so this file works on its own).
+create or replace function public.shop_recent_sale_ids(p_limit int default 10)
+returns setof uuid
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select id
+    from public.shop_invoices
+   where bill_type = 'sale'
+     and public.app_role() is not null
+   order by created_at desc
+   limit p_limit;
+$$;
+
+grant execute on function public.shop_recent_sale_ids(int) to anon, authenticated;
 
 create or replace function public.shop_edit_sale(p jsonb)
 returns jsonb
@@ -143,3 +167,10 @@ $$;
 
 revoke execute on function public.shop_edit_sale(jsonb) from public;
 grant execute on function public.shop_edit_sale(jsonb) to anon, authenticated;
+
+-- Check: this should show "Workers can now change sale bills."
+select case
+  when pg_get_functiondef('public.shop_edit_sale(jsonb)'::regprocedure) like '%''owner'', ''staff''%'
+  then 'Workers can now change sale bills.'
+  else 'Not done: shop_edit_sale is still owner-only. Run this whole file again.'
+end as result;
