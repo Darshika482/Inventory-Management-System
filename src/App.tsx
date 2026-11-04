@@ -6,6 +6,7 @@ import {
   AlertOctagon,
   X,
   Menu,
+  LogOut,
 } from 'lucide-react';
 import { User, Category, WithdrawalLog, StockAddition, Floor } from './types';
 import { getAppSession } from './lib/supabase';
@@ -30,7 +31,10 @@ import {
   updateWithdrawalLogStatus,
 } from './lib/database';
 import { createCategoryId } from './lib/floors';
-import { useBackDismiss } from './lib/backGuard';
+import { leaveApp, useBackDismiss } from './lib/backGuard';
+import { AppModal } from './components/AppModal';
+import { ModalActions } from './components/FormInput';
+import { useT } from './sales/i18n';
 import { isShopSection, NewSaleShortcut, preloadShopPages, ShopSection } from './sales/ShopModule';
 
 // Each page's code is downloaded when it is first opened (and in the
@@ -139,6 +143,25 @@ export default function App() {
   useBackDismiss(!!currentUser && activeSection !== homeSection, () =>
     setActiveSection(homeSection)
   );
+
+  // Back on the home page asks before closing the app instead of closing at once.
+  const { t } = useT();
+  const [exitPromptOpen, setExitPromptOpen] = useState(false);
+  const [leavingApp, setLeavingApp] = useState(false);
+  useBackDismiss(!!currentUser && activeSection === homeSection && !exitPromptOpen && !leavingApp, () =>
+    setExitPromptOpen(true)
+  );
+
+  const handleExitApp = async () => {
+    setExitPromptOpen(false);
+    setLeavingApp(true);
+    const closed = await leaveApp();
+    if (closed) return;
+    // The phone only closes an installed app on a real Back press: the next one
+    // now closes it. After a few seconds Back asks again.
+    showToast(t('exitAppPressBack'), 'info');
+    window.setTimeout(() => setLeavingApp(false), 4000);
+  };
 
   // The godown stock is only for the owner's pages: shop staff never wait for
   // it, and the owner sees the copy saved on this phone while it refreshes.
@@ -652,6 +675,24 @@ export default function App() {
           />
         )}
       </div>
+
+      <AppModal
+        open={exitPromptOpen}
+        onClose={() => setExitPromptOpen(false)}
+        title={t('exitAppTitle')}
+        description={t('exitAppText')}
+        icon={<LogOut className="h-5 w-5" />}
+        accent="slate"
+      >
+        <ModalActions
+          onCancel={() => setExitPromptOpen(false)}
+          cancelLabel={t('exitAppStay')}
+          submitLabel={t('exitAppConfirm')}
+          submitType="button"
+          onSubmit={() => void handleExitApp()}
+          submitAccent="red"
+        />
+      </AppModal>
 
       <ToastTray toasts={toasts} onRemove={removeToast} />
     </div>
