@@ -33,7 +33,6 @@ import {
 import { createCategoryId } from './lib/floors';
 import { leaveApp, useBackDismiss } from './lib/backGuard';
 import { AppModal } from './components/AppModal';
-import { ModalActions } from './components/FormInput';
 import { useT } from './sales/i18n';
 import { isShopSection, NewSaleShortcut, preloadShopPages, ShopSection } from './sales/ShopModule';
 
@@ -683,15 +682,24 @@ export default function App() {
         description={t('exitAppText')}
         icon={<LogOut className="h-5 w-5" />}
         accent="slate"
+        centered
       >
-        <ModalActions
-          onCancel={() => setExitPromptOpen(false)}
-          cancelLabel={t('exitAppStay')}
-          submitLabel={t('exitAppConfirm')}
-          submitType="button"
-          onSubmit={() => void handleExitApp()}
-          submitAccent="red"
-        />
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => setExitPromptOpen(false)}
+            className="px-4 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-base font-semibold transition-colors cursor-pointer"
+          >
+            {t('exitAppStay')}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleExitApp()}
+            className="px-4 py-3.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-base font-semibold transition-colors cursor-pointer"
+          >
+            {t('exitAppConfirm')}
+          </button>
+        </div>
       </AppModal>
 
       <ToastTray toasts={toasts} onRemove={removeToast} />
