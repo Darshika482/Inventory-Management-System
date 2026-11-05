@@ -1,0 +1,202 @@
+[
+ {
+  "id": "p1_hook",
+  "part": 1,
+  "cap": "Register mein hisaab? Ab nahi.",
+  "hi": "दुकान का स्टॉक, गोदाम का हिसाब, पार्टी के बिल... अभी भी रजिस्टर में लिख रहे हैं?",
+  "en": "Dukaan ka stock, godown ka hisaab, party ke bill... abhi bhi register mein likh rahe hain?",
+  "dur": 5.632
+ },
+ {
+  "id": "p1_intro",
+  "part": 1,
+  "cap": "Sab kuch, ek hi app mein",
+  "hi": "अब सब कुछ होगा आपके फ़ोन पर, एक ही ऐप में!",
+  "en": "Ab sab kuch hoga aapke phone par, ek hi app mein!",
+  "dur": 3.326
+ },
+ {
+  "id": "p1_overview",
+  "part": 1,
+  "cap": "Stock Overview",
+  "hi": "सबसे पहले, स्टॉक ओवरव्यू। कौन सा आइटम कितना बचा है, और किस फ़्लोर पर रखा है, सब एक नज़र में।",
+  "en": "Sabse pehle, Stock Overview. Kaun sa item kitna bacha hai, aur kis floor par rakha hai, sab ek nazar mein.",
+  "dur": 7.047
+ },
+ {
+  "id": "p1_low",
+  "part": 1,
+  "cap": "Low Stock Alert",
+  "hi": "जो माल ख़त्म होने वाला है, वो लो स्टॉक में अपने आप दिख जाता है।",
+  "en": "Jo maal khatam hone wala hai, woh Low Stock mein apne aap dikh jaata hai.",
+  "dur": 4.673
+ },
+ {
+  "id": "p1_addtake",
+  "part": 1,
+  "cap": "Add Stock • Take Out Stock",
+  "hi": "नया माल आया? ऐड स्टॉक दबाइए। स्टाफ़ ने माल निकाला? टेक आउट स्टॉक में नाम और मात्रा डालिए, हिसाब तुरंत अपडेट।",
+  "en": "Naya maal aaya? Add Stock dabaiye. Staff ne maal nikaala? Take Out Stock mein naam aur maatra daaliye, hisaab turant update.",
+  "dur": 8.29
+ },
+ {
+  "id": "p1_history",
+  "part": 1,
+  "cap": "Kaun, kab, kitna — poori history",
+  "hi": "कौन, कब, कितना ले गया, पूरी हिस्ट्री सेव रहती है, पीडीएफ़ डाउनलोड के साथ।",
+  "en": "Kaun, kab, kitna le gaya, poori history save rehti hai, PDF download ke saath.",
+  "dur": 5.196
+ },
+ {
+  "id": "p1_added",
+  "part": 1,
+  "cap": "Stock Added — date ke hisaab se",
+  "hi": "किस दिन कितना माल आया, आज, पिछले सात दिन, या अपनी मर्ज़ी की डेट रेंज।",
+  "en": "Kis din kitna maal aaya, aaj, pichhle saat din, ya apni marzi ki date range.",
+  "dur": 5.141
+ },
+ {
+  "id": "p1_bills",
+  "part": 1,
+  "cap": "Party Bills",
+  "hi": "पार्टी बिल्स में हर ख़रीद का पूरा रिकॉर्ड, बिल की फ़ोटो के साथ। कितना पेमेंट हुआ, कितना बाकी है, सब साफ़ साफ़।",
+  "en": "Party Bills mein har khareed ka poora record, bill ki photo ke saath. Kitna payment hua, kitna baaki hai, sab saaf-saaf.",
+  "dur": 7.744
+ },
+ {
+  "id": "p1_payments",
+  "part": 1,
+  "cap": "Payments",
+  "hi": "पेमेंट्स में पार्टी और ट्रांसपोर्ट, दोनों का हिसाब, और एक साथ कई बिलों का पेमेंट भी।",
+  "en": "Payments mein party aur transport, dono ka hisaab, aur ek saath kai billon ka payment bhi.",
+  "dur": 5.888
+ },
+ {
+  "id": "p1_rate",
+  "part": 1,
+  "cap": "Rate Analysis",
+  "hi": "रेट एनालिसिस बताता है, किस आइटम का रेट बढ़ा, और कौन सी पार्टी कितना चार्ज कर रही है।",
+  "en": "Rate Analysis batata hai, kis item ka rate badha, aur kaun si party kitna charge kar rahi hai.",
+  "dur": 6.452
+ },
+ {
+  "id": "p1_transport",
+  "part": 1,
+  "cap": "Transport Bills",
+  "hi": "ट्रांसपोर्ट बिल, बिल्टी नंबर, वज़न, और बाकी पेमेंट, सब ट्रैक।",
+  "en": "Transport bill, bilty number, wazan, aur baaki payment, sab track.",
+  "dur": 4.478
+ },
+ {
+  "id": "p1_workers",
+  "part": 1,
+  "cap": "Workers & Job Work",
+  "hi": "और वर्कर्स, दुकान के स्टाफ़ की सैलरी, जॉब वर्क का दिया और वापस आया माल, पूरा हिसाब, एक जगह।",
+  "en": "Aur workers, dukaan ke staff ki salary, job work ka diya aur wapas aaya maal, poora hisaab, ek jagah.",
+  "dur": 6.985
+ },
+ {
+  "id": "p1_outro",
+  "part": 1,
+  "cap": "Poora godown, aapki jeb mein",
+  "hi": "पूरा गोदाम, अब आपकी जेब में।",
+  "en": "Poora godown, ab aapki jeb mein.",
+  "dur": 2.252
+ },
+ {
+  "id": "p2_hook",
+  "part": 2,
+  "cap": "Billing mein der? Ab nahi.",
+  "hi": "अब बात काउंटर की। ग्राहक सामने खड़ा है, और बिल बनाने में देर? अब नहीं!",
+  "en": "Ab baat counter ki. Grahak saamne khada hai, aur bill banane mein der? Ab nahi!",
+  "dur": 5.204
+ },
+ {
+  "id": "p2_items",
+  "part": 2,
+  "cap": "New Sale • Add Items",
+  "hi": "न्यू सेल खोलिए, ऐड आइटम्स दबाइए। इंग्लिश या हिंदी, किसी भी नाम से सर्च कीजिए, और एक टैप में आइटम बिल में।",
+  "en": "New Sale kholiye, Add Items dabaiye. English ya Hindi, kisi bhi naam se search kijiye, aur ek tap mein item bill mein.",
+  "dur": 7.967
+ },
+ {
+  "id": "p2_pad",
+  "part": 2,
+  "cap": "Bada number pad",
+  "hi": "बड़े नंबर पैड से क्वांटिटी और रेट डालिए, अमाउंट अपने आप कैलकुलेट।",
+  "en": "Bade number pad se quantity aur rate daaliye, amount apne aap calculate.",
+  "dur": 5.163
+ },
+ {
+  "id": "p2_customer",
+  "part": 2,
+  "cap": "Customer • GST • Discount",
+  "hi": "ग्राहक चुनिए, या सीधा कैश सेल। जीएसटी और डिस्काउंट, परसेंट में हो या रुपये में, सब अपने आप।",
+  "en": "Grahak chuniye, ya seedha Cash Sale. GST aur discount, percent mein ho ya rupaye mein, sab apne aap.",
+  "dur": 6.762
+ },
+ {
+  "id": "p2_payment",
+  "part": 2,
+  "cap": "Cash • UPI • Udhaar",
+  "hi": "पेमेंट कैश में, यूपीआई में, या उधार। जितना मिला उतना डालिए, बाकी बैलेंस अपने आप।",
+  "en": "Payment cash mein, UPI mein, ya udhaar. Jitna mila utna daaliye, baaki balance apne aap.",
+  "dur": 6.336
+ },
+ {
+  "id": "p2_print",
+  "part": 2,
+  "cap": "Print + UPI QR",
+  "hi": "सेव करते ही ब्लूटूथ प्रिंटर से रसीद प्रिंट, यूपीआई क्यूआर कोड के साथ, ताकि ग्राहक स्कैन करके तुरंत पे करे।",
+  "en": "Save karte hi Bluetooth printer se raseed print, UPI QR code ke saath, taaki grahak scan karke turant pay kare.",
+  "dur": 7.858
+ },
+ {
+  "id": "p2_share",
+  "part": 2,
+  "cap": "WhatsApp pe bill",
+  "hi": "या बिल सीधा ग्राहक के व्हाट्सऐप पर भेजिए, इमेज या पीडीएफ़ में।",
+  "en": "Ya bill seedha grahak ke WhatsApp par bhejiye, image ya PDF mein.",
+  "dur": 4.651
+ },
+ {
+  "id": "p2_list",
+  "part": 2,
+  "cap": "Sale Bills • Udhaar list",
+  "hi": "सेल बिल्स में हर दिन की बिक्री, और उधार में, किस ग्राहक का कितना बाकी है, तुरंत पता।",
+  "en": "Sale Bills mein har din ki bikri, aur Udhaar mein, kis grahak ka kitna baaki hai, turant pata.",
+  "dur": 5.841
+ },
+ {
+  "id": "p2_edit",
+  "part": 2,
+  "cap": "Receive Payment • Edit Bill",
+  "hi": "बाद में पेमेंट आए तो रिसीव कीजिए। बिल बदलना हो तो एडिट कीजिए, बिल नंबर वही रहेगा, पुराना वर्ज़न भी सेव।",
+  "en": "Baad mein payment aaye to receive kijiye. Bill badalna ho to edit kijiye, bill number wahi rahega, puraana version bhi save.",
+  "dur": 7.811
+ },
+ {
+  "id": "p2_masters",
+  "part": 2,
+  "cap": "Customers • Items & Rates",
+  "hi": "ग्राहकों की लिस्ट पुराने बैलेंस के साथ, और हर आइटम का रेट, जीएसटी और एचएसएन, सब आपके कंट्रोल में।",
+  "en": "Grahakon ki list puraane balance ke saath, aur har item ka rate, GST aur HSN, sab aapke control mein.",
+  "dur": 7.549
+ },
+ {
+  "id": "p2_extras",
+  "part": 2,
+  "cap": "Staff login • Hindi/English • Offline",
+  "hi": "स्टाफ़ के लिए अलग लॉगिन, ऐप हिंदी और इंग्लिश दोनों में, और इंटरनेट न हो, तब भी बिल बनते रहते हैं। नेट आते ही, अपने आप अपलोड।",
+  "en": "Staff ke liye alag login, app Hindi aur English dono mein, aur internet na ho, tab bhi bill bante rehte hain. Net aate hi, apne aap upload.",
+  "dur": 9.365
+ },
+ {
+  "id": "p2_outro",
+  "part": 2,
+  "cap": "Stock se Sale tak — ek app",
+  "hi": "स्टॉक से सेल तक, पूरा बिज़नेस, एक ऐप में। आज ही शुरू कीजिए!",
+  "en": "Stock se Sale tak, poora business, ek app mein. Aaj hi shuru kijiye!",
+  "dur": 4.493
+ }
+]
