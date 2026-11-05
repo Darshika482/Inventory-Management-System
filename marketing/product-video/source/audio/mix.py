@@ -25,14 +25,16 @@ def place(buf, sig, at):
 vo = np.zeros((N, 2))
 voact = np.zeros(N)
 for s in TL['scenes']:
-    src = f'/home/user/reelmimic/projects/stockshop/vo/wav/{s["id"]}.wav'
+    src = f'/home/user/reelmimic/projects/stockshop/vo/wav_user/{s["id"]}.wav'
     dst = f'{D}/vo_proc/{s["id"]}.wav'
     subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-i', src, '-af',
-                    'highpass=f=80,equalizer=f=220:t=q:w=1.2:g=-2,equalizer=f=3500:t=q:w=1.0:g=3.5,equalizer=f=9000:t=h:w=0.8:g=2,'
-                    'acompressor=threshold=-20dB:ratio=3:attack=5:release=80:makeup=4dB,aresample=48000', '-ac', '2', dst], check=True)
+                    'highpass=f=70,equalizer=f=3000:t=q:w=1.0:g=1.5,acompressor=threshold=-18dB:ratio=2.5:attack=8:release=120:makeup=2dB,aresample=48000', '-ac', '2', dst], check=True)
     a = load(dst)
     place(vo, a, s['start'] + s['voAt'])
     i = int((s['start'] + s['voAt']) * SR); voact[i:i + len(a)] = 1
+
+_r = 20*np.log10(np.sqrt(np.mean(vo[voact > 0]**2)) + 1e-9)
+vo *= 10 ** ((-22.3 - _r) / 20)
 
 # ---- music: one track per part, so Part 2 can be cut out on its own ----
 m1 = f'{D}/music_p1.wav'; m2 = f'{D}/music_p2.wav'
@@ -60,35 +62,35 @@ S = {k: load(f'{D}/sfx/{k}.wav') for k in ['whoosh', 'tap', 'pop', 'chime', 'kac
 def sfx(name, at, g):
     place(fx, S[name] * g, at)
 for k, s in enumerate(TL['scenes']):
-    st = s['start']
+    st = s['start']; kk = s['k']
     if not s.get('hook') and k > 0 and not TL['scenes'][k - 1].get('hook'):
         sfx('whoosh', st - 0.12, 0.30)
     for t, x, y in s.get('taps', []):
-        sfx('tap', st + t, 0.55)
+        sfx('tap', st + t * kk, 0.55)
     for i, sh in enumerate(s.get('shots', [])):
         if i > 0 and sh.get('tr') not in (None, 'cut'):
-            sfx('swipe', st + sh['t'] - 0.05, 0.16 if sh.get('tr') == 'fade' else 0.24)
+            sfx('swipe', st + sh['t'] * kk - 0.05, 0.16 if sh.get('tr') == 'fade' else 0.24)
     if s.get('hl'):
-        sfx('pop', st + s['hl'][0][0], 0.16)
+        sfx('pop', st + s['hl'][0][0] * kk, 0.16)
     for t, name, g in s.get('sfx', []):
-        sfx(name, st + t, g)
+        sfx(name, st + t * kk, g)
     h = s.get('hook')
     if h == 'hook1':
-        for t in (0.3, 1.45, 2.6): sfx('pop', st + t, 0.5)
-        sfx('whoosh', st + 3.5, 0.45); sfx('impact', st + 3.95, 0.7); sfx('swipe', st + 5.1, 0.45); sfx('riser', st + 4.9, 0.35)
+        for t in (0.3, 1.45, 2.6): sfx('pop', st + kk * t, 0.5)
+        sfx('whoosh', st + kk * 3.5, 0.45); sfx('impact', st + kk * 3.95, 0.7); sfx('swipe', st + kk * 5.1, 0.45); sfx('riser', st + kk * 4.9, 0.35)
     if h == 'hook2':
-        sfx('pop', st + 0.7, 0.5)
-        for i in range(4): sfx('pop', st + 1.6 + i * 0.22, 0.32)
-        for i in range(6): sfx('tick', st + 3.0 + i * 0.22, 0.45)
-        sfx('impact', st + 4.45, 0.85); sfx('whoosh', st + 5.75, 0.4)
+        sfx('pop', st + kk * 0.7, 0.5)
+        for i in range(4): sfx('pop', st + kk * 1.6 + i * 0.22, 0.32)
+        for i in range(6): sfx('tick', st + kk * 3.0 + i * 0.22, 0.45)
+        sfx('impact', st + kk * 4.45, 0.85); sfx('whoosh', st + kk * 5.75, 0.4)
     if h == 'outro1':
-        sfx('whoosh', st + 0.05, 0.4)
-        for i in range(8): sfx('pop', st + 1.2 + i * 0.09, 0.18)
-        sfx('chime', st + 0.8, 0.5)
+        sfx('whoosh', st + kk * 0.05, 0.4)
+        for i in range(8): sfx('pop', st + kk * 1.2 + i * 0.09, 0.18)
+        sfx('chime', st + kk * 0.8, 0.5)
     if h == 'outro2':
-        sfx('whoosh', st + 0.05, 0.4)
-        for i in range(8): sfx('pop', st + 2.0 + i * 0.08, 0.18)
-        sfx('kaching', st + 3.45, 0.55); sfx('impact', st + 3.4, 0.5)
+        sfx('whoosh', st + kk * 0.05, 0.4)
+        for i in range(8): sfx('pop', st + kk * 2.0 + i * 0.08, 0.18)
+        sfx('kaching', st + kk * 3.45, 0.55); sfx('impact', st + kk * 3.4, 0.5)
 fx *= 0.75
 
 def write(name, mix):

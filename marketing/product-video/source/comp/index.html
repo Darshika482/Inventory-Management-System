@@ -161,7 +161,7 @@ function renderShots(ph, s, lt, prev) {
   // previous shot stays under the incoming one during its transition
   const sh = shots[cur];
   const p = sh.tr && sh.tr !== 'cut' && cur > 0 ? clamp((lt - sh.t) / (sh.tr === 'left' ? 0.5 : TR)) : 1;
-  if (xin < 1) list.push({ shot: prev.shots[prev.shots.length - 1], role: 'prev', p: 1, scene: prev, plt: prev.len });
+  if (xin < 1) list.push({ shot: prev.shots[prev.shots.length - 1], role: 'prev', p: 1, scene: prev, plt: prev.refLen });
   if (p < 1 && cur > 0) list.push({ shot: shots[cur - 1], role: 'out', p });
   list.push({ shot: sh, role: 'in', p });
   list.forEach(({ shot, role, p, scene, plt }, z) => {
@@ -232,7 +232,7 @@ function setHead(cap) {
 function renderHead(s, lt) {
   setHead(s.cap);
   const ws = [...document.querySelectorAll('#head .w')];
-  const outP = prog(lt, s.len - 0.32, s.len - 0.04);
+  const outP = prog(lt, s.refLen - 0.32, s.refLen - 0.04);
   ws.forEach((w, i) => {
     const p = eo5(prog(lt, 0.05 + i * 0.055, 0.5 + i * 0.055));
     w.style.opacity = p * (1 - outP);
@@ -367,7 +367,7 @@ function neededSrcs(t) {
 }
 window.renderAt = async function (t) {
   await ensure(neededSrcs(t));
-  const i = sceneAt(t), s = SC[i], lt = t - s.start;
+  const i = sceneAt(t), s = SC[i], rlt = t - s.start, lt = rlt / s.k;
   // background drift; part 2 shifts hue toward emerald
   const p2 = s.part === 2;
   ORBS.forEach((o, k) => { const x = o.x + Math.sin(t * o.sp + k) * o.ax, y = o.y + Math.cos(t * o.sp * 1.3 + k * 2) * o.ay;
@@ -400,7 +400,7 @@ window.renderAt = async function (t) {
     rig2 = { hide: lt < 0.2, sc: 0.5, x: lerp(-700, -190, eo5(prog(lt, 0.2, 1.2))), y: -170, ry: 14, rz: -3, op: clamp((lt - 0.2) / 0.3) * f };
   } else {
     cam = camAt(s, lt);
-    cam.s *= 1 + 0.028 * Math.sin(Math.PI * clamp(lt / s.len));
+    cam.s *= 1 + 0.028 * Math.sin(Math.PI * clamp(lt / s.refLen));
     if (s.phoneIn) { const [a, b] = s.phoneIn; const p = prog(lt, a, b); const e = back(p);
       rig = { y: lerp(1500, 0, eo5(p)), rx: lerp(38, 0, eo(p)), sc: lerp(0.86, 1, e), op: clamp(p * 4) }; }
   }
@@ -419,7 +419,7 @@ window.renderAt = async function (t) {
   // text
   $('#topfade').style.opacity = s.hook ? 0 : 1;
   renderHead(s, lt);
-  renderSub(s, lt);
+  renderSub(s, rlt);
   return { scene: s.id, lt };
 };
 window.TLinfo = { total: TL.total, part2Start: TL.part2Start, scenes: SC.map((s) => ({ id: s.id, start: s.start, len: s.len })) };

@@ -200,9 +200,16 @@
   for (const s of S) {
     const v = VOD[s.id];
     s.part = v.part; s.vo = v.dur; s.en = v.en;
+    const ref = v.ref || v.dur;
     s.voAt = s.hook === 'hook1' ? 0.25 : s.hook === 'hook2' ? 0.3 : s.hook ? 0.4 : LEAD;
-    s.len = s.len || Math.max(s.vo + LEAD + TAIL, 3);
-    if (s.len < s.voAt + s.vo + 0.3) s.len = s.voAt + s.vo + 0.3;
+    // refLen: the length all event times inside the scene were authored against (reference voice)
+    let refLen = s.len || Math.max(ref + LEAD + TAIL, 3);
+    if (refLen < s.voAt + ref + 0.3) refLen = s.voAt + ref + 0.3;
+    s.refLen = refLen;
+    // k: time-warp so the scene's visuals follow the actual voiceover length
+    s.k = s.len ? s.vo / ref : (s.voAt + s.vo + TAIL) / (s.voAt + ref + TAIL);
+    s.k = Math.max(0.8, Math.min(1.35, s.k));
+    s.len = Math.max(refLen * s.k, s.voAt + s.vo + 0.3);
     s.start = t; t += s.len;
   }
   const part1End = S.find((s) => s.id === 'p1_outro');
