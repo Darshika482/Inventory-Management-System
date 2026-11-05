@@ -1,0 +1,428 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter:wght@500;600;700;800&display=block" rel="stylesheet">
+<style>
+  :root { --amber: #F59E0B; --amber2: #FBBF24; --em: #10B981; --navy: #0F172A; --ink: #020617; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1080px; height: 1920px; background: #050913; overflow: hidden; }
+  #frame { position: absolute; inset: 0; width: 1080px; height: 1920px; overflow: hidden; font-family: 'Plus Jakarta Sans', Inter, sans-serif; color: #fff; }
+  #bg { position: absolute; inset: 0; background: radial-gradient(120% 80% at 50% 0%, #131c33 0%, #070b16 55%, #04060d 100%); }
+  .orb { position: absolute; border-radius: 50%; will-change: transform; }
+  #grid { position: absolute; inset: -60px; background-image: radial-gradient(rgba(255,255,255,0.10) 1.6px, transparent 1.8px); background-size: 44px 44px; opacity: .35;
+          -webkit-mask-image: radial-gradient(70% 55% at 50% 45%, #000 20%, transparent 80%); }
+  .pt { position: absolute; width: 6px; height: 6px; border-radius: 50%; background: #fff; }
+  #vign { position: absolute; inset: 0; background: radial-gradient(90% 70% at 50% 50%, transparent 55%, rgba(0,0,0,.55) 100%); pointer-events: none; }
+
+  #cam { position: absolute; left: 0; top: 0; width: 1080px; height: 1920px; transform-origin: 0 0; }
+  .rig { position: absolute; left: 184px; top: 330px; width: 712px; height: 1504px; transform-origin: 50% 50%; }
+  .phone { position: absolute; inset: 0; border-radius: 104px; background: linear-gradient(145deg, #3b4252 0%, #151922 30%, #0a0c11 60%, #2a303b 100%);
+           box-shadow: 0 60px 120px rgba(0,0,0,.65), 0 20px 40px rgba(0,0,0,.45), inset 0 0 0 2px rgba(255,255,255,.10), inset 0 0 0 7px #05070b; }
+  .phone::after { content: ''; position: absolute; inset: 0; border-radius: 104px; background: linear-gradient(120deg, rgba(255,255,255,.18), transparent 22%, transparent 78%, rgba(255,255,255,.08)); pointer-events: none; }
+  .btnside { position: absolute; right: -6px; width: 8px; border-radius: 4px; background: linear-gradient(90deg, #2b313c, #10141b); }
+  .screen { position: absolute; left: 16px; top: 16px; width: 680px; height: 1472px; border-radius: 88px; overflow: hidden; background: #f8fafc; }
+  .hole { position: absolute; left: 50%; top: 22px; width: 30px; height: 30px; margin-left: -15px; border-radius: 50%; background: radial-gradient(circle at 40% 40%, #1c2540, #000 60%); box-shadow: 0 0 0 3px rgba(0,0,0,.35); z-index: 20; }
+  .glare { position: absolute; inset: 0; border-radius: 88px; background: linear-gradient(115deg, rgba(255,255,255,.10) 0%, rgba(255,255,255,0) 28%); pointer-events: none; z-index: 19; }
+  .shot { position: absolute; left: 0; top: 0; width: 680px; height: 1472px; overflow: hidden; background: #f8fafc; will-change: transform, opacity; }
+  .shot img { position: absolute; left: 0; top: 0; width: 680px; display: block; }
+  .shot .hdr { position: absolute; left: 0; top: 0; width: 680px; overflow: hidden; z-index: 2; }
+  .ring { position: absolute; border-radius: 22px; border: 5px solid var(--amber); z-index: 10; pointer-events: none; }
+  .tap { position: absolute; width: 0; height: 0; z-index: 12; }
+  .tap i { position: absolute; border-radius: 50%; left: 0; top: 0; transform: translate(-50%, -50%); }
+
+  #topfade { position: absolute; left: 0; top: 0; width: 1080px; height: 520px; background: linear-gradient(#050913 0%, #050913 50%, rgba(5,9,19,.85) 64%, rgba(5,9,19,0) 100%); }
+  #kicker { position: absolute; left: 0; width: 1080px; top: 118px; text-align: center; }
+  #kicker span { display: inline-flex; align-items: center; gap: 14px; padding: 12px 26px; border-radius: 999px; font: 800 26px/1 Inter, sans-serif; letter-spacing: .18em;
+                 background: rgba(245,158,11,.12); color: var(--amber2); border: 1.5px solid rgba(245,158,11,.35); }
+  #kicker span em { font-style: normal; }
+  #kicker span b { width: 12px; height: 12px; border-radius: 50%; background: var(--amber); box-shadow: 0 0 16px var(--amber); }
+  #head { position: absolute; left: 50px; width: 980px; top: 182px; text-align: center; font: 800 76px/1.08 'Plus Jakarta Sans', sans-serif; letter-spacing: -0.02em; }
+  #head .w { display: inline-block; white-space: pre; will-change: transform, opacity; }
+  #head .hi { color: var(--amber2); }
+  #sub { position: absolute; left: 0; width: 1080px; top: 1660px; text-align: center; }
+  #sub span { display: inline-block; max-width: 960px; padding: 20px 34px; border-radius: 30px; background: rgba(2,6,23,.80); border: 1.5px solid rgba(255,255,255,.10);
+              font: 700 42px/1.28 Inter, sans-serif; color: #fff; box-shadow: 0 16px 40px rgba(0,0,0,.45); }
+  #sub span em { font-style: normal; color: var(--amber2); }
+
+  #hook { position: absolute; inset: 0; }
+  .card { position: absolute; left: 140px; width: 800px; height: 190px; border-radius: 44px; display: flex; align-items: center; gap: 40px; padding: 0 50px;
+          background: linear-gradient(135deg, rgba(255,255,255,.12), rgba(255,255,255,.04)); border: 2px solid rgba(255,255,255,.16);
+          box-shadow: 0 30px 70px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.2); font: 800 66px/1 'Plus Jakarta Sans'; }
+  .ic { width: 116px; height: 116px; border-radius: 32px; display: flex; align-items: center; justify-content: center; flex: none; }
+  .ic svg { width: 64px; height: 64px; }
+  .big { position: absolute; left: 0; width: 1080px; text-align: center; font-family: 'Plus Jakarta Sans'; font-weight: 800; }
+  .chip { position: absolute; display: flex; align-items: center; gap: 18px; padding: 0 30px; height: 104px; border-radius: 30px; font: 700 38px/1 Inter;
+          background: rgba(15,23,42,.88); border: 1.5px solid rgba(255,255,255,.14); box-shadow: 0 18px 40px rgba(0,0,0,.4); white-space: nowrap; }
+  .chip .ic { width: 64px; height: 64px; border-radius: 18px; }
+  .chip .ic svg { width: 36px; height: 36px; }
+  #flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+</style>
+</head>
+<body>
+<div id="frame">
+  <div id="bg"><div id="grid"></div></div>
+  <div id="cam"></div>
+  <div id="vign"></div>
+  <div id="topfade"></div>
+  <div id="hook"></div>
+  <div id="kicker"><span><b></b><em></em></span></div>
+  <div id="head"></div>
+  <div id="sub"><span></span></div>
+  <div id="flash"></div>
+</div>
+<script src="vo.js"></script>
+<script src="icons.js"></script>
+<script src="timeline.js"></script>
+<script>
+const $ = (s) => document.querySelector(s);
+const K = 680 / 390, PX = 200, PY = 346, CX = 540, CY = 346 + 736;
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+const lerp = (a, b, t) => a + (b - a) * t;
+const eio = (t) => (t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+const eo = (t) => 1 - Math.pow(1 - t, 3);
+const eo5 = (t) => 1 - Math.pow(1 - t, 5);
+const back = (t) => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+const prog = (t, a, b) => clamp((t - a) / (b - a));
+const icon = (n, c = '#fff') => (ICONS[n] || '').replace('stroke="currentColor"', `stroke="${c}"`);
+
+// ---------- background ----------
+const bg = $('#bg');
+const ORBS = [
+  { c: 'rgba(245,158,11,.30)', r: 620, x: 160, y: 380, ax: 120, ay: 90, sp: .11 },
+  { c: 'rgba(99,102,241,.26)', r: 700, x: 920, y: 1200, ax: 140, ay: 120, sp: .08 },
+  { c: 'rgba(16,185,129,.20)', r: 560, x: 260, y: 1650, ax: 100, ay: 80, sp: .13 },
+];
+ORBS.forEach((o) => { const d = document.createElement('div'); d.className = 'orb'; d.style.width = d.style.height = o.r * 2 + 'px';
+  d.style.background = `radial-gradient(circle, ${o.c} 0%, rgba(0,0,0,0) 68%)`; bg.appendChild(d); o.el = d; });
+const PTS = [];
+for (let i = 0; i < 34; i++) { const d = document.createElement('div'); d.className = 'pt'; bg.appendChild(d);
+  PTS.push({ el: d, x: (i * 379) % 1080, y: (i * 977) % 1920, s: .3 + ((i * 37) % 10) / 14, v: 14 + (i % 7) * 6 }); }
+
+// ---------- phones ----------
+function makePhone() {
+  const rig = document.createElement('div'); rig.className = 'rig';
+  rig.innerHTML = `<div class="phone"><div class="btnside" style="top:300px;height:150px"></div><div class="btnside" style="top:480px;height:90px"></div>
+    <div class="screen"><div class="layers"></div><div class="hls"></div><div class="taps"></div><div class="glare"></div><div class="hole"></div></div></div>`;
+  $('#cam').appendChild(rig);
+  return { rig, layers: rig.querySelector('.layers'), hls: rig.querySelector('.hls'), taps: rig.querySelector('.taps'), pool: new Map() };
+}
+const P1 = makePhone();
+const P2 = makePhone(); // second phone, outro only
+
+// image cache
+const IMG = new Map();
+function getImg(src) {
+  if (!IMG.has(src)) { const im = new Image(); im.src = `../screens/${src}.png`; IMG.set(src, im); }
+  return IMG.get(src);
+}
+async function ensure(srcs) {
+  await Promise.all(srcs.map((s) => { const im = getImg(s); return im.complete && im.naturalWidth ? null : im.decode().catch(() => {}); }));
+}
+// a shot element per (phone, key)
+function shotEl(ph, key, src, tall) {
+  let el = ph.pool.get(key);
+  if (!el) {
+    el = document.createElement('div'); el.className = 'shot';
+    const im = document.createElement('img'); im.src = `../screens/${src}.png`; el.appendChild(im);
+    if (tall) { const h = document.createElement('div'); h.className = 'hdr'; h.style.height = 72 * K + 'px'; const im2 = document.createElement('img'); im2.src = im.src; h.appendChild(im2); el.appendChild(h); }
+    ph.layers.appendChild(el); ph.pool.set(key, el);
+  }
+  el._used = true;
+  return el;
+}
+function scrollAt(shot, t) {
+  let y = 0;
+  for (const [a, b, to] of shot.scroll || []) { if (t >= b) y = to; else if (t > a) { y = lerp(y, to, eio(prog(t, a, b))); break; } else break; }
+  return y;
+}
+
+// ---------- scene helpers ----------
+const SC = TL.scenes;
+function sceneAt(t) { for (let i = SC.length - 1; i >= 0; i--) if (t >= SC[i].start) return i; return 0; }
+function camAt(s, lt) {
+  let c = { s: 1, x: 195, y: 422 };
+  for (const [a, b, zs, fx, fy] of s.cam || []) {
+    if (lt >= b) c = { s: zs, x: fx, y: fy };
+    else if (lt > a) { const p = eio(prog(lt, a, b)); c = { s: lerp(c.s, zs, p), x: lerp(c.x, fx, p), y: lerp(c.y, fy, p) }; break; }
+    else break;
+  }
+  return c;
+}
+const TR = 0.38;
+function renderShots(ph, s, lt, prev) {
+  ph.pool.forEach((el) => (el._used = false));
+  const shots = s.shots || [];
+  const XT = 0.4;
+  const xin = prev && prev.shots && lt < XT ? eo(lt / XT) : 1;
+  let cur = 0; for (let i = 0; i < shots.length; i++) if (lt >= shots[i].t) cur = i;
+  const list = [];
+  // previous shot stays under the incoming one during its transition
+  const sh = shots[cur];
+  const p = sh.tr && sh.tr !== 'cut' && cur > 0 ? clamp((lt - sh.t) / (sh.tr === 'left' ? 0.5 : TR)) : 1;
+  if (xin < 1) list.push({ shot: prev.shots[prev.shots.length - 1], role: 'prev', p: 1, scene: prev, plt: prev.len });
+  if (p < 1 && cur > 0) list.push({ shot: shots[cur - 1], role: 'out', p });
+  list.push({ shot: sh, role: 'in', p });
+  list.forEach(({ shot, role, p, scene, plt }, z) => {
+    const el = role === 'prev' ? shotEl(ph, scene.id + ':' + (scene.shots.length - 1), shot.src, shot.tall) : shotEl(ph, s.id + ':' + shots.indexOf(shot), shot.src, shot.tall);
+    el.style.zIndex = z + 1;
+    const y = scrollAt(shot, role === 'prev' ? plt : lt) * K;
+    el.firstChild.style.transform = `translateY(${-y}px)`;
+    let tf = '', op = 1;
+    const tr = sh.tr;
+    if (role === 'in' && p < 1) {
+      if (tr === 'fade' || tr === 'scrollswap') op = eo(p);
+      else if (tr === 'up') { op = clamp(p * 2.2); tf = `translateY(${(1 - eo5(p)) * 90}px)`; }
+      else if (tr === 'left') tf = `translateX(${(1 - eo5(p)) * 680}px)`;
+    }
+    if (role === 'out' && tr === 'left') tf = `translateX(${-eo5(p) * 240}px)`;
+    if (role === 'in' && xin < 1 && cur === 0) { op = xin; tf = `scale(${lerp(1.035, 1, xin)})`; }
+    el.style.transform = tf; el.style.opacity = op;
+    el._scroll = y / K;
+  });
+  ph.pool.forEach((el) => { el.style.display = el._used ? 'block' : 'none'; });
+  return { scrollY: list[list.length - 1] ? (ph.pool.get(s.id + ':' + cur)._scroll || 0) : 0, cur };
+}
+function renderHL(ph, s, lt, scrollY, isTall) {
+  ph.hls.innerHTML = '';
+  let first = true;
+  for (const [a, b, x, y, w, h, col] of s.hl || []) {
+    if (lt < a - 0.01 || lt > b + 0.35) continue;
+    const pin = eo(prog(lt, a, a + 0.35)), pout = 1 - prog(lt, b, b + 0.3);
+    const v = Math.min(pin, pout);
+    const r = document.createElement('div'); r.className = 'ring';
+    const yy = isTall ? y - scrollY : y;
+    const sc = lerp(1.12, 1, pin);
+    const cx = (x + w / 2) * K, cy = (yy + h / 2) * K, W = w * K + 18, H = h * K + 18;
+    r.style.left = cx - W / 2 + 'px'; r.style.top = cy - H / 2 + 'px'; r.style.width = W + 'px'; r.style.height = H + 'px';
+    r.style.borderColor = col; r.style.transform = `scale(${sc})`; r.style.opacity = v;
+    r.style.boxShadow = `0 0 0 ${first ? 3000 : 0}px rgba(2,6,23,${first ? 0.34 * v : 0}), 0 0 34px 6px ${col}88, inset 0 0 24px ${col}33`;
+    first = false;
+    ph.hls.appendChild(r);
+  }
+}
+function renderTaps(ph, s, lt) {
+  ph.taps.innerHTML = '';
+  for (const [tt, x, y] of s.taps || []) {
+    const d = lt - tt; if (d < -0.35 || d > 0.6) continue;
+    const t = document.createElement('div'); t.className = 'tap'; t.style.left = x * K + 'px'; t.style.top = y * K + 'px';
+    const pre = clamp((d + 0.35) / 0.35), post = clamp(d / 0.6);
+    const dot = document.createElement('i'); const s0 = d < 0 ? lerp(1.4, 1, eo(pre)) : lerp(0.86, 1, eo(clamp(d / 0.15)));
+    dot.style.width = dot.style.height = 92 * s0 + 'px'; dot.style.background = 'rgba(255,255,255,.55)';
+    dot.style.border = '4px solid rgba(15,23,42,.55)'; dot.style.boxShadow = '0 8px 24px rgba(0,0,0,.35)'; dot.style.opacity = d < 0 ? pre : 1 - clamp((d - 0.3) / 0.3);
+    t.appendChild(dot);
+    if (d >= 0) { const rp = document.createElement('i'); const rr = 92 + 150 * eo(post); rp.style.width = rp.style.height = rr + 'px';
+      rp.style.border = '5px solid rgba(245,158,11,' + (0.9 * (1 - post)) + ')'; t.appendChild(rp); }
+    ph.taps.appendChild(t);
+  }
+}
+
+// ---------- text ----------
+let headKey = '';
+function setHead(cap) {
+  if (cap === headKey) return; headKey = cap;
+  const h = $('#head'); h.innerHTML = '';
+  if (!cap) return;
+  let hi = false; const parts = cap.split(/(\[|\])/);
+  for (const p of parts) { if (p === '[') { hi = true; continue; } if (p === ']') { hi = false; continue; }
+    for (const w of p.split(/(\s+)/)) { if (!w) continue; if (/^\s+$/.test(w)) { h.appendChild(document.createTextNode(' ')); continue; }
+      const sp = document.createElement('span'); sp.className = 'w' + (hi ? ' hi' : ''); sp.textContent = w; h.appendChild(sp); } }
+}
+function renderHead(s, lt) {
+  setHead(s.cap);
+  const ws = [...document.querySelectorAll('#head .w')];
+  const outP = prog(lt, s.len - 0.32, s.len - 0.04);
+  ws.forEach((w, i) => {
+    const p = eo5(prog(lt, 0.05 + i * 0.055, 0.5 + i * 0.055));
+    w.style.opacity = p * (1 - outP);
+    w.style.transform = `translateY(${(1 - p) * 46 - outP * 26}px)`;
+    w.style.filter = p < 1 ? `blur(${(1 - p) * 10}px)` : 'none';
+  });
+  const k = $('#kicker'); k.querySelector('em').textContent = s.kicker || '';
+  const kp = eo(prog(lt, 0, 0.35)) * (1 - outP);
+  k.style.opacity = s.kicker ? kp : 0; k.style.transform = `translateY(${(1 - kp) * 16}px)`;
+  const kc = s.part === 2 ? ['rgba(16,185,129,.13)', '#34D399', 'rgba(16,185,129,.4)', '#10B981'] : ['rgba(245,158,11,.12)', '#FBBF24', 'rgba(245,158,11,.35)', '#F59E0B'];
+  const sp = k.querySelector('span'); sp.style.background = kc[0]; sp.style.color = kc[1]; sp.style.borderColor = kc[2];
+  const b = k.querySelector('b'); b.style.background = kc[3]; b.style.boxShadow = `0 0 16px ${kc[3]}`;
+}
+const HILITE = /(Stock Overview|Low Stock|Add Stock|Take Out Stock|PDF|Party Bills|Payments|Rate Analysis|Transport|Workers|New Sale|Add Items|Cash Sale|GST|UPI QR|UPI|WhatsApp|Udhaar|udhaar|Sale Bills|Bluetooth|Hindi|English|edit|receive|HSN)/g;
+function chunks(s) {
+  if (s._chunks) return s._chunks;
+  const parts = s.en.match(/[^,.!?]+[,.!?]*/g).map((x) => x.trim()).filter(Boolean);
+  // merge tiny parts
+  const m = []; for (const p of parts) { if (m.length && (m[m.length - 1].length < 14 || p.length < 9)) m[m.length - 1] += ' ' + p; else m.push(p); }
+  const tot = m.reduce((a, b) => a + b.length, 0); let acc = 0;
+  s._chunks = m.map((x) => { const a = s.voAt + (acc / tot) * s.vo; acc += x.length; return { x, a, b: s.voAt + (acc / tot) * s.vo }; });
+  return s._chunks;
+}
+function renderSub(s, lt) {
+  const el = $('#sub span');
+  if (s.hook) { $('#sub').style.opacity = 0; return; }
+  const c = chunks(s).find((c) => lt >= c.a - 0.05 && lt < c.b + 0.05) || null;
+  if (!c) { $('#sub').style.opacity = 0; return; }
+  const html = c.x.replace(/[,]$/, '').replace(HILITE, '<em>$1</em>');
+  if (el._k !== html) { el.innerHTML = html; el._k = html; }
+  const p = eo(prog(lt, c.a - 0.05, c.a + 0.15));
+  $('#sub').style.opacity = p; $('#sub').style.transform = `translateY(${(1 - p) * 14}px)`;
+}
+
+// ---------- hooks / outros ----------
+const HOOK = $('#hook');
+function H(html) { HOOK.innerHTML = html; }
+let hookKey = '';
+function hook1(lt) {
+  if (hookKey !== 'h1') { hookKey = 'h1'; H(`
+    <div class="card" id="c1"><div class="ic" style="background:rgba(245,158,11,.18)">${icon('Boxes', '#FBBF24')}</div>Dukaan ka stock</div>
+    <div class="card" id="c2"><div class="ic" style="background:rgba(99,102,241,.2)">${icon('Warehouse', '#A5B4FC')}</div>Godown ka hisaab</div>
+    <div class="card" id="c3"><div class="ic" style="background:rgba(16,185,129,.18)">${icon('ReceiptText', '#34D399')}</div>Party ke bill</div>
+    <div class="big" id="q1" style="top:640px;font-size:70px;color:#CBD5E1">Abhi bhi</div>
+    <div class="big" id="q2" style="top:730px;font-size:178px;letter-spacing:-.03em;color:#FBBF24">REGISTER</div>
+    <svg id="strike" width="1080" height="400" style="position:absolute;left:0;top:700px" viewBox="0 0 1080 400"><path d="M120 190 C 300 150, 520 240, 700 170 S 930 160, 980 200" fill="none" stroke="#EF4444" stroke-width="26" stroke-linecap="round"/></svg>
+    <div class="big" id="q3" style="top:960px;font-size:84px">mein likh rahe hain?</div>
+    <div id="book" style="position:absolute;left:440px;top:1180px;width:200px;height:200px;border-radius:52px;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.14);display:flex;align-items:center;justify-content:center">${icon('NotebookPen', '#FBBF24').replace('width="24" height="24"', 'width="110" height="110"')}</div>`); }
+  const cards = [['#c1', 0.3, 560, -3], ['#c2', 1.45, 800, 2], ['#c3', 2.6, 1040, -2]];
+  const outP = eio(prog(lt, 3.55, 4.1));
+  cards.forEach(([id, a, y, rot], i) => {
+    const el = $(id); const p = back(clamp((lt - a) / 0.55)); const op = clamp((lt - a) / 0.2) * (1 - outP);
+    const dx = (i - 1) * 420 * outP;
+    el.style.top = y + 'px'; el.style.opacity = op;
+    el.style.transform = `translate(${dx}px, ${(1 - clamp(p)) * 120 - outP * 120}px) scale(${lerp(0.7, 1, p) * (1 - 0.25 * outP)}) rotate(${rot * (1 - p * 0.5)}deg)`;
+  });
+  const qa = 3.85;
+  const q = (id, a) => { const el = $(id); const p = eo5(prog(lt, a, a + 0.5)); const o = prog(lt, 6.0, 6.35); el.style.opacity = p * (1 - o); el.style.transform = `translateY(${(1 - p) * 60}px) scale(${lerp(1.25, 1, p)})`; el.style.filter = p < 1 ? `blur(${(1 - p) * 12}px)` : 'none'; };
+  q('#q1', qa); q('#q2', qa + 0.15); q('#q3', qa + 0.5);
+  const shake = lt > qa + 0.2 && lt < qa + 1.0 ? Math.sin(lt * 70) * 4 * (1 - prog(lt, qa + 0.2, qa + 1.0)) : 0;
+  $('#q2').style.marginLeft = shake + 'px';
+  const st = $('#strike path'); const L = 1000; st.style.strokeDasharray = L; st.style.strokeDashoffset = L * (1 - eio(prog(lt, 5.1, 5.55)));
+  $('#strike').style.opacity = 1 - prog(lt, 6.0, 6.35);
+  const bk = $('#book'); const bp = back(clamp((lt - (qa + 0.7)) / 0.5)); bk.style.opacity = clamp((lt - qa - 0.7) / 0.2) * (1 - prog(lt, 6.0, 6.35));
+  bk.style.transform = `scale(${lerp(0.5, 1, clamp(bp))}) rotate(${Math.sin(lt * 3) * 4}deg)`;
+}
+function hook2(lt) {
+  if (hookKey !== 'h2') { hookKey = 'h2'; H(`
+    <div class="big" id="t0" style="top:300px;font-size:30px;letter-spacing:.3em;color:#34D399;font-family:Inter">SALES &amp; BILLING</div>
+    <div class="big" id="t1" style="top:360px;font-size:104px">Ab baat <span style="color:#34D399">counter</span> ki</div>
+    <div id="store" style="position:absolute;left:400px;top:560px;width:280px;height:280px;border-radius:72px;background:linear-gradient(135deg,rgba(16,185,129,.28),rgba(16,185,129,.08));border:2px solid rgba(52,211,153,.35);display:flex;align-items:center;justify-content:center;box-shadow:0 30px 80px rgba(16,185,129,.25)">${icon('Store', '#6EE7B7').replace('width="24" height="24"', 'width="150" height="150"')}</div>
+    <div id="queue" style="position:absolute;left:0;top:930px;width:1080px;display:flex;justify-content:center;gap:34px">
+      ${[0, 1, 2, 3].map((i) => `<div class="qq" style="width:150px;height:150px;border-radius:50%;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.16);display:flex;align-items:center;justify-content:center">${icon('UserRound', '#E2E8F0').replace('width="24" height="24"', 'width="80" height="80"')}</div>`).join('')}
+    </div>
+    <div id="clock" style="position:absolute;left:465px;top:1130px;width:150px;height:150px">
+      <svg width="150" height="150" viewBox="0 0 150 150"><circle cx="75" cy="75" r="64" fill="rgba(239,68,68,.12)" stroke="#F87171" stroke-width="9"/><line id="hand" x1="75" y1="75" x2="75" y2="30" stroke="#FCA5A5" stroke-width="9" stroke-linecap="round"/><circle cx="75" cy="75" r="8" fill="#FCA5A5"/></svg></div>
+    <div class="big" id="t2" style="top:1320px;font-size:80px;color:#E2E8F0">Bill banane mein <span style="color:#F87171">der?</span></div>
+    <div class="big" id="t3" style="top:760px;font-size:210px;letter-spacing:-.04em;color:#34D399;text-shadow:0 20px 60px rgba(16,185,129,.45)">Ab nahi!</div>`); }
+  const fadeAll = 1 - prog(lt, 5.75, 6.15);
+  const ent = (id, a, dy = 50) => { const el = $(id); const p = eo5(prog(lt, a, a + 0.5)); el.style.opacity = p; el.style.transform = `translateY(${(1 - p) * dy}px)`; return p; };
+  const pre = 1 - eio(prog(lt, 4.3, 4.6)); // everything before the stamp gets pushed away
+  ['#t0', '#t1', '#store', '#queue', '#clock', '#t2'].forEach((id) => {});
+  ent('#t0', 0.15); ent('#t1', 0.3);
+  const sp = back(clamp((lt - 0.7) / 0.6)); $('#store').style.opacity = clamp((lt - 0.7) / 0.2); $('#store').style.transform = `scale(${lerp(0.5, 1, sp)})`;
+  document.querySelectorAll('.qq').forEach((q, i) => { const a = 1.6 + i * 0.22; const p = back(clamp((lt - a) / 0.45)); q.style.opacity = clamp((lt - a) / 0.15); q.style.transform = `translateY(${(1 - clamp(p)) * 80}px) scale(${lerp(.6, 1, p)})`; });
+  const cp = back(clamp((lt - 3.0) / 0.45)); $('#clock').style.opacity = clamp((lt - 3.0) / 0.15); $('#clock').style.transform = `scale(${lerp(.5, 1, cp)})`;
+  $('#hand').setAttribute('transform', `rotate(${(lt - 3.0) * 900} 75 75)`);
+  ent('#t2', 3.2);
+  document.querySelectorAll('.qq').forEach((q) => { q.style.opacity = (+q.style.opacity) * pre; });
+  for (const id of ['#t0', '#t1', '#store', '#clock', '#t2']) { const el = $(id); el.style.opacity = (+el.style.opacity) * pre; el.style.filter = pre < 1 ? `blur(${(1 - pre) * 14}px)` : 'none'; }
+  const t3 = $('#t3'); const sP = prog(lt, 4.45, 4.75); t3.style.opacity = clamp(sP * 3) * fadeAll; t3.style.transform = `scale(${lerp(2.4, 1, eo5(sP))}) rotate(${lerp(-8, -3, eo5(sP))}deg)`;
+  $('#flash').style.opacity = lt > 4.7 && lt < 5.0 ? 0.16 * (1 - prog(lt, 4.7, 5.0)) : 0;
+}
+const STOCK_MODS = [['Package', 'All stock'], ['FileClock', 'Taken items'], ['CalendarPlus', 'Stock added'], ['ReceiptText', 'Party bills'], ['Wallet', 'Payments'], ['BarChart3', 'Rate analysis'], ['Truck', 'Transport'], ['Users', 'Workers']];
+function outro1(lt, s) {
+  if (hookKey !== 'o1') { hookKey = 'o1'; H(`
+    <div class="big" id="o1a" style="top:150px;font-size:96px">Poora godown,</div>
+    <div class="big" id="o1b" style="top:262px;font-size:96px;color:#FBBF24">ab aapki jeb mein.</div>
+    ${STOCK_MODS.map(([ic, l], i) => `<div class="chip mod" style="left:${i % 2 ? 560 : 60}px;top:${1392 + Math.floor(i / 2) * 116}px;width:460px;height:98px"><div class="ic" style="background:rgba(245,158,11,.16)">${icon(ic, '#FBBF24')}</div>${l}</div>`).join('')}`); }
+  const fade = 1 - prog(lt, 4.55, 5.15);
+  const e = (id, a) => { const el = $(id); const p = eo5(prog(lt, a, a + 0.55)); el.style.opacity = p * fade; el.style.transform = `translateY(${(1 - p) * 50}px)`; el.style.filter = p < 1 ? `blur(${(1 - p) * 10}px)` : 'none'; };
+  e('#o1a', 0.35); e('#o1b', 0.75);
+  document.querySelectorAll('.mod').forEach((m, i) => { const a = 1.2 + i * 0.09; const p = back(clamp((lt - a) / 0.45)); m.style.opacity = clamp((lt - a) / 0.15) * fade; m.style.transform = `translateY(${(1 - clamp(p)) * 70}px) scale(${lerp(.7, 1, p)})`; });
+}
+const SALE_FEATS = [['QrCode', 'UPI QR'], ['MessageCircle', 'WhatsApp'], ['HandCoins', 'Udhaar'], ['Percent', 'GST'], ['Printer', 'Print'], ['WifiOff', 'Offline'], ['Languages', 'Hindi'], ['ShieldCheck', 'Staff login']];
+function outro2(lt) {
+  if (hookKey !== 'o2') { hookKey = 'o2'; H(`
+    <div class="big" id="o2a" style="top:140px;font-size:100px">Stock se <span style="color:#34D399">Sale</span> tak</div>
+    <div class="big" id="o2b" style="top:262px;font-size:64px;color:#CBD5E1">poora business, ek app mein.</div>
+    ${SALE_FEATS.map(([ic, l], i) => `<div class="chip feat" style="left:${[40, 290, 540, 790][i % 4]}px;top:${1330 + Math.floor(i / 4) * 116}px;width:250px;font-size:30px;padding:0 18px;gap:12px;height:98px"><div class="ic" style="background:rgba(16,185,129,.16);width:56px;height:56px">${icon(ic, '#34D399')}</div>${l}</div>`).join('')}
+    <div id="cta" style="position:absolute;left:190px;top:1620px;width:700px;height:132px;border-radius:66px;background:linear-gradient(90deg,#F59E0B,#FBBF24);color:#111827;display:flex;align-items:center;justify-content:center;gap:20px;font:800 54px/1 'Plus Jakarta Sans';box-shadow:0 24px 70px rgba(245,158,11,.45)">Aaj hi shuru kijiye ${icon('ArrowUpRight', '#111827').replace('width="24" height="24"', 'width="54" height="54"')}</div>`); }
+  const fade = 1 - prog(lt, 6.6, 7.15);
+  const e = (id, a) => { const el = $(id); const p = eo5(prog(lt, a, a + 0.55)); el.style.opacity = p * fade; el.style.transform = `translateY(${(1 - p) * 50}px)`; el.style.filter = p < 1 ? `blur(${(1 - p) * 10}px)` : 'none'; };
+  e('#o2a', 0.35); e('#o2b', 1.3);
+  document.querySelectorAll('.feat').forEach((m, i) => { const a = 2.0 + i * 0.08; const p = back(clamp((lt - a) / 0.45)); m.style.opacity = clamp((lt - a) / 0.15) * fade; m.style.transform = `translateY(${(1 - clamp(p)) * 60}px) scale(${lerp(.7, 1, p)})`; });
+  const c = $('#cta'); const cp = back(clamp((lt - 3.4) / 0.6)); c.style.opacity = clamp((lt - 3.4) / 0.2) * fade;
+  const pulse = lt > 4.2 ? 1 + 0.025 * Math.sin((lt - 4.2) * 5) : 1;
+  c.style.transform = `scale(${lerp(.6, 1, cp) * pulse})`;
+}
+
+// ---------- main render ----------
+function setRig(ph, o) {
+  ph.rig.style.display = o.hide ? 'none' : 'block';
+  ph.rig.style.transform = `translate(${o.x || 0}px, ${o.y || 0}px) perspective(2400px) rotateX(${o.rx || 0}deg) rotateY(${o.ry || 0}deg) rotateZ(${o.rz || 0}deg) scale(${o.sc ?? 1})`;
+  ph.rig.style.opacity = o.op ?? 1;
+}
+function neededSrcs(t) {
+  const out = new Set();
+  for (const s of SC) { if (s.start > t + 3 || s.start + s.len < t - 1) continue; for (const sh of s.shots || []) out.add(sh.src); }
+  out.add('st_menu'); out.add('st_overview'); out.add('sl_new_party');
+  return [...out];
+}
+window.renderAt = async function (t) {
+  await ensure(neededSrcs(t));
+  const i = sceneAt(t), s = SC[i], lt = t - s.start;
+  // background drift; part 2 shifts hue toward emerald
+  const p2 = s.part === 2;
+  ORBS.forEach((o, k) => { const x = o.x + Math.sin(t * o.sp + k) * o.ax, y = o.y + Math.cos(t * o.sp * 1.3 + k * 2) * o.ay;
+    o.el.style.transform = `translate(${x - o.r}px, ${y - o.r}px)`; });
+  ORBS[0].el.style.background = `radial-gradient(circle, ${p2 ? 'rgba(16,185,129,.28)' : 'rgba(245,158,11,.30)'} 0%, rgba(0,0,0,0) 68%)`;
+  ORBS[2].el.style.background = `radial-gradient(circle, ${p2 ? 'rgba(245,158,11,.18)' : 'rgba(16,185,129,.20)'} 0%, rgba(0,0,0,0) 68%)`;
+  $('#grid').style.transform = `translate(${(t * 6) % 44}px, ${(t * 10) % 44}px)`;
+  PTS.forEach((p) => { const y = ((p.y - t * p.v) % 1920 + 1920) % 1920; p.el.style.transform = `translate(${p.x + Math.sin(t * .5 + p.x) * 20}px, ${y}px) scale(${p.s})`; p.el.style.opacity = 0.10 + 0.25 * p.s; });
+
+  // hooks
+  HOOK.style.display = s.hook ? 'block' : 'none';
+  if (s.hook === 'hook1') hook1(lt); else if (s.hook === 'hook2') hook2(lt); else if (s.hook === 'outro1') outro1(lt, s); else if (s.hook === 'outro2') outro2(lt);
+  else { hookKey = ''; HOOK.innerHTML = ''; }
+  if (s.hook !== 'hook2') $('#flash').style.opacity = 0;
+
+  // phone + camera
+  let rig = { hide: false }, rig2 = { hide: true }, cam = { s: 1, x: 195, y: 422 };
+  let phScene = s, phLt = lt;
+  if (s.hook === 'hook1' || s.hook === 'hook2') {
+    rig.hide = true;
+  } else if (s.hook === 'outro1') {
+    // last workers screen -> menu, phone pulls back between headline and chips
+    phScene = { id: 'o1', shots: [{ t: 0, src: 'st_menu' }] };
+    const p = eio(prog(lt, 0.0, 1.0));
+    rig = { sc: lerp(1, 0.56, p), y: lerp(0, -165, p), ry: lerp(0, -8, p) * (1 - prog(lt, 3, 5)), op: 1 - prog(lt, 4.55, 5.15) };
+  } else if (s.hook === 'outro2') {
+    phScene = { id: 'o2a', shots: [{ t: 0, src: 'sl_new_party' }] };
+    const p = eio(prog(lt, 0.0, 1.1)); const f = 1 - prog(lt, 6.6, 7.15);
+    rig = { sc: lerp(1, 0.5, p), x: lerp(0, 190, p), y: lerp(0, -185, p), ry: lerp(0, -14, p), rz: lerp(0, 3, p), op: f };
+    rig2 = { hide: lt < 0.2, sc: 0.5, x: lerp(-700, -190, eo5(prog(lt, 0.2, 1.2))), y: -170, ry: 14, rz: -3, op: clamp((lt - 0.2) / 0.3) * f };
+  } else {
+    cam = camAt(s, lt);
+    cam.s *= 1 + 0.028 * Math.sin(Math.PI * clamp(lt / s.len));
+    if (s.phoneIn) { const [a, b] = s.phoneIn; const p = prog(lt, a, b); const e = back(p);
+      rig = { y: lerp(1500, 0, eo5(p)), rx: lerp(38, 0, eo(p)), sc: lerp(0.86, 1, e), op: clamp(p * 4) }; }
+  }
+  setRig(P1, rig); setRig(P2, rig2);
+  const camS = cam.s, Fx = PX + cam.x * K, Fy = PY + cam.y * K;
+  $('#cam').style.transform = `translate(${CX - camS * Fx}px, ${CY - camS * Fy}px) scale(${camS})`;
+  if (!rig.hide) {
+    const prevS = SC[i - 1];
+    const r = renderShots(P1, phScene, phLt, phScene === s && prevS && !prevS.hook && !s.phoneIn ? prevS : null);
+    const sh = (phScene.shots || [])[r.cur];
+    renderHL(P1, phScene, phLt, r.scrollY, sh && sh.tall);
+    renderTaps(P1, phScene, phLt);
+  }
+  if (!rig2.hide) renderShots(P2, { id: 'o2b', shots: [{ t: 0, src: 'st_overview' }] }, 0);
+
+  // text
+  $('#topfade').style.opacity = s.hook ? 0 : 1;
+  renderHead(s, lt);
+  renderSub(s, lt);
+  return { scene: s.id, lt };
+};
+window.TLinfo = { total: TL.total, part2Start: TL.part2Start, scenes: SC.map((s) => ({ id: s.id, start: s.start, len: s.len })) };
+</script>
+</body>
+</html>
