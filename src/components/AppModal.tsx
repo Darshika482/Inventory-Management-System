@@ -19,6 +19,8 @@ interface AppModalProps {
   fullHeight?: boolean;
   /** The scrolling area, e.g. to jump back to the top. */
   bodyRef?: React.Ref<HTMLDivElement>;
+  /** A small dialog in the middle of the screen on phones too, instead of a bottom sheet. */
+  centered?: boolean;
   children: React.ReactNode;
 }
 
@@ -121,10 +123,11 @@ export function AppModal({
   pinned,
   fullHeight = false,
   bodyRef,
+  centered = false,
   children,
 }: AppModalProps) {
   const styles = accentMap[accent];
-  const isSheet = useIsSheet();
+  const isSheet = useIsSheet() && !centered;
   const reduceMotion = useReducedMotion();
   const tallSheet = fullHeight && isSheet;
   const visibleArea = useVisibleArea(open && tallSheet);
@@ -173,7 +176,7 @@ export function AppModal({
     <AnimatePresence>
       {open && (
         <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4"
+          className={`fixed inset-0 z-50 flex justify-center ${centered ? 'items-center p-4' : 'items-end sm:items-center sm:p-4'}`}
           style={visibleArea ? { top: visibleArea.top, bottom: 'auto', height: visibleArea.height } : undefined}
         >
           <motion.button
@@ -195,11 +198,11 @@ export function AppModal({
             animate={panelMotion.animate}
             exit={panelMotion.exit}
             style={{ willChange: 'transform, opacity' }}
-            className={`relative z-10 w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-2xl overflow-hidden shadow-2xl shadow-slate-900/20 border border-slate-200/80 sm:max-h-[min(92vh,760px)] flex flex-col ${
+            className={`relative z-10 w-full sm:max-w-md bg-white overflow-hidden ${centered ? 'max-w-sm rounded-2xl' : 'rounded-t-3xl sm:rounded-2xl'} shadow-2xl shadow-slate-900/20 border border-slate-200/80 sm:max-h-[min(92vh,760px)] flex flex-col ${
               tallSheet ? 'h-[calc(100%-1rem)]' : 'max-h-[92dvh]'
             }`}
           >
-            <div className={`h-1.5 shrink-0 rounded-t-3xl sm:rounded-t-2xl ${styles.bar}`} />
+            <div className={`h-1.5 shrink-0 ${centered ? 'rounded-t-2xl' : 'rounded-t-3xl sm:rounded-t-2xl'} ${styles.bar}`} />
 
             <div className="flex items-start justify-between gap-3 px-4 pt-4 pb-4 sm:px-6 sm:pt-6 border-b border-slate-100 shrink-0">
               <div className="flex items-start gap-3 min-w-0">

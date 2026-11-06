@@ -106,3 +106,38 @@ export function useBackDismiss(active: boolean, onDismiss: DismissHandler) {
     return registerBackLayer(() => handlerRef.current());
   }, [active]);
 }
+
+/**
+ * Leaves the app on purpose (the person chose "Exit"): drops every layer and
+ * the guard entry, then closes the window where the browser allows it. In a
+ * browser tab it goes back to the page before the app.
+ *
+ * Resolves false when the app is still open afterwards: an installed app on
+ * Android only closes on a real Back press from its first page, and nothing is
+ * left to stop that press now.
+ */
+export function leaveApp(): Promise<boolean> {
+  layers.length = 0;
+  if (!canUseHistory()) return Promise.resolve(false);
+
+  const stillOpen = () => document.visibilityState === 'visible';
+  const pause = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+
+  const dropGuard = new Promise<void>((resolve) => {
+    if (!armed) return resolve();
+    armed = false;
+    ignorePops += 1;
+    window.addEventListener('popstate', () => resolve(), { once: true });
+    window.setTimeout(resolve, 400);
+    window.history.back();
+  });
+
+  return dropGuard.then(async () => {
+    window.close();
+    await pause(250);
+    if (!stillOpen()) return true;
+    window.history.back();
+    await pause(250);
+    return !stillOpen();
+  });
+}

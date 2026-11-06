@@ -426,6 +426,11 @@ const en = {
   upiQrScan: 'Customer scans to pay',
   upiQrNoId: 'Add your UPI ID in Shop settings to show a payment QR here.',
   lastBills: 'Last {n} bills',
+  exitAppTitle: 'Exit the app?',
+  exitAppText: 'Tap Exit to close Akshay Traders, or Stay to keep working.',
+  exitAppConfirm: 'Exit',
+  exitAppStay: 'Stay',
+  exitAppPressBack: 'Press Back once more to close the app.',
 };
 
 export type TranslationKey = keyof typeof en;
@@ -839,6 +844,11 @@ const hi: Record<TranslationKey, string> = {
   upiQrScan: 'ग्राहक स्कैन करके पैसे भेजें',
   upiQrNoId: 'यहाँ QR दिखाने के लिए दुकान सेटिंग में अपनी UPI ID डालें।',
   lastBills: 'पिछले {n} बिल',
+  exitAppTitle: 'ऐप बंद करें?',
+  exitAppText: 'Akshay Traders बंद करने के लिए "बंद करें" दबाएँ, या काम जारी रखने के लिए "रुकें"।',
+  exitAppConfirm: 'बंद करें',
+  exitAppStay: 'रुकें',
+  exitAppPressBack: 'ऐप बंद करने के लिए एक बार और Back दबाएँ।',
 };
 
 const STRINGS: Record<Language, Record<TranslationKey, string>> = { en, hi };
