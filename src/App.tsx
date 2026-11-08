@@ -6,6 +6,7 @@ import {
   AlertOctagon,
   X,
   Menu,
+  LogOut,
 } from 'lucide-react';
 import { User, Category, WithdrawalLog, StockAddition, Floor } from './types';
 import { getAppSession } from './lib/supabase';
@@ -30,7 +31,9 @@ import {
   updateWithdrawalLogStatus,
 } from './lib/database';
 import { createCategoryId } from './lib/floors';
-import { useBackDismiss } from './lib/backGuard';
+import { leaveApp, useBackDismiss } from './lib/backGuard';
+import { AppModal } from './components/AppModal';
+import { useT } from './sales/i18n';
 import { isShopSection, NewSaleShortcut, preloadShopPages, ShopSection } from './sales/ShopModule';
 
 // Each page's code is downloaded when it is first opened (and in the
@@ -139,6 +142,25 @@ export default function App() {
   useBackDismiss(!!currentUser && activeSection !== homeSection, () =>
     setActiveSection(homeSection)
   );
+
+  // Back on the home page asks before closing the app instead of closing at once.
+  const { t } = useT();
+  const [exitPromptOpen, setExitPromptOpen] = useState(false);
+  const [leavingApp, setLeavingApp] = useState(false);
+  useBackDismiss(!!currentUser && activeSection === homeSection && !exitPromptOpen && !leavingApp, () =>
+    setExitPromptOpen(true)
+  );
+
+  const handleExitApp = async () => {
+    setExitPromptOpen(false);
+    setLeavingApp(true);
+    const closed = await leaveApp();
+    if (closed) return;
+    // The phone only closes an installed app on a real Back press: the next one
+    // now closes it. After a few seconds Back asks again.
+    showToast(t('exitAppPressBack'), 'info');
+    window.setTimeout(() => setLeavingApp(false), 4000);
+  };
 
   // The godown stock is only for the owner's pages: shop staff never wait for
   // it, and the owner sees the copy saved on this phone while it refreshes.
@@ -652,6 +674,33 @@ export default function App() {
           />
         )}
       </div>
+
+      <AppModal
+        open={exitPromptOpen}
+        onClose={() => setExitPromptOpen(false)}
+        title={t('exitAppTitle')}
+        description={t('exitAppText')}
+        icon={<LogOut className="h-5 w-5" />}
+        accent="slate"
+        centered
+      >
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={() => setExitPromptOpen(false)}
+            className="px-4 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-base font-semibold transition-colors cursor-pointer"
+          >
+            {t('exitAppStay')}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleExitApp()}
+            className="px-4 py-3.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-base font-semibold transition-colors cursor-pointer"
+          >
+            {t('exitAppConfirm')}
+          </button>
+        </div>
+      </AppModal>
 
       <ToastTray toasts={toasts} onRemove={removeToast} />
     </div>
