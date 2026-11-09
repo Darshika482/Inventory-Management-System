@@ -7,6 +7,7 @@ import {
   Loader2,
   ReceiptText,
   RefreshCw,
+  Trash2,
   Upload,
   User as UserIcon,
   Users,
@@ -17,6 +18,7 @@ import { AppModal } from '../../components/AppModal';
 import { DateRangePicker, type DateRangeValue } from '../../components/DateRangePicker';
 import { describeDbError, type FriendlyError } from '../../lib/dbErrors';
 import {
+  deleteSaleBill,
   fetchBillPayments,
   fetchBillVersions,
   fetchDueSales,
@@ -38,6 +40,7 @@ import { formatQty, formatRupees, mulDivRound, paiseToInput } from '../money';
 import { listQueuedSales, onBillsSynced, syncOutbox } from '../outbox';
 import type { ShopInvoice, ShopParty } from '../types';
 import { ActionButton, ErrorState, InfoRow, LoadingState, PageHeader, PageShell, PickerField } from './ui';
+import { useBackDismiss } from '../../lib/backGuard';
 import { ShowMoreButton, useShowMore } from '../../components/ShowMore';
 import { EDIT_BILL_KEY, OPEN_BILL_KEY } from './NewSaleSection';
 import { ReceiptPreviewModal, openPrinterHelp, printDetail, printMessageKey } from './PrintUi';
@@ -111,6 +114,34 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
   });
   const [isRetrying, setIsRetrying] = useState(false);
   const [settings, setSettings] = useState<ShopSettings | null>(null);
+  // Owner: the bill being asked about before it is deleted.
+  const [deleting, setDeleting] = useState<ShopInvoice | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const confirmDelete = async () => {
+    const bill = deleting;
+    if (!bill?.id) return;
+    setIsDeleting(true);
+    try {
+      const { keptPayments } = await deleteSaleBill(bill.id);
+      const left = serverBills.filter((b) => b.clientId !== bill.clientId);
+      setServerBills(left);
+      savedList.write({ view, bills: left });
+      if (openClientId === bill.clientId) setOpenClientId(null);
+      setDeleting(null);
+      const label = billLabel(bill.billNumber) ?? '';
+      showToast(
+        keptPayments > 0
+          ? t('billDeletedKept', { bill: label, amount: formatRupees(keptPayments) })
+          : t('billDeleted', { bill: label }),
+        'success'
+      );
+    } catch (err) {
+      showToast(describeDbError(err, t('billDeleteFailed')).message, 'error');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const showDue = !isStaff && preset === 'due';
 
@@ -383,6 +414,7 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
                 phone={bill.partyId ? parties.find((p) => p.id === bill.partyId)?.phone : undefined}
                 showToast={showToast}
                 onOpen={() => setOpenClientId(bill.clientId)}
+                onDelete={isStaff ? undefined : () => setDeleting(bill)}
               />
             ))}
           </ul>
@@ -410,6 +442,31 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
           setServerBills((prev) => prev.map((b) => (b.clientId === clientId ? { ...b, paidAmount } : b)))
         }
       />
+
+      {/* Owner: delete a bill, after asking once more in plain words. */}
+      <AppModal
+        open={deleting !== null}
+        onClose={() => !isDeleting && setDeleting(null)}
+        title={t('deleteBillTitle', { bill: deleting ? (billLabel(deleting.billNumber) ?? '') : '' })}
+        description={deleting ? `${deleting.partyName || t('cashSale')} · ${formatRupees(deleting.total)}` : undefined}
+        icon={<Trash2 className="h-5 w-5" />}
+        accent="red"
+        centered
+      >
+        <div className="space-y-4">
+          <p className="text-base text-slate-700 leading-relaxed">{t('deleteBillText')}</p>
+          <div className="grid grid-cols-2 gap-2">
+            <ActionButton tone="secondary" label={t('cancel')} onClick={() => setDeleting(null)} disabled={isDeleting} />
+            <ActionButton
+              tone="danger"
+              icon={<Trash2 className="h-5 w-5" />}
+              label={t('deleteBillYes')}
+              busy={isDeleting}
+              onClick={confirmDelete}
+            />
+          </div>
+        </div>
+      </AppModal>
     </PageShell>
   );
 }
@@ -453,11 +510,27 @@ interface BillCardProps {
   phone?: string;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   onOpen: () => void;
+  /** Owner only: the ⋮ button opens a menu with Delete. */
+  onDelete?: () => void;
 }
 
-function BillCard({ bill, settings, phone, showToast, onOpen }: BillCardProps) {
+function BillCard({ bill, settings, phone, showToast, onOpen, onDelete }: BillCardProps) {
   const { t } = useT();
   const [printing, setPrinting] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  // Only a bill on the server can be deleted (one still waiting to upload is not there yet).
+  const canDelete = Boolean(bill.id);
+
+  useBackDismiss(menuOpen, () => setMenuOpen(false));
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onDown = (e: PointerEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', onDown, true);
+    return () => document.removeEventListener('pointerdown', onDown, true);
+  }, [menuOpen]);
   const status = payStatus(bill);
   const balance = bill.status === 'cancelled' ? 0 : Math.max(0, bill.total - bill.paidAmount);
   const seq = billTitle(bill);
@@ -545,15 +618,56 @@ function BillCard({ bill, settings, phone, showToast, onOpen }: BillCardProps) {
               variant="icon"
               resolveBill={() => withLines(bill)}
             />
-            <button
-              type="button"
-              onClick={onOpen}
-              aria-label={t('openBill')}
-              title={t('openBill')}
-              className="h-10 w-10 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 cursor-pointer"
-            >
-              <MoreVertical className="h-5 w-5" />
-            </button>
+            <div ref={menuRef} className="relative">
+              <button
+                type="button"
+                onClick={() => (onDelete ? setMenuOpen((v) => !v) : onOpen())}
+                aria-label={onDelete ? t('billMenu') : t('openBill')}
+                aria-haspopup={onDelete ? 'menu' : undefined}
+                aria-expanded={onDelete ? menuOpen : undefined}
+                title={onDelete ? t('billMenu') : t('openBill')}
+                data-testid="bill-menu"
+                className="h-10 w-10 flex items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 cursor-pointer"
+              >
+                <MoreVertical className="h-5 w-5" />
+              </button>
+              {menuOpen && onDelete && (
+                <div
+                  role="menu"
+                  className="absolute right-0 bottom-full mb-1 z-30 w-52 rounded-xl border border-slate-200 bg-white p-1 shadow-lg"
+                >
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onOpen();
+                    }}
+                    className="w-full min-h-11 flex items-center gap-2.5 rounded-lg px-3 text-left text-base font-semibold text-slate-800 hover:bg-slate-100 cursor-pointer"
+                  >
+                    <Eye className="h-5 w-5 text-slate-500" />
+                    {t('openBill')}
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    disabled={!canDelete}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onDelete();
+                    }}
+                    data-testid="bill-delete"
+                    className="w-full min-h-11 flex items-center gap-2.5 rounded-lg px-3 text-left text-base font-semibold text-red-600 hover:bg-red-50 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Trash2 className="h-5 w-5" />
+                    <span className="min-w-0">
+                      {t('deleteBill')}
+                      {!canDelete && <span className="block text-xs font-medium text-slate-500">{t('deleteBillWaiting')}</span>}
+                    </span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

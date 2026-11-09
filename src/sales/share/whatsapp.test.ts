@@ -19,7 +19,8 @@ describe('helper link', () => {
   it('opens the helper with the file and the customer number', () => {
     const link = helperLink(file, '9826012345', 'Bill KX4PM.pdf', 'application/pdf');
     expect(link.startsWith('intent://send?')).toBe(true);
-    expect(link.endsWith('#Intent;scheme=akshaywa;package=in.akshaytraders.whatsapp;end')).toBe(true);
+    // No package: without the helper nothing opens (not the Play Store).
+    expect(link.endsWith('#Intent;scheme=akshaywa;end')).toBe(true);
     const query = new URLSearchParams(link.slice('intent://send?'.length, link.indexOf('#')));
     expect(query.get('url')).toBe(file);
     expect(query.get('phone')).toBe('919826012345');
