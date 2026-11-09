@@ -22,6 +22,7 @@ import { describeDbError, type FriendlyError } from '../../lib/dbErrors';
 import {
   deleteSaleBill,
   fetchBillPayments,
+  fetchPaidOnAccount,
   fetchBillVersions,
   fetchDueSales,
   fetchRecentSales,
@@ -47,7 +48,8 @@ import { ShowMoreButton, useShowMore } from '../../components/ShowMore';
 import { EDIT_BILL_KEY, OPEN_BILL_KEY } from './NewSaleSection';
 import { ReceiptPreviewModal, openPrinterHelp, printDetail, printMessageKey } from './PrintUi';
 import { ShareBillButton } from './ShareBill';
-import { DueRemindersSheet } from './DueReminders';
+import { DueRemindersSheet, dueBreakdown, spacedNumber } from './DueReminders';
+import { buildDueReminders, type DueReminder } from '../reminders';
 import { printBill, receiptLinesFor } from '../print/printBill';
 import { connectPrinter } from '../print/printer';
 import { fetchShopSettings } from '../db';
@@ -119,6 +121,8 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
   const [settings, setSettings] = useState<ShopSettings | null>(null);
   // Owner: send every customer who owes money a reminder picture on WhatsApp.
   const [remindOpen, setRemindOpen] = useState(false);
+  // Udhaar view: money received without a bill (on account), by customer.
+  const [paidOnAccount, setPaidOnAccount] = useState<Map<string, number>>(() => new Map());
   // Owner: the bill being asked about before it is deleted.
   const [deleting, setDeleting] = useState<ShopInvoice | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -221,6 +225,13 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [range.from, range.to, partyId, showDue]);
 
+  useEffect(() => {
+    if (!showDue) return;
+    fetchPaidOnAccount()
+      .then(setPaidOnAccount)
+      .catch(() => {});
+  }, [showDue]);
+
   // A bill that finishes uploading moves from "waiting" to the server list.
   useEffect(() => onBillsSynced(() => void loadBills()), [range.from, range.to, partyId, showDue]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -243,23 +254,23 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
   // Long lists draw their first bills only; totals still use them all.
   const shownBills = useShowMore(bills, view);
 
-  const activeBills = bills.filter((b) => b.status === 'active');
+  const activeBills = useMemo(() => bills.filter((b) => b.status === 'active'), [bills]);
   const total = activeBills.reduce((sum, b) => sum + b.total, 0);
   const totalDue = activeBills.reduce((sum, b) => sum + Math.max(0, b.total - b.paidAmount), 0);
 
-  // Udhaar view: what each customer still owes, biggest first.
-  const dueByCustomer = useMemo(() => {
-    if (!showDue) return [];
-    const map = new Map<string, { partyId: string; name: string; bills: number; due: number }>();
-    for (const b of activeBills) {
-      const key = b.partyId ?? '';
-      const row = map.get(key) ?? { partyId: key, name: b.partyName || t('cashSale'), bills: 0, due: 0 };
-      row.bills += 1;
-      row.due += Math.max(0, b.total - b.paidAmount);
-      map.set(key, row);
-    }
-    return [...map.values()].sort((a, b) => b.due - a.due);
-  }, [activeBills, showDue, t]);
+  // Udhaar view: everyone who owes money, biggest first: their old balance (from
+  // before the app) + what is left on their bills − money paid on account.
+  const dueCustomers = useMemo(
+    () => (showDue ? buildDueReminders({ parties, dueBills: activeBills, paidOnAccount }) : []),
+    [showDue, parties, activeBills, paidOnAccount]
+  );
+  // Walk-in bills with a balance: no customer to put them under.
+  const walkInDue = useMemo(() => {
+    const walkIn = showDue ? activeBills.filter((b) => !b.partyId && !b.partyName.trim()) : [];
+    return { bills: walkIn.length, due: walkIn.reduce((sum, b) => sum + Math.max(0, b.total - b.paidAmount), 0) };
+  }, [activeBills, showDue]);
+  const totalUdhaar = dueCustomers.reduce((sum, r) => sum + r.total, 0) + walkInDue.due;
+  const shownCustomers = useShowMore<DueReminder>(dueCustomers, `customers|${view}`);
   const openBill = openClientId ? bills.find((b) => b.clientId === openClientId) ?? null : null;
 
   const choosePreset = (next: Preset) => {
@@ -360,6 +371,8 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
         <span className="text-base font-semibold text-slate-600">
           {isStaff ? (
             t('lastBills', { n: STAFF_BILL_LIMIT })
+          ) : showDue && !partyId ? (
+            t('dueAllTitle')
           ) : showDue ? (
             t('dueTitle')
           ) : (
@@ -371,37 +384,78 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
         </span>
         {/* Staff do not see the money total, only the owner does. */}
         {!isStaff && (
-          <span className={`text-lg font-extrabold tabular-nums ${showDue ? 'text-red-700' : 'text-slate-900'}`}>
-            {showDue
-              ? t('dueSummary', { n: activeBills.length, amount: formatRupees(totalDue) })
-              : t('billsSummary', { n: activeBills.length, amount: formatRupees(total) })}
+          <span className={`text-lg font-extrabold tabular-nums text-right ${showDue ? 'text-red-700' : 'text-slate-900'}`}>
+            {showDue && !partyId ? (
+              <>
+                {formatRupees(totalUdhaar)}
+                <span className="block text-sm font-semibold text-slate-500">
+                  {t('dueAllCustomers', { n: dueCustomers.length })}
+                </span>
+              </>
+            ) : showDue ? (
+              t('dueSummary', { n: activeBills.length, amount: formatRupees(totalDue) })
+            ) : (
+              t('billsSummary', { n: activeBills.length, amount: formatRupees(total) })
+            )}
           </span>
         )}
       </div>
 
-      {/* Who owes how much; tap a customer to see only their bills. */}
-      {showDue && !partyId && dueByCustomer.length > 0 && !isLoading && (
+      {/* Everyone who owes money (old balances too); tap one with bills to see only their bills. */}
+      {showDue && !partyId && (dueCustomers.length > 0 || walkInDue.bills > 0) && !isLoading && (
         <section className="bg-white border border-red-200 rounded-xl overflow-hidden" data-testid="due-customers">
-          <p className="px-4 pt-3 pb-2 text-sm font-bold text-slate-700">{t('dueCustomers')}</p>
+          <p className="px-4 pt-3 pb-2 text-sm font-bold text-slate-700">
+            {t('dueCustomersCount', { n: dueCustomers.length })}
+          </p>
           <ul className="divide-y divide-slate-100">
-            {dueByCustomer.map((row) => (
-              <li key={row.partyId || 'none'}>
-                <button
-                  type="button"
-                  disabled={!row.partyId}
-                  onClick={() => setPartyId(row.partyId)}
-                  className="w-full min-h-14 px-4 py-2 flex items-center justify-between gap-3 text-left cursor-pointer disabled:cursor-default hover:bg-red-50/50"
-                >
-                  <span className="min-w-0">
-                    <span className="block text-base font-bold text-slate-900 truncate">{row.name}</span>
-                    <span className="block text-sm text-slate-500">{t('dueCustomerBills', { n: row.bills })}</span>
+            {shownCustomers.visible.map((r) => {
+              const hasBills = Boolean(r.partyId) && r.bills.length > 0;
+              return (
+                <li key={r.key}>
+                  <button
+                    type="button"
+                    disabled={!hasBills}
+                    onClick={() => r.partyId && setPartyId(r.partyId)}
+                    className="w-full min-h-14 px-4 py-2 flex items-center justify-between gap-3 text-left cursor-pointer disabled:cursor-default hover:bg-red-50/50"
+                  >
+                    <span className="min-w-0">
+                      <span className="block text-base font-bold text-slate-900 truncate">{r.name}</span>
+                      <span className="block text-sm text-slate-500 leading-snug">
+                        {[r.phone ? spacedNumber(r.phone) : '', dueBreakdown(r, t)].filter(Boolean).join(' · ')}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-lg font-extrabold text-red-700 tabular-nums">{formatRupees(r.total)}</span>
+                  </button>
+                </li>
+              );
+            })}
+            {shownCustomers.hidden === 0 && walkInDue.bills > 0 && (
+              <li className="w-full min-h-14 px-4 py-2 flex items-center justify-between gap-3">
+                <span className="min-w-0">
+                  <span className="block text-base font-bold text-slate-900 truncate">{t('cashSale')}</span>
+                  <span className="block text-sm text-slate-500">
+                    {walkInDue.bills === 1 ? t('dueCustomerOneBill') : t('dueCustomerBills', { n: walkInDue.bills })}
                   </span>
-                  <span className="shrink-0 text-lg font-extrabold text-red-700 tabular-nums">{formatRupees(row.due)}</span>
-                </button>
+                </span>
+                <span className="shrink-0 text-lg font-extrabold text-red-700 tabular-nums">{formatRupees(walkInDue.due)}</span>
               </li>
-            ))}
+            )}
           </ul>
+          <div className="px-3 pb-3">
+            <ShowMoreButton
+              hidden={shownCustomers.hidden}
+              onMore={shownCustomers.showMore}
+              label={t('showMore', { n: shownCustomers.hidden })}
+            />
+          </div>
         </section>
+      )}
+
+      {/* The bills behind it. */}
+      {showDue && !partyId && activeBills.length > 0 && !isLoading && (
+        <p className="px-1 text-sm font-bold text-slate-600" data-testid="due-bills-heading">
+          {t('dueBillsHeading', { n: activeBills.length, amount: formatRupees(totalDue) })}
+        </p>
       )}
 
       {queuedBills.some((b) => b.syncState === 'failed') && (
