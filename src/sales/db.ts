@@ -790,3 +790,14 @@ export async function uploadSharedBill(file: File): Promise<string> {
   if (error) throw new Error(error.message);
   return storage.getPublicUrl(path).data.publicUrl;
 }
+
+/**
+ * Deletes a sale bill (owner only). Money received on it later stays with the
+ * customer as money received on account. Returns that amount.
+ */
+export async function deleteSaleBill(invoiceId: string): Promise<{ keptPayments: number }> {
+  const data = await runDb<{ deleted: boolean; kept_payments: number | string }>((signal) =>
+    assertSupabase().rpc('shop_delete_sale', { p_invoice_id: invoiceId }).abortSignal(signal)
+  );
+  return { keptPayments: dbToPaise(data?.kept_payments ?? 0) };
+}

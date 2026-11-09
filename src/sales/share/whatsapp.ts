@@ -12,8 +12,6 @@ import { toPhoneDigits } from '../states';
 export const HELPER_APK_URL =
   'https://github.com/Darshika482/Inventory-Management-System/releases/download/whatsapp-helper/akshay-whatsapp-helper.apk';
 
-const HELPER_PACKAGE = 'in.akshaytraders.whatsapp';
-const HELPER_KEY = 'akshay.whatsappHelper';
 
 /** The customer's 10-digit mobile number, or null when there is none. */
 export function whatsAppNumber(phone: string | null | undefined): string | null {
@@ -24,24 +22,6 @@ export function whatsAppNumber(phone: string | null | undefined): string | null 
 /** Only Android phones can run the helper. */
 export function canUseHelper(): boolean {
   return typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
-}
-
-/** This phone has the helper installed (the shop said so on the share sheet). */
-export function helperEnabled(): boolean {
-  try {
-    return localStorage.getItem(HELPER_KEY) === 'on';
-  } catch {
-    return false;
-  }
-}
-
-export function setHelperEnabled(on: boolean): void {
-  try {
-    if (on) localStorage.setItem(HELPER_KEY, 'on');
-    else localStorage.removeItem(HELPER_KEY);
-  } catch {
-    // Private mode: the choice is not remembered.
-  }
 }
 
 /**
@@ -57,5 +37,7 @@ export function helperLink(fileUrl: string, number: string | null, fileName: str
   ];
   if (number) params.push(['phone', `91${number}`]);
   const query = params.map(([key, value]) => `${key}=${encodeURIComponent(value)}`).join('&');
-  return `intent://send?${query}#Intent;scheme=akshaywa;package=${HELPER_PACKAGE};end`;
+  // No package name: without the helper nothing opens (instead of the Play
+  // Store), and the share sheet offers the download.
+  return `intent://send?${query}#Intent;scheme=akshaywa;end`;
 }

@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { Check, Download, FileText, Image as ImageIcon, Share2, Smartphone } from 'lucide-react';
+import { Download, FileText, Image as ImageIcon, Share2, Smartphone } from 'lucide-react';
 import { AppModal } from '../../components/AppModal';
 import { FormInput } from '../../components/FormInput';
 import { useT } from '../i18n';
 import { billFileName } from '../share/billImage';
 import { billFileLink, saveBillFile, shareBillFile, type ShareFormat } from '../share/shareBill';
-import { canUseHelper, HELPER_APK_URL, helperEnabled, helperLink, setHelperEnabled, whatsAppNumber } from '../share/whatsapp';
+import { canUseHelper, HELPER_APK_URL, helperLink, whatsAppNumber } from '../share/whatsapp';
 import { toPhoneDigits } from '../states';
 import type { ShopInvoice, ShopSettings } from '../types';
 import { ActionButton } from './ui';
@@ -32,6 +32,27 @@ function spacedNumber(number: string): string {
 const MIME: Record<ShareFormat, string> = { pdf: 'application/pdf', image: 'image/png' };
 const EXT: Record<ShareFormat, 'pdf' | 'png'> = { pdf: 'pdf', image: 'png' };
 
+/** True when the page goes to the background within `ms` (another app, e.g. WhatsApp, opened). */
+function pageLeftWithin(ms: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    if (document.visibilityState === 'hidden') return resolve(true);
+    const onChange = () => {
+      if (document.visibilityState !== 'hidden') return;
+      cleanup();
+      resolve(true);
+    };
+    const timer = window.setTimeout(() => {
+      cleanup();
+      resolve(false);
+    }, ms);
+    const cleanup = () => {
+      window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onChange);
+    };
+    document.addEventListener('visibilitychange', onChange);
+  });
+}
+
 /**
  * "Share" button that opens a sheet: send the bill as a PDF or an image (only
  * the file, no text), or save it. With the Android helper app installed, the
@@ -50,7 +71,12 @@ export function ShareBillButton({
   const { t } = useT();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  const [helper, setHelper] = useState(() => canUseHelper() && helperEnabled());
+  // Android: the bill goes through the helper app, straight to the customer's chat.
+  // The share menu only when the shop asks for it (or on a computer).
+  const [useMenu, setUseMenu] = useState(false);
+  const helper = canUseHelper() && !useMenu;
+  // The helper did not open: it is not on this phone yet.
+  const [helperMissing, setHelperMissing] = useState(false);
   const [typedNumber, setTypedNumber] = useState('');
   const [useOtherNumber, setUseOtherNumber] = useState(false);
 
@@ -105,9 +131,12 @@ export function ShareBillButton({
         showToast(t('shareUploadFailed'), 'error');
         return;
       }
+      setHelperMissing(false);
       window.location.href = helperLink(url, number, billFileName(full, EXT[format]), MIME[format]);
-      // Closed a moment later, so the page is still there while the helper opens.
-      setTimeout(() => setOpen(false), 800);
+      // WhatsApp opening puts this page in the background. If it stays here, the
+      // helper is not installed on this phone.
+      if (await pageLeftWithin(3000)) setOpen(false);
+      else setHelperMissing(true);
     });
 
   const save = (format: ShareFormat) =>
@@ -116,11 +145,6 @@ export function ShareBillButton({
       await saveBillFile(await fullBill(), settings, format);
       showToast(t('fileSaved'), 'success');
     });
-
-  const turnHelper = (on: boolean) => {
-    setHelperEnabled(on);
-    setHelper(on);
-  };
 
   const option = (key: string, icon: React.ReactNode, label: string, onClick: () => void) => (
     <button
@@ -223,42 +247,37 @@ export function ShareBillButton({
                     {useOtherNumber ? t('shareSavedNumber', { phone: spacedNumber(savedNumber) }) : t('shareOtherNumber')}
                   </button>
                 )}
-                <button type="button" onClick={() => turnHelper(false)} className={pill}>
+                <button type="button" onClick={() => setUseMenu(true)} className={pill}>
                   {t('shareUseMenu')}
                 </button>
               </div>
             )}
+            {!helper && canUseHelper() && (
+              <button type="button" onClick={() => setUseMenu(false)} className={pill}>
+                {t('shareUseDirect')}
+              </button>
+            )}
           </div>
 
-          {/* Android without the helper: how to get the customer's chat to open by itself. */}
-          {!helper && canUseHelper() && (
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2.5">
+          {/* Send PDF did not open WhatsApp: the helper app is not on this phone yet. */}
+          {helper && helperMissing && (
+            <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-3 space-y-2.5">
               <div className="flex items-start gap-3">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-700 border border-slate-200">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-amber-700 border border-amber-200">
                   <Smartphone className="h-5 w-5" />
                 </span>
                 <p className="text-sm leading-snug text-slate-700">
-                  <span className="block font-bold text-slate-900">{t('helperTitle')}</span>
-                  {t('helperText')}
+                  <span className="block font-bold text-slate-900">{t('helperMissingTitle')}</span>
+                  {t('helperMissingText')}
                 </p>
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <a
-                  href={HELPER_APK_URL}
-                  className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-white border border-slate-200 px-3 text-sm font-bold text-slate-900 hover:border-slate-300"
-                >
-                  <Download className="h-4 w-4" />
-                  {t('helperDownload')}
-                </a>
-                <button
-                  type="button"
-                  onClick={() => turnHelper(true)}
-                  className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-white border border-slate-200 px-3 text-sm font-bold text-slate-900 cursor-pointer hover:border-slate-300"
-                >
-                  <Check className="h-4 w-4" />
-                  {t('helperInstalled')}
-                </button>
-              </div>
+              <a
+                href={HELPER_APK_URL}
+                className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-white border border-amber-200 px-3 text-sm font-bold text-slate-900 hover:border-amber-300"
+              >
+                <Download className="h-4 w-4" />
+                {t('helperDownload')}
+              </a>
             </div>
           )}
 

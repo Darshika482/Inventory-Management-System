@@ -12,9 +12,14 @@ import { useEffect, useRef } from 'react';
  * touched when the layer count crosses the empty/non-empty boundary, opening
  * and closing overlays in any order stays perfectly balanced.
  *
- * Chrome on Android skips history entries a page added before the person
- * touched it, so a Back press would then close the app at once. The guard is
- * therefore only added once the page has had a tap or key press.
+ * On Android, Chrome's own Back-button API (CloseWatcher) is used instead of
+ * history. Chrome skips history entries a page adds without a fresh tap, so
+ * with history a second Back press (e.g. after going back one page) closed
+ * the whole app. A CloseWatcher is not part of history: while one is open,
+ * Back always goes to it, and a new one can be opened after each Back press.
+ *
+ * Elsewhere (computers, browsers without CloseWatcher) the history guard is
+ * used, added only once the page has had a tap or key press.
  */
 
 type DismissHandler = () => void;
@@ -28,6 +33,48 @@ let ignorePops = 0;
 let flushQueued = false;
 let listening = false;
 let waitingForTouch = false;
+
+// --- Android: Chrome's CloseWatcher ---
+
+interface CloseWatcherLike {
+  destroy(): void;
+  addEventListener(type: 'close', listener: () => void): void;
+}
+type CloseWatcherCtor = new () => CloseWatcherLike;
+
+/** Only on Android: there Back is the only way to send a close request (on a computer, Esc would too). */
+function closeWatcherCtor(): CloseWatcherCtor | null {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return null;
+  const Ctor = (window as Window & { CloseWatcher?: CloseWatcherCtor }).CloseWatcher;
+  return Ctor && /Android/i.test(navigator.userAgent) ? Ctor : null;
+}
+
+let watcher: CloseWatcherLike | null = null;
+
+/** Keeps exactly one CloseWatcher open while any layer is registered. */
+function syncWatcher(Ctor: CloseWatcherCtor) {
+  if (layers.length > 0 && !watcher) {
+    try {
+      const created = new Ctor();
+      watcher = created;
+      created.addEventListener('close', () => {
+        // Back was pressed: this watcher is used up.
+        if (watcher !== created) return;
+        watcher = null;
+        const dismiss = layers.pop();
+        // Ready for the next Back press before anything else runs.
+        syncWatcher(Ctor);
+        if (dismiss) dismiss();
+      });
+    } catch {
+      watcher = null;
+    }
+  } else if (layers.length === 0 && watcher) {
+    const old = watcher;
+    watcher = null;
+    old.destroy();
+  }
+}
 
 /** True once the person has tapped or typed on the page (always true where the browser cannot tell). */
 function hadUserActivation(): boolean {
@@ -62,13 +109,18 @@ function ensureListening() {
 // Reconciling on a microtask lets a close-then-open (or React Strict Mode's
 // mount/unmount/mount) cancel out to a single, stable guard entry.
 function scheduleFlush() {
-  if (flushQueued || !canUseHistory()) return;
+  if (flushQueued || (!closeWatcherCtor() && !canUseHistory())) return;
   flushQueued = true;
   queueMicrotask(flush);
 }
 
 function flush() {
   flushQueued = false;
+  const Ctor = closeWatcherCtor();
+  if (Ctor) {
+    syncWatcher(Ctor);
+    return;
+  }
   const shouldArm = layers.length > 0;
   if (shouldArm && !armed) {
     if (!hadUserActivation()) {
@@ -108,7 +160,7 @@ function handlePopState() {
  * disposer when the overlay closes by any other means (button, backdrop, Esc).
  */
 export function registerBackLayer(onDismiss: DismissHandler, atBottom = false): () => void {
-  ensureListening();
+  if (!closeWatcherCtor()) ensureListening();
   // atBottom: under every open overlay (the page itself), so overlays close first.
   if (atBottom) layers.unshift(onDismiss);
   else layers.push(onDismiss);
@@ -151,6 +203,11 @@ export function useBackDismiss(active: boolean, onDismiss: DismissHandler, reset
  */
 export function leaveApp(): Promise<boolean> {
   layers.length = 0;
+  if (watcher) {
+    const old = watcher;
+    watcher = null;
+    old.destroy();
+  }
   if (!canUseHistory()) return Promise.resolve(false);
 
   const stillOpen = () => document.visibilityState === 'visible';
