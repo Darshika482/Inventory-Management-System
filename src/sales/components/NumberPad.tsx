@@ -5,7 +5,9 @@
  * in, and selecting a number pops up Cut / Copy / Paste / Select all. On the
  * bill, number boxes are buttons instead (`NumberBox`): tapping one opens this
  * keypad, which shows what is being changed in big letters right above the
- * keys. A computer keyboard works too while it is open.
+ * keys. The cursor starts at the end of the number; tap anywhere in the number
+ * to move it there and type or delete at that spot. A computer keyboard works
+ * too while it is open.
  */
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -13,7 +15,7 @@ import { Check, Delete } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { useBackDismiss } from '../../lib/backGuard';
 import { useT } from '../i18n';
-import { applyPadKey, groupDigits, isBlank, tidyValue, type PadKey } from '../numpad';
+import { applyPadKeyAt, groupDigits, groupedChars, isBlank, tidyValue, type PadKey } from '../numpad';
 
 export interface PadField {
   id: string;
@@ -32,7 +34,7 @@ export interface PadField {
 
 /** What the keypad is changing right now. */
 export interface PadView {
-  /** Who is being changed, e.g. "line:<key>". A new target starts with the value highlighted. */
+  /** Who is being changed, e.g. "line:<key>". A new target starts with the cursor at the end. */
   target: string;
   title: string;
   subtitle?: string;
@@ -82,14 +84,16 @@ export function NumberPad({ view, onClose }: { view: PadView | null; onClose: ()
   const onChange = view?.onChange ?? ignoreChange;
   const onActiveChange = view?.onActiveChange;
   const panelRef = useRef<HTMLDivElement>(null);
-  // Highlighted value: the first digit types over it, like selected text.
-  const [fresh, setFresh] = useState(true);
+  // Where typing goes in the active box: a place in its value (0 = before the first character).
+  const [cursor, setCursor] = useState(0);
+  // Where the cursor goes when the box switched to next becomes active (set by a tap on a digit).
+  const nextCursor = useRef<number | null>(null);
   // What each box held when the keypad opened, to put back into an emptied box.
   const startValues = useRef<Record<string, string>>({});
 
   // Key and click handlers are set up once per opening; they read the newest props here.
-  const latest = useRef({ fields, activeId, fresh, onChange, onActiveChange, onClose });
-  latest.current = { fields, activeId, fresh, onChange, onActiveChange, onClose };
+  const latest = useRef({ fields, activeId, cursor, onChange, onActiveChange, onClose });
+  latest.current = { fields, activeId, cursor, onChange, onActiveChange, onClose };
 
   useEffect(() => {
     if (!open) return;
@@ -100,11 +104,18 @@ export function NumberPad({ view, onClose }: { view: PadView | null; onClose: ()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target]);
 
-  useEffect(() => setFresh(true), [target, activeId]);
+  // A newly opened or newly chosen box: the cursor at the end of its number (or where it was tapped).
+  useEffect(() => {
+    const value = fields.find((f) => f.id === activeId)?.value ?? '';
+    const at = nextCursor.current;
+    nextCursor.current = null;
+    setCursorNow(at === null ? value.length : Math.min(at, value.length));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target, activeId]);
 
-  const setFreshNow = (value: boolean) => {
-    latest.current.fresh = value;
-    setFresh(value);
+  const setCursorNow = (at: number) => {
+    latest.current.cursor = at;
+    setCursor(at);
   };
 
   /** Sends a new value, and remembers it at once so a key pressed before the next render builds on it. */
@@ -127,25 +138,36 @@ export function NumberPad({ view, onClose }: { view: PadView | null; onClose: ()
     latest.current.onClose();
   };
 
-  const switchTo = (id: string) => {
+  /** Makes `id` the box being typed in, with the cursor at `at` (the end when not given). */
+  const switchTo = (id: string, at?: number) => {
+    const field = latest.current.fields.find((f) => f.id === id);
+    if (!field) return;
     if (id === latest.current.activeId) {
-      // Tapping the box again highlights it again, ready to type over.
-      setFreshNow(true);
+      setCursorNow(Math.min(at ?? field.value.length, field.value.length));
       return;
     }
     leave(latest.current.activeId);
     latest.current.activeId = id;
-    setFreshNow(true);
+    const place = Math.min(at ?? field.value.length, field.value.length);
+    nextCursor.current = place;
+    setCursorNow(place);
     latest.current.onActiveChange?.(id);
   };
 
   const press = (key: PadKey) => {
-    const { fields: current, activeId: id, fresh: replace } = latest.current;
+    const { fields: current, activeId: id, cursor: at } = latest.current;
     const field = current.find((f) => f.id === id);
     if (!field) return;
-    const next = applyPadKey(field.value, key, field.decimals, replace);
-    setFreshNow(false);
-    if (next !== field.value) change(field.id, next);
+    const next = applyPadKeyAt(field.value, at, key, field.decimals);
+    setCursorNow(next.cursor);
+    if (next.value !== field.value) change(field.id, next.value);
+  };
+
+  /** Moves the cursor in the active box by `step` characters (arrow keys). */
+  const moveCursor = (step: number) => {
+    const { fields: current, activeId: id, cursor: at } = latest.current;
+    const length = current.find((f) => f.id === id)?.value.length ?? 0;
+    setCursorNow(Math.min(Math.max(at + step, 0), length));
   };
 
   const cycle = (step: number) => {
@@ -169,7 +191,9 @@ export function NumberPad({ view, onClose }: { view: PadView | null; onClose: ()
       else if (k === 'Backspace') press('back');
       else if (k === 'Delete') press('clear');
       else if (k === 'Enter' || k === 'Escape') close();
-      else if (k === 'Tab' || k === 'ArrowRight' || k === 'ArrowLeft') cycle(k === 'ArrowLeft' || e.shiftKey ? -1 : 1);
+      else if (k === 'ArrowLeft' || k === 'ArrowRight') moveCursor(k === 'ArrowLeft' ? -1 : 1);
+      else if (k === 'Home' || k === 'End') moveCursor(k === 'Home' ? -Infinity : Infinity);
+      else if (k === 'Tab') cycle(e.shiftKey ? -1 : 1);
       else return;
       // Handled here: the sheet underneath must not also close on Escape.
       e.preventDefault();
@@ -259,12 +283,14 @@ export function NumberPad({ view, onClose }: { view: PadView | null; onClose: ()
             {fields.map((field) => {
               const active = field.id === activeId;
               const shown = groupDigits(field.value);
-              const highlighted = active && fresh && shown !== '';
+              const at = Math.min(cursor, field.value.length);
+              const caret = <span className="h-[0.9em] w-[3px] shrink-0 rounded-full bg-amber-500 animate-pulse" aria-hidden="true" />;
               return (
                 <button
                   key={field.id}
                   type="button"
                   aria-pressed={active}
+                  // A tap beside the digits puts the cursor at the end.
                   onClick={() => switchTo(field.id)}
                   data-testid={`numpad-field-${field.id}`}
                   className={`min-w-0 flex-1 rounded-2xl border-2 px-3 py-2 text-left cursor-pointer transition-colors ${
@@ -284,11 +310,29 @@ export function NumberPad({ view, onClose }: { view: PadView | null; onClose: ()
                   >
                     {field.prefix && <span className="text-[0.6em] font-bold text-slate-400">{field.prefix}</span>}
                     {shown && (
-                      <span className={`truncate ${highlighted ? 'rounded-md bg-amber-300/70 px-1 -mx-0.5' : ''}`}>{shown}</span>
+                      <span className="flex min-w-0 items-center overflow-hidden whitespace-nowrap" data-testid={`numpad-digits-${field.id}`}>
+                        {active && at === 0 && caret}
+                        {groupedChars(field.value).map(({ char, index }, i) => (
+                          <React.Fragment key={i}>
+                            <span
+                              // Tapping a digit puts the cursor before or after it, whichever half was tapped.
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const box = e.currentTarget.getBoundingClientRect();
+                                const rightHalf = e.clientX > box.left + box.width / 2;
+                                const place = index === null ? groupedChars(field.value)[i + 1]?.index ?? field.value.length : index + (rightHalf ? 1 : 0);
+                                switchTo(field.id, place);
+                              }}
+                              className="px-px"
+                            >
+                              {char}
+                            </span>
+                            {active && index !== null && index + 1 === at && caret}
+                          </React.Fragment>
+                        ))}
+                      </span>
                     )}
-                    {active && !highlighted && (
-                      <span className="h-[0.9em] w-[3px] shrink-0 rounded-full bg-amber-500 animate-pulse" aria-hidden="true" />
-                    )}
+                    {!shown && active && caret}
                     {!shown && (
                       <span className="truncate text-slate-300">{field.placeholder ? groupDigits(field.placeholder) : '0'}</span>
                     )}
