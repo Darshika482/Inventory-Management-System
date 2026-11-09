@@ -177,7 +177,12 @@ export function ItemPickerSheet({
                 key={item.id}
                 item={item}
                 line={lines[item.id]}
-                onPick={() => onPick(item)}
+                onPick={() => {
+                  // A new line has no quantity yet: the keypad opens for it.
+                  const isNew = !lines[item.id];
+                  onPick(item);
+                  if (isNew) setPad({ itemId: item.id, field: 'qty' });
+                }}
                 padField={pad?.itemId === item.id ? pad.field : null}
                 onOpenPad={(field) => setPad({ itemId: item.id, field })}
                 onRemove={() => onRemove(item.id)}
@@ -257,6 +262,7 @@ function PickerRow({ item, line, onPick, padField, onOpenPad, onRemove }: Picker
         <NumberBox
           value={line.qtyText}
           label={t('qty')}
+          placeholder="0"
           active={padField === 'qty'}
           invalid={!line.qtyValid}
           center

@@ -404,6 +404,10 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
     qty: parseMilli(line.qtyText),
     rate: parsePaise(line.rateText),
   }));
+  // A new line starts with no quantity. It is shown red only once typed wrong,
+  // or when saving was tried without it.
+  const qtyLooksOk = (qtyText: string, qty: number | null) =>
+    qtyText.trim() === '' ? problem === null : qty !== null && qty > 0;
 
   const discount: BillDiscount | null = useMemo(() => {
     const value = parsePaise(draft.discountText || '0');
@@ -436,7 +440,7 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
       qtyText: line.qtyText,
       rateText: line.rateText,
       amount: bill.lines[index]?.gross ?? 0,
-      qtyValid: qty !== null && qty > 0,
+      qtyValid: qtyLooksOk(line.qtyText, qty),
       rateValid: rate !== null && rate >= 0,
       rateChanged: rate !== null && rate !== line.savedRate,
     };
@@ -471,7 +475,8 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
         unit: item.unit,
         gstRate: item.gstRate,
         savedRate: item.saleRate,
-        qtyText: '1',
+        // Empty: the shop types the quantity (the keypad opens for it).
+        qtyText: '',
         rateText: paiseToInput(item.saleRate),
         updateRate: false,
       };
@@ -790,7 +795,7 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
           decimals: 3,
           suffix: unitLabel(t, line.unit),
           required: true,
-          invalid: qty === null || qty <= 0,
+          invalid: !qtyLooksOk(line.qtyText, qty),
         },
         { id: 'rate', label: t('rate'), value: line.rateText, decimals: 2, prefix: '₹', required: true, invalid: rate === null || rate < 0 },
       ],
@@ -981,7 +986,7 @@ export function NewSaleSection({ currentUser, onNavigate, showToast }: NewSaleSe
                   <SaleLineRow
                     key={line.key}
                     line={wholeBillGst !== null ? { ...line, gstRate: wholeBillGst } : line}
-                    qtyValid={qty !== null && qty > 0}
+                    qtyValid={qtyLooksOk(line.qtyText, qty)}
                     rateValid={rate !== null && rate >= 0}
                     rateChanged={rate !== null && rate !== line.savedRate}
                     amount={bill.lines[index]?.gross ?? 0}
@@ -1413,6 +1418,7 @@ function SaleLineRow({
         <NumberBox
           value={line.qtyText}
           label={t('qty')}
+          placeholder="0"
           active={padField === 'qty'}
           invalid={!qtyValid}
           center
