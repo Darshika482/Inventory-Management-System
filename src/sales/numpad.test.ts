@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyPadKey, groupDigits, isBlank, tidyValue } from './numpad';
+import { applyPadKey, applyPadKeyAt, groupDigits, groupedChars, isBlank, tidyValue } from './numpad';
 
 const typeKeys = (keys: string[], decimals = 2, start = '') =>
   keys.reduce((value, key) => applyPadKey(value, key as never, decimals), start);
@@ -44,11 +44,52 @@ describe('applyPadKey', () => {
     expect(applyPadKey('12.5', 'clear', 2)).toBe('');
   });
 
-  it('a highlighted value is replaced by a digit or point, but edited by back', () => {
-    expect(applyPadKey('120', '5', 2, true)).toBe('5');
-    expect(applyPadKey('120', '.', 2, true)).toBe('0.');
-    expect(applyPadKey('120', '0', 2, true)).toBe('0');
-    expect(applyPadKey('120', 'back', 2, true)).toBe('12');
+});
+
+describe('applyPadKeyAt', () => {
+  it('types at the cursor, not over the whole number', () => {
+    expect(applyPadKeyAt('120', 1, '5', 2)).toEqual({ value: '1520', cursor: 2 });
+    expect(applyPadKeyAt('120', 0, '9', 2)).toEqual({ value: '9120', cursor: 1 });
+    expect(applyPadKeyAt('120', 3, '5', 2)).toEqual({ value: '1205', cursor: 4 });
+  });
+
+  it('back removes the character before the cursor', () => {
+    expect(applyPadKeyAt('120', 2, 'back', 2)).toEqual({ value: '10', cursor: 1 });
+    expect(applyPadKeyAt('120', 0, 'back', 2)).toEqual({ value: '120', cursor: 0 });
+    expect(applyPadKeyAt('105', 1, 'back', 2)).toEqual({ value: '5', cursor: 0 });
+  });
+
+  it('puts a point in the middle only when the decimals fit', () => {
+    expect(applyPadKeyAt('125', 2, '.', 2)).toEqual({ value: '12.5', cursor: 3 });
+    expect(applyPadKeyAt('1250', 1, '.', 2)).toEqual({ value: '1250', cursor: 1 });
+    expect(applyPadKeyAt('25', 0, '.', 2)).toEqual({ value: '0.25', cursor: 2 });
+    expect(applyPadKeyAt('1.5', 0, '.', 2)).toEqual({ value: '1.5', cursor: 0 });
+  });
+
+  it('keeps to the decimals and whole digits allowed', () => {
+    expect(applyPadKeyAt('1.25', 3, '9', 2)).toEqual({ value: '1.25', cursor: 3 });
+    expect(applyPadKeyAt('1.5', 2, '9', 2)).toEqual({ value: '1.95', cursor: 3 });
+    expect(applyPadKeyAt('99999999', 4, '1', 2)).toEqual({ value: '99999999', cursor: 4 });
+    expect(applyPadKeyAt('1.5', 1, '7', 2)).toEqual({ value: '17.5', cursor: 2 });
+  });
+
+  it('drops a leading zero typed in front', () => {
+    expect(applyPadKeyAt('5', 0, '0', 2)).toEqual({ value: '5', cursor: 0 });
+    expect(applyPadKeyAt('0', 1, '7', 2)).toEqual({ value: '7', cursor: 1 });
+  });
+});
+
+describe('groupedChars', () => {
+  it('maps each shown character to its place in the value', () => {
+    expect(groupedChars('1250.5')).toEqual([
+      { char: '1', index: 0 },
+      { char: ',', index: null },
+      { char: '2', index: 1 },
+      { char: '5', index: 2 },
+      { char: '0', index: 3 },
+      { char: '.', index: 4 },
+      { char: '5', index: 5 },
+    ]);
   });
 });
 

@@ -8,32 +8,71 @@ export type PadKey = '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' |
 /** Enough for ₹9,99,99,999 or 99,999,999 pieces. */
 const MAX_WHOLE_DIGITS = 8;
 
-/**
- * The text after pressing `key`.
- * `replace`: the old value is still highlighted, so a digit or point starts a
- * new number (like typing over selected text). Back still edits the old value.
- * `decimals`: digits allowed after the point (3 for quantity, 2 for rupees).
- */
-export function applyPadKey(value: string, key: PadKey, decimals: number, replace = false): string {
-  if (key === 'clear') return '';
-  if (key === 'back') return value.slice(0, -1);
+/** A typed value and where the cursor sits in it (0 = before the first character). */
+export interface PadEdit {
+  value: string;
+  cursor: number;
+}
 
-  const base = replace ? '' : value;
-  const point = base.indexOf('.');
+/** No leading zeros in the whole part ("05" -> "5"); the cursor moves left with the dropped zeros. */
+function dropLeadingZeros({ value, cursor }: PadEdit): PadEdit {
+  const trimmed = value.replace(/^0+(?=\d)/, '');
+  const dropped = value.length - trimmed.length;
+  return { value: trimmed, cursor: Math.max(0, cursor - dropped) };
+}
+
+/**
+ * The text after pressing `key` with the cursor at `cursor`: digits and the
+ * point go in at the cursor, back removes the character before it.
+ * `decimals`: digits allowed after the point (3 for quantity, 2 for rupees).
+ * A key that cannot go in (a second point, too many digits) changes nothing.
+ */
+export function applyPadKeyAt(value: string, cursor: number, key: PadKey, decimals: number): PadEdit {
+  const at = Math.min(Math.max(cursor, 0), value.length);
+  const unchanged = { value, cursor: at };
+  if (key === 'clear') return { value: '', cursor: 0 };
+  if (key === 'back') {
+    if (at === 0) return unchanged;
+    return dropLeadingZeros({ value: value.slice(0, at - 1) + value.slice(at), cursor: at - 1 });
+  }
+
+  const before = value.slice(0, at);
+  const after = value.slice(at);
+  const point = value.indexOf('.');
 
   if (key === '.') {
-    if (decimals === 0 || point !== -1) return base;
-    return `${base || '0'}.`;
+    // One point only, and no more decimals after it than allowed.
+    if (decimals === 0 || point !== -1 || after.length > decimals) return unchanged;
+    const whole = before || '0';
+    return { value: `${whole}.${after}`, cursor: whole.length + 1 };
   }
 
-  if (point !== -1) {
-    const room = decimals - (base.length - point - 1);
-    return room > 0 ? base + key.slice(0, room) : base;
+  if (point !== -1 && at > point) {
+    // After the point: only as many digits as there is room for.
+    const room = decimals - (value.length - point - 1);
+    if (room <= 0) return unchanged;
+    const typed = key.slice(0, room);
+    return { value: before + typed + after, cursor: at + typed.length };
   }
 
-  // No leading zeros: "0" then "5" is "5", and "00" on nothing is "0".
-  const whole = `${base}${key}`.replace(/^0+(?=\d)/, '');
-  return whole.length > MAX_WHOLE_DIGITS ? base : whole;
+  const next = dropLeadingZeros({ value: before + key + after, cursor: at + key.length });
+  const wholeDigits = next.value.indexOf('.') === -1 ? next.value.length : next.value.indexOf('.');
+  return wholeDigits > MAX_WHOLE_DIGITS ? unchanged : next;
+}
+
+/** The text after pressing `key` with the cursor at the end. */
+export function applyPadKey(value: string, key: PadKey, decimals: number): string {
+  return applyPadKeyAt(value, value.length, key, decimals).value;
+}
+
+/**
+ * The characters of `groupDigits(value)` with, for each, its place in `value`
+ * (null for the grouping commas), so a tap on the shown number can put the cursor there.
+ */
+export function groupedChars(value: string): { char: string; index: number | null }[] {
+  const shown = groupDigits(value);
+  let index = 0;
+  return [...shown].map((char) => (char === ',' && value[index] !== ',' ? { char, index: null } : { char, index: index++ }));
 }
 
 /** "125000.5" -> "1,25,000.5", for showing big and easy to read. */
