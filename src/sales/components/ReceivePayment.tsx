@@ -2,10 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { Banknote, HandCoins, Smartphone } from 'lucide-react';
 import { AppModal } from '../../components/AppModal';
 import { describeDbError } from '../../lib/dbErrors';
-import { receivePaymentRpc } from '../db';
+import { receiveOldBalanceRpc, receivePaymentRpc } from '../db';
 import { newId } from '../ids';
 import { useT } from '../i18n';
-import { formatRupees, paiseToInput, parsePaise } from '../money';
+import { formatRupees, paiseToInput, parsePaise, type Paise } from '../money';
 import { upiLink, upiPayee } from '../print/receipt';
 import type { PaidMode, ShopInvoice, ShopSettings } from '../types';
 import { QrSvg } from './PrintUi';
@@ -24,7 +24,88 @@ interface ReceivePaymentModalProps {
 /** Money received later against an udhaar bill: amount, cash or UPI, save. */
 export function ReceivePaymentModal({ bill, settings, onClose, onReceived }: ReceivePaymentModalProps) {
   const { t } = useT();
-  const balance = bill ? Math.max(0, bill.total - bill.paidAmount) : 0;
+  const target: PaymentTarget | null = bill
+    ? {
+        key: bill.clientId,
+        name: bill.partyName || t('cashSale'),
+        balance: Math.max(0, bill.total - bill.paidAmount),
+        canSave: Boolean(bill.id),
+        needsSql: t('receivePaymentNeedsSql'),
+        save: async (clientId, amount, mode) => {
+          const paidAmount = await receivePaymentRpc({ clientId, invoiceId: bill.id as string, amount, mode });
+          onReceived(paidAmount, amount);
+        },
+      }
+    : null;
+  return <PaymentSheet target={target} settings={settings} onClose={onClose} />;
+}
+
+/** A customer's old balance (from before the app) that is still to be paid. */
+export interface OldBalanceDue {
+  partyId: string;
+  name: string;
+  /** Old balance less what they already paid towards it. */
+  left: Paise;
+}
+
+/** Money a customer paid towards their old balance: amount, cash or UPI, save. */
+export function ReceiveOldBalanceModal({
+  customer,
+  settings,
+  onClose,
+  onReceived,
+}: {
+  customer: OldBalanceDue | null;
+  settings: ShopSettings | null;
+  onClose: () => void;
+  /** After the server saved it: what they have now paid without a bill, and what was received. */
+  onReceived: (paidOnAccount: Paise, received: Paise) => void;
+}) {
+  const { t } = useT();
+  const target: PaymentTarget | null = customer
+    ? {
+        key: `old:${customer.partyId}`,
+        name: customer.name,
+        title: t('receiveOldBalance'),
+        balanceLabel: t('oldBalanceLeft'),
+        balance: customer.left,
+        canSave: true,
+        needsSql: t('oldBalanceNeedsSql'),
+        save: async (clientId, amount, mode) => {
+          const paid = await receiveOldBalanceRpc({ clientId, partyId: customer.partyId, amount, mode });
+          onReceived(paid, amount);
+        },
+      }
+    : null;
+  return <PaymentSheet target={target} settings={settings} onClose={onClose} />;
+}
+
+/** What money is being received for: a bill, or a customer's old balance. */
+interface PaymentTarget {
+  /** A new target starts afresh. */
+  key: string;
+  name: string;
+  title?: string;
+  balanceLabel?: string;
+  /** The most that can be received. */
+  balance: Paise;
+  canSave: boolean;
+  /** Shown when the database function is not there yet. */
+  needsSql: string;
+  save: (clientId: string, amount: Paise, mode: PaidMode) => Promise<void>;
+}
+
+function PaymentSheet({
+  target,
+  settings,
+  onClose,
+}: {
+  target: PaymentTarget | null;
+  settings: ShopSettings | null;
+  onClose: () => void;
+}) {
+  const { t } = useT();
+  const balance = target ? target.balance : 0;
   const payee = settings ? upiPayee(settings) : null;
   const [amountText, setAmountText] = useState('');
   const [mode, setMode] = useState<PaidMode>('cash');
@@ -34,29 +115,28 @@ export function ReceivePaymentModal({ bill, settings, onClose, onReceived }: Rec
   const [clientId, setClientId] = useState(newId);
 
   useEffect(() => {
-    if (!bill) return;
+    if (!target) return;
     setAmountText(paiseToInput(balance));
     setMode('cash');
     setProblem(null);
     setClientId(newId());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bill?.clientId]);
+  }, [target?.key]);
 
   const amount = parsePaise(amountText.trim() || '0');
   const amountOk = amount !== null && amount > 0 && amount <= balance;
   const left = amountOk ? balance - (amount as number) : balance;
 
   const save = async () => {
-    if (!bill?.id || !amountOk) return;
+    if (!target?.canSave || !amountOk) return;
     setSaving(true);
     setProblem(null);
     try {
-      const paidAmount = await receivePaymentRpc({ clientId, invoiceId: bill.id, amount: amount as number, mode });
-      onReceived(paidAmount, amount as number);
+      await target.save(clientId, amount as number, mode);
     } catch (err) {
       const { code = '', message = '' } = (err ?? {}) as { code?: string; message?: string };
       if (code === 'P0001' && message) setProblem({ message, detail: '' });
-      else if (code === 'PGRST202') setProblem({ message: t('receivePaymentNeedsSql'), detail: '' });
+      else if (code === 'PGRST202') setProblem({ message: target.needsSql, detail: '' });
       else setProblem(describeDbError(err, t('receivePaymentFailed')));
     } finally {
       setSaving(false);
@@ -65,10 +145,10 @@ export function ReceivePaymentModal({ bill, settings, onClose, onReceived }: Rec
 
   return (
     <AppModal
-      open={Boolean(bill)}
+      open={Boolean(target)}
       onClose={onClose}
-      title={t('receivePayment')}
-      description={bill ? `${bill.partyName || t('cashSale')} · ${t('balanceLeft')} ${formatRupees(balance)}` : undefined}
+      title={target?.title ?? t('receivePayment')}
+      description={target ? `${target.name} · ${target.balanceLabel ?? t('balanceLeft')} ${formatRupees(balance)}` : undefined}
       icon={<HandCoins className="h-5 w-5" />}
       accent="emerald"
     >
@@ -159,7 +239,7 @@ export function ReceivePaymentModal({ bill, settings, onClose, onReceived }: Rec
           icon={<HandCoins className="h-5 w-5" />}
           label={t('savePayment')}
           busy={saving}
-          disabled={!amountOk || !bill?.id}
+          disabled={!amountOk || !target?.canSave}
           onClick={save}
           className="w-full"
         />

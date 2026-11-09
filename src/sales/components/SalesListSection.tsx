@@ -33,7 +33,7 @@ import {
   type BillPayment,
   type BillVersion,
 } from '../db';
-import { ReceivePaymentModal } from './ReceivePayment';
+import { ReceiveOldBalanceModal, ReceivePaymentModal, type OldBalanceDue } from './ReceivePayment';
 import { loadWithCache } from '../cache';
 import { loadLocalFirst, localCopy } from '../../lib/localFirst';
 import { billLabel, billTitle, formatBillDate, formatIstTime, istToday } from '../fy';
@@ -123,6 +123,8 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
   const [remindOpen, setRemindOpen] = useState(false);
   // Udhaar view: money received without a bill (on account), by customer.
   const [paidOnAccount, setPaidOnAccount] = useState<Map<string, number>>(() => new Map());
+  // Owner: a customer paying towards their old balance (from before the app).
+  const [oldPaying, setOldPaying] = useState<OldBalanceDue | null>(null);
   // Owner: the bill being asked about before it is deleted.
   const [deleting, setDeleting] = useState<ShopInvoice | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -271,6 +273,14 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
   }, [activeBills, showDue]);
   const totalUdhaar = dueCustomers.reduce((sum, r) => sum + r.total, 0) + walkInDue.due;
   const shownCustomers = useShowMore<DueReminder>(dueCustomers, `customers|${view}`);
+  /** What is left of a customer's old balance after what they paid towards it. */
+  const oldBalanceLeft = (id: string) => {
+    const party = parties.find((p) => p.id === id);
+    return party ? Math.max(0, party.openingBalance - (paidOnAccount.get(id) ?? 0)) : 0;
+  };
+  // One customer chosen in the Udhaar view: their old balance, to receive against.
+  const chosenParty = showDue && partyId ? parties.find((p) => p.id === partyId) : undefined;
+  const chosenOldLeft = chosenParty ? oldBalanceLeft(chosenParty.id) : 0;
   const openBill = openClientId ? bills.find((b) => b.clientId === openClientId) ?? null : null;
 
   const choosePreset = (next: Preset) => {
@@ -410,6 +420,7 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
           <ul className="divide-y divide-slate-100">
             {shownCustomers.visible.map((r) => {
               const hasBills = Boolean(r.partyId) && r.bills.length > 0;
+              const oldLeft = r.partyId ? oldBalanceLeft(r.partyId) : 0;
               return (
                 <li key={r.key}>
                   <button
@@ -426,6 +437,19 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
                     </span>
                     <span className="shrink-0 text-lg font-extrabold text-red-700 tabular-nums">{formatRupees(r.total)}</span>
                   </button>
+                  {r.partyId && oldLeft > 0 && (
+                    <div className="px-4 pb-2.5 -mt-1">
+                      <button
+                        type="button"
+                        onClick={() => setOldPaying({ partyId: r.partyId as string, name: r.name, left: oldLeft })}
+                        className="min-h-10 inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-3 text-sm font-bold text-emerald-800 cursor-pointer hover:bg-emerald-100"
+                        data-testid="receive-old-balance"
+                      >
+                        <HandCoins className="h-4 w-4" />
+                        {t('receiveOldBalance')}
+                      </button>
+                    </div>
+                  )}
                 </li>
               );
             })}
@@ -449,6 +473,23 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
             />
           </div>
         </section>
+      )}
+
+      {/* One customer chosen: their old balance (from before the app), to receive against. */}
+      {chosenParty && chosenOldLeft > 0 && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-white px-4 py-3">
+          <span className="min-w-0">
+            <span className="block text-sm font-semibold text-slate-500">{t('oldBalanceLeft')}</span>
+            <span className="block text-lg font-extrabold text-red-700 tabular-nums">{formatRupees(chosenOldLeft)}</span>
+          </span>
+          <ActionButton
+            tone="success"
+            icon={<HandCoins className="h-5 w-5" />}
+            label={t('receiveOldBalance')}
+            onClick={() => setOldPaying({ partyId: chosenParty.id, name: chosenParty.name, left: chosenOldLeft })}
+            data-testid="receive-old-balance-chosen"
+          />
+        </div>
       )}
 
       {/* The bills behind it. */}
@@ -513,6 +554,26 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
         onPaid={(clientId, paidAmount) =>
           setServerBills((prev) => prev.map((b) => (b.clientId === clientId ? { ...b, paidAmount } : b)))
         }
+      />
+
+      <ReceiveOldBalanceModal
+        customer={oldPaying}
+        settings={settings}
+        onClose={() => setOldPaying(null)}
+        onReceived={(paid, received) => {
+          const customer = oldPaying;
+          if (!customer) return;
+          setPaidOnAccount((prev) => new Map(prev).set(customer.partyId, paid));
+          setOldPaying(null);
+          showToast(
+            t('oldBalanceReceived', {
+              amount: formatRupees(received),
+              name: customer.name,
+              left: formatRupees(Math.max(0, customer.left - received)),
+            }),
+            'success'
+          );
+        }}
       />
 
       <DueRemindersSheet open={remindOpen} onClose={() => setRemindOpen(false)} settings={settings} showToast={showToast} />

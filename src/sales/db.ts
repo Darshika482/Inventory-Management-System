@@ -816,3 +816,25 @@ export async function fetchPaidOnAccount(): Promise<Map<string, Paise>> {
   for (const row of rows) byParty.set(row.party_id, (byParty.get(row.party_id) ?? 0) + dbToPaise(row.amount));
   return byParty;
 }
+
+/**
+ * Records money a customer paid towards their old balance (shop_receive_old_balance,
+ * from supabase/shop/16-receive-old-balance.sql): a payment without a bill.
+ * Returns everything they have now paid that way. The same `clientId` sent twice is saved once.
+ */
+export async function receiveOldBalanceRpc(input: {
+  clientId: string;
+  partyId: string;
+  amount: Paise;
+  mode: PaidMode;
+}): Promise<Paise> {
+  const data = await runDb<{ paid_on_account: Num }>((signal) =>
+    assertSupabase()
+      .rpc('shop_receive_old_balance', {
+        p: { client_id: input.clientId, party_id: input.partyId, amount: paiseToDecimal(input.amount), mode: input.mode },
+      })
+      .abortSignal(signal)
+  );
+  if (!data) throw new Error('The server did not confirm the payment.');
+  return dbToPaise(data.paid_on_account);
+}
