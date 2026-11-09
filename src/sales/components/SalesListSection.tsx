@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
+  BellRing,
   CalendarDays,
   ChevronDown,
   CloudOff,
@@ -11,6 +12,7 @@ import {
   Upload,
   User as UserIcon,
   Users,
+  X,
   XCircle,
 } from 'lucide-react';
 import type { User } from '../../types';
@@ -45,6 +47,7 @@ import { ShowMoreButton, useShowMore } from '../../components/ShowMore';
 import { EDIT_BILL_KEY, OPEN_BILL_KEY } from './NewSaleSection';
 import { ReceiptPreviewModal, openPrinterHelp, printDetail, printMessageKey } from './PrintUi';
 import { ShareBillButton } from './ShareBill';
+import { DueRemindersSheet } from './DueReminders';
 import { printBill, receiptLinesFor } from '../print/printBill';
 import { connectPrinter } from '../print/printer';
 import { fetchShopSettings } from '../db';
@@ -114,6 +117,8 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
   });
   const [isRetrying, setIsRetrying] = useState(false);
   const [settings, setSettings] = useState<ShopSettings | null>(null);
+  // Owner: send every customer who owes money a reminder picture on WhatsApp.
+  const [remindOpen, setRemindOpen] = useState(false);
   // Owner: the bill being asked about before it is deleted.
   const [deleting, setDeleting] = useState<ShopInvoice | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -338,6 +343,19 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
       </div>
       )}
 
+      {showDue && (
+        <ActionButton
+          tone="success"
+          size="lg"
+          icon={<BellRing className="h-5 w-5" />}
+          label={t('remindAll')}
+          onClick={() => setRemindOpen(true)}
+          disabled={!settings}
+          className="w-full"
+          data-testid="remind-open"
+        />
+      )}
+
       <div className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-xl px-4 py-3">
         <span className="text-base font-semibold text-slate-600">
           {isStaff ? (
@@ -443,6 +461,8 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
         }
       />
 
+      <DueRemindersSheet open={remindOpen} onClose={() => setRemindOpen(false)} settings={settings} showToast={showToast} />
+
       {/* Owner: delete a bill, after asking once more in plain words. */}
       <AppModal
         open={deleting !== null}
@@ -456,7 +476,13 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
         <div className="space-y-4">
           <p className="text-base text-slate-700 leading-relaxed">{t('deleteBillText')}</p>
           <div className="grid grid-cols-2 gap-2">
-            <ActionButton tone="secondary" label={t('cancel')} onClick={() => setDeleting(null)} disabled={isDeleting} />
+            <ActionButton
+              tone="secondary"
+              icon={<X className="h-5 w-5" />}
+              label={t('cancel')}
+              onClick={() => setDeleting(null)}
+              disabled={isDeleting}
+            />
             <ActionButton
               tone="danger"
               icon={<Trash2 className="h-5 w-5" />}
