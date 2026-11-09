@@ -13,6 +13,7 @@ export const HELPER_APK_URL =
   'https://github.com/Darshika482/Inventory-Management-System/releases/download/whatsapp-helper/akshay-whatsapp-helper.apk';
 
 const MISSING_KEY = 'akshay.whatsappHelperMissing';
+const BATCH_MISSING_KEY = 'akshay.whatsappHelperBatchMissing';
 
 /** The customer's 10-digit mobile number, or null when there is none. */
 export function whatsAppNumber(phone: string | null | undefined): string | null {
@@ -101,3 +102,71 @@ export function helperLink(fileUrl: string, number: string | null, fileName: str
   // Store), and the share sheet offers the download.
   return `intent://send?${query}#Intent;scheme=akshaywa;end`;
 }
+
+// --- Many customers in one go (helper version 1.1 and later) ---
+
+/** The helper on this phone could not take a whole list (an older version, or none). */
+export function helperBatchMissing(): boolean {
+  try {
+    return localStorage.getItem(BATCH_MISSING_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function setHelperBatchMissing(missing: boolean): void {
+  try {
+    if (missing) localStorage.setItem(BATCH_MISSING_KEY, '1');
+    else localStorage.removeItem(BATCH_MISSING_KEY);
+  } catch {
+    // Not remembered; the next round tries the whole list again.
+  }
+}
+
+/** One customer in the list the helper goes through. */
+export interface HelperBatchItem {
+  name: string;
+  /** 10-digit number, or null: WhatsApp asks which chat. */
+  number: string | null;
+  /** The picture online. */
+  url: string;
+  fileName: string;
+  mimeType: string;
+  /** Shown in the helper, e.g. "₹3,134". */
+  amount: string;
+}
+
+/** The list file the helper downloads. */
+export function helperBatchList(items: HelperBatchItem[]): string {
+  return JSON.stringify({
+    v: 1,
+    items: items.map((item) => ({
+      name: item.name,
+      phone: item.number ? `91${item.number}` : '',
+      url: item.url,
+      type: item.mimeType,
+      file: item.fileName,
+      amount: item.amount,
+    })),
+  });
+}
+
+/** The link that opens the helper with the whole list. */
+export function helperBatchLink(listUrl: string): string {
+  // Its own host: an older helper (send only) does not open for it.
+  return `intent://batch?url=${encodeURIComponent(listUrl)}#Intent;scheme=akshaywa;end`;
+}
+
+/**
+ * Hands the whole list to the helper. True when it opened (this page went to
+ * the background); false when the helper on this phone cannot take a list,
+ * which is remembered so the next round goes one by one.
+ */
+export async function openBatchInHelper(listUrl: string): Promise<boolean> {
+  window.location.href = helperBatchLink(listUrl);
+  const opened = await pageLeftWithin(3000);
+  setHelperBatchMissing(!opened);
+  if (opened) setHelperMissing(false);
+  return opened;
+}
+

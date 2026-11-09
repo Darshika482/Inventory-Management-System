@@ -11,8 +11,8 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         String chosen = WhatsAppApps.chosen(this);
-        String message = "This helper sends bills from the Akshay Traders app straight to the customer's WhatsApp chat.\n\n"
-                + "Nothing to do here: in the app, open a bill, tap Share, then Send PDF or Send image."
+        String message = "This helper sends bills and udhaar reminders from the Akshay Traders app straight to each customer's WhatsApp chat.\n\n"
+                + "Nothing to do here: in the app, tap Share on a bill, or send udhaar reminders from the Udhaar list."
                 + (chosen != null ? "\n\nBills go with " + WhatsAppApps.label(chosen) + "." : "");
         AlertDialog.Builder dialog = new AlertDialog.Builder(this, android.R.style.Theme_Material_Light_Dialog_Alert)
                 .setTitle("Akshay WhatsApp")

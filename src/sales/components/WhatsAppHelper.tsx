@@ -5,9 +5,10 @@ import { HELPER_APK_URL } from '../share/whatsapp';
 
 /**
  * WhatsApp could not open the customer's chat by itself: the small helper app
- * is not on this phone. `onDownload`: the next send tries the helper again.
+ * is not on this phone ('install'), or it is an older one that cannot go
+ * through a whole list ('update'). `onDownload`: the next send tries it again.
  */
-export function HelperInstallCard({ onDownload }: { onDownload: () => void }) {
+export function HelperInstallCard({ onDownload, variant = 'install' }: { onDownload: () => void; variant?: 'install' | 'update' }) {
   const { t } = useT();
   return (
     <div role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-3 space-y-2.5" data-testid="helper-install">
@@ -16,8 +17,8 @@ export function HelperInstallCard({ onDownload }: { onDownload: () => void }) {
           <Smartphone className="h-5 w-5" />
         </span>
         <p className="text-sm leading-snug text-slate-700">
-          <span className="block font-bold text-slate-900">{t('helperMissingTitle')}</span>
-          {t('helperMissingText')}
+          <span className="block font-bold text-slate-900">{t(variant === 'update' ? 'helperUpdateTitle' : 'helperMissingTitle')}</span>
+          {t(variant === 'update' ? 'helperUpdateText' : 'helperMissingText')}
         </p>
       </div>
       <a

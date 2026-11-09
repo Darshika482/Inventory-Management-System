@@ -3,11 +3,13 @@
  * send each one a picture of what they owe, with a UPI QR to pay, on WhatsApp.
  *
  * WhatsApp needs a tap on Send in every chat (only its paid Business API can
- * send by itself), so the customers go one after another: tap Send here,
- * tap Send in WhatsApp, come back, and the next customer is ready.
+ * send by itself), so the customers go one after another. With the helper app
+ * (1.1 and later) the whole list goes to it in one tap: it opens each chat in
+ * turn, and the shop only taps Send and Back. Otherwise: tap Send here, tap
+ * Send in WhatsApp, come back, and the next customer is ready.
  */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { BellRing, Check, CircleCheck, MessageCircle, SkipForward } from 'lucide-react';
+import { BellRing, Check, CircleCheck, ListOrdered, MessageCircle, RefreshCw, Send, SkipForward } from 'lucide-react';
 import { AppModal } from '../../components/AppModal';
 import { describeDbError, type FriendlyError } from '../../lib/dbErrors';
 import { fetchDueSales, fetchPaidOnAccount, fetchShopParties, uploadSharedBill } from '../db';
@@ -18,12 +20,21 @@ import { listQueuedSales } from '../outbox';
 import { buildDueReminders, type DueReminder } from '../reminders';
 import { reminderImageFile } from '../share/reminderImage';
 import { shareFile } from '../share/shareBill';
-import { canOpenChatDirectly, canUseHelper, openInHelper, setHelperMissing } from '../share/whatsapp';
+import {
+  canOpenChatDirectly,
+  canUseHelper,
+  helperBatchList,
+  helperBatchMissing,
+  openBatchInHelper,
+  openInHelper,
+  setHelperBatchMissing,
+  setHelperMissing,
+} from '../share/whatsapp';
 import type { ShopSettings } from '../types';
 import { ActionButton, ErrorState, LoadingState, SearchBox } from './ui';
 import { HelperInstallCard } from './WhatsAppHelper';
 
-type Step = 'choose' | 'send' | 'done';
+type Step = 'choose' | 'send' | 'handed' | 'done';
 type Outcome = 'sent' | 'skipped';
 
 interface DueRemindersProps {
@@ -53,9 +64,21 @@ export function DueRemindersSheet({ open, onClose, settings, showToast }: DueRem
   // The customer whose picture is ready to send (online too, for the helper):
   // the phone only opens WhatsApp straight after a tap, so the tap must not wait.
   const [readyKey, setReadyKey] = useState<string | null>(null);
+  // The helper on this phone cannot take a whole list (an older version).
+  const [batchMissing, setBatchMissing] = useState(() => helperBatchMissing());
+  const [oneByOne, setOneByOne] = useState(false);
+  // All customers in one go: the helper opens each chat in turn.
+  const batch = direct && !batchMissing && !oneByOne;
+  // Pictures online for the whole list, then the list itself.
+  const [prep, setPrep] = useState<{ done: number; failed: boolean; listUrl: string | null }>({
+    done: 0,
+    failed: false,
+    listUrl: null,
+  });
   const files = useRef(new Map<string, Promise<File>>());
   const links = useRef(new Map<string, Promise<string>>());
   const loadSeq = useRef(0);
+  const prepareSeq = useRef(0);
   const today = istToday();
 
   const load = async () => {
@@ -88,9 +111,13 @@ export function DueRemindersSheet({ open, onClose, settings, showToast }: DueRem
   useEffect(() => {
     if (!open) {
       loadSeq.current++;
+      prepareSeq.current++;
       return;
     }
     setStep('choose');
+    setBatchMissing(helperBatchMissing());
+    setOneByOne(false);
+    setPrep({ done: 0, failed: false, listUrl: null });
     setQueue([]);
     setIndex(0);
     setOutcomes({});
@@ -123,6 +150,76 @@ export function DueRemindersSheet({ open, onClose, settings, showToast }: DueRem
       link.catch(() => links.current.delete(reminder.key));
     }
     return link;
+  };
+
+  /** Puts every picture online (three at a time), then the list the helper goes through. */
+  const prepareAll = async (list: DueReminder[]) => {
+    const seq = ++prepareSeq.current;
+    setPrep({ done: 0, failed: false, listUrl: null });
+    const urls: string[] = new Array(list.length);
+    let nextIndex = 0;
+    let done = 0;
+    let failed = false;
+    const worker = async () => {
+      while (!failed && nextIndex < list.length) {
+        const i = nextIndex++;
+        try {
+          urls[i] = await linkFor(list[i]);
+        } catch {
+          failed = true;
+          return;
+        }
+        done++;
+        if (seq === prepareSeq.current) setPrep((p) => ({ ...p, done }));
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    if (seq !== prepareSeq.current) return;
+    try {
+      if (failed) throw new Error('A picture could not be put online.');
+      const pictures = await Promise.all(list.map(fileFor));
+      const json = helperBatchList(
+        list.map((r, i) => ({
+          name: r.name,
+          number: r.phone,
+          url: urls[i],
+          fileName: pictures[i].name,
+          mimeType: pictures[i].type || 'image/png',
+          amount: formatRupees(r.total),
+        }))
+      );
+      const listUrl = await uploadSharedBill(new File([json], 'Akshay-Traders-Reminders.json', { type: 'application/json' }));
+      if (seq === prepareSeq.current) setPrep({ done: list.length, failed: false, listUrl });
+    } catch {
+      if (seq === prepareSeq.current) setPrep((p) => ({ ...p, failed: true }));
+    }
+  };
+
+  // The list is got ready as soon as sending starts, so the tap opens the helper at once.
+  useEffect(() => {
+    if (step !== 'send' || !batch || queue.length === 0 || !settings) return;
+    void prepareAll(queue);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, batch, queue]);
+
+  /** The whole list to the helper; an older helper does not open, so it goes one by one. */
+  const sendAll = async () => {
+    if (!prep.listUrl) return;
+    setBusy(true);
+    try {
+      if (await openBatchInHelper(prep.listUrl)) setStep('handed');
+      else setBatchMissing(true);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** A new helper is being installed: the next tap tries it again. */
+  const helperDownloaded = () => {
+    setHelperMissing(false);
+    setHelperBatchMissing(false);
+    setBatchMissing(false);
+    setDirect(true);
   };
 
   const current = step === 'send' ? queue[index] : undefined;
@@ -327,7 +424,76 @@ export function DueRemindersSheet({ open, onClose, settings, showToast }: DueRem
           </div>
         ))}
 
-      {step === 'send' && current && (
+      {step === 'send' && batch && (
+        <div className="space-y-3" data-testid="remind-batch">
+          {prep.listUrl === null && !prep.failed && (
+            <div className="space-y-1.5">
+              <p className="text-base font-semibold text-slate-700">
+                {t('remindPreparing', { n: prep.done, total: queue.length })}
+              </p>
+              <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+                <div
+                  className="h-full bg-emerald-500 transition-all"
+                  style={{ width: `${(prep.done / Math.max(queue.length, 1)) * 100}%` }}
+                />
+              </div>
+            </div>
+          )}
+          {prep.failed && (
+            <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 space-y-2">
+              <p className="text-sm font-semibold text-red-800">{t('remindPrepareFailed')}</p>
+              <ActionButton
+                tone="secondary"
+                icon={<RefreshCw className="h-5 w-5" />}
+                label={t('tryAgain')}
+                onClick={() => void prepareAll(queue)}
+                className="w-full"
+              />
+            </div>
+          )}
+          <ActionButton
+            tone="success"
+            size="lg"
+            icon={<Send className="h-5 w-5" />}
+            label={queue.length === 1 ? t('remindSendAllOne') : t('remindSendAll', { n: queue.length })}
+            busy={busy || (prep.listUrl === null && !prep.failed)}
+            disabled={prep.listUrl === null}
+            onClick={sendAll}
+            className="w-full"
+            data-testid="remind-send-all"
+          />
+          <p className="text-sm text-slate-600 text-center leading-snug">{t('remindSendAllHint')}</p>
+          <button
+            type="button"
+            onClick={() => setOneByOne(true)}
+            className="w-full min-h-11 flex items-center justify-center gap-1.5 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-100 cursor-pointer"
+            data-testid="remind-one-by-one"
+          >
+            <ListOrdered className="h-4 w-4" />
+            {t('remindOneByOne')}
+          </button>
+          <ol className="rounded-xl border border-slate-200 divide-y divide-slate-100 overflow-hidden text-sm">
+            {queue.map((r, i) => (
+              <li key={r.key} className="flex items-center gap-2 px-3 py-2">
+                <span className="w-5 shrink-0 text-center text-xs font-bold text-slate-400">{i + 1}</span>
+                <span className="min-w-0 flex-1 truncate text-slate-700">{r.name}</span>
+                <span className="shrink-0 tabular-nums text-slate-500">{formatRupees(r.total)}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {step === 'handed' && (
+        <div className="space-y-4 py-4 text-center" data-testid="remind-handed">
+          <CircleCheck className="mx-auto h-14 w-14 text-emerald-600" />
+          <p className="text-xl font-bold text-slate-900">{t('remindHandedTitle')}</p>
+          <p className="text-base text-slate-600 leading-relaxed">{t('remindHandedText', { n: queue.length })}</p>
+          <ActionButton icon={<Check className="h-5 w-5" />} label={t('done')} onClick={onClose} className="w-full" />
+        </div>
+      )}
+
+      {step === 'send' && !batch && current && (
         <div className="space-y-3" data-testid="remind-sending">
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-sm font-semibold text-slate-600">
@@ -360,14 +526,10 @@ export function DueRemindersSheet({ open, onClose, settings, showToast }: DueRem
             )}
           </div>
 
-          {canUseHelper() && !direct && (
-            <HelperInstallCard
-              onDownload={() => {
-                // Installed after this: the next tap opens the chat by itself.
-                setHelperMissing(false);
-                setDirect(true);
-              }}
-            />
+          {canUseHelper() && !direct && <HelperInstallCard onDownload={helperDownloaded} />}
+          {/* The helper here is an older one: the new one goes through the whole list by itself. */}
+          {canUseHelper() && direct && batchMissing && !oneByOne && (
+            <HelperInstallCard variant="update" onDownload={helperDownloaded} />
           )}
 
           <ActionButton
