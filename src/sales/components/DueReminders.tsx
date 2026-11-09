@@ -45,7 +45,25 @@ interface DueRemindersProps {
 }
 
 /** "98260 12345", easier to check by eye. */
-const spaced = (number: string) => `${number.slice(0, 5)} ${number.slice(5)}`;
+export const spacedNumber = (number: string) => `${number.slice(0, 5)} ${number.slice(5)}`;
+const spaced = spacedNumber;
+
+type Translate = ReturnType<typeof useT>['t'];
+
+/** "Old balance ₹980 · 2 bills ₹1,590.50 · Paid ₹20": what a customer's udhaar is made of. */
+export function dueBreakdown(r: DueReminder, t: Translate): string {
+  return [
+    r.oldBalance !== 0 ? t('remindOld', { amount: formatRupees(r.oldBalance) }) : '',
+    r.bills.length === 1
+      ? t('remindOneBill', { amount: formatRupees(r.billsDue) })
+      : r.bills.length > 1
+        ? t('remindBills', { n: r.bills.length, amount: formatRupees(r.billsDue) })
+        : '',
+    r.paidOnAccount > 0 ? t('remindPaidOnAccount', { amount: formatRupees(r.paidOnAccount) }) : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
 
 export function DueRemindersSheet({ open, onClose, settings, showToast }: DueRemindersProps) {
   const { t } = useT();
@@ -323,18 +341,7 @@ export function DueRemindersSheet({ open, onClose, settings, showToast }: DueRem
     }
   };
 
-  const breakdown = (r: DueReminder) =>
-    [
-      r.oldBalance !== 0 ? t('remindOld', { amount: formatRupees(r.oldBalance) }) : '',
-      r.bills.length === 1
-        ? t('remindOneBill', { amount: formatRupees(r.billsDue) })
-        : r.bills.length > 1
-          ? t('remindBills', { n: r.bills.length, amount: formatRupees(r.billsDue) })
-          : '',
-      r.paidOnAccount > 0 ? t('remindPaidOnAccount', { amount: formatRupees(r.paidOnAccount) }) : '',
-    ]
-      .filter(Boolean)
-      .join(' · ');
+  const breakdown = (r: DueReminder) => dueBreakdown(r, t);
 
   const sentCount = Object.values(outcomes).filter((o) => o === 'sent').length;
   const skippedCount = Object.values(outcomes).filter((o) => o === 'skipped').length;
