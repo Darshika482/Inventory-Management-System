@@ -1,16 +1,19 @@
-import React, { useState } from 'react';
-import { Download, FileText, Image as ImageIcon, Share2 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Check, Download, FileText, Image as ImageIcon, Share2, Smartphone } from 'lucide-react';
 import { AppModal } from '../../components/AppModal';
+import { FormInput } from '../../components/FormInput';
 import { useT } from '../i18n';
-import { saveBillFile, shareBillFile, type ShareFormat } from '../share/shareBill';
-import { whatsAppNumber } from '../share/whatsapp';
+import { billFileName } from '../share/billImage';
+import { billFileLink, saveBillFile, shareBillFile, type ShareFormat } from '../share/shareBill';
+import { canUseHelper, HELPER_APK_URL, helperEnabled, helperLink, setHelperEnabled, whatsAppNumber } from '../share/whatsapp';
+import { toPhoneDigits } from '../states';
 import type { ShopInvoice, ShopSettings } from '../types';
 import { ActionButton } from './ui';
 
 interface ShareBillButtonProps {
   bill: ShopInvoice;
   settings: ShopSettings | null;
-  /** Customer phone: shown on the sheet so the right WhatsApp chat is easy to pick. */
+  /** Customer phone: WhatsApp opens straight on their chat (with the helper app). */
   phone?: string;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
   size?: 'md' | 'lg';
@@ -26,7 +29,14 @@ function spacedNumber(number: string): string {
   return `${number.slice(0, 5)} ${number.slice(5)}`;
 }
 
-/** "Share" button that opens a sheet: send the bill as a PDF or an image (no text), or save it. */
+const MIME: Record<ShareFormat, string> = { pdf: 'application/pdf', image: 'image/png' };
+const EXT: Record<ShareFormat, 'pdf' | 'png'> = { pdf: 'pdf', image: 'png' };
+
+/**
+ * "Share" button that opens a sheet: send the bill as a PDF or an image (only
+ * the file, no text), or save it. With the Android helper app installed, the
+ * file opens straight in the customer's WhatsApp chat.
+ */
 export function ShareBillButton({
   bill,
   settings,
@@ -40,8 +50,28 @@ export function ShareBillButton({
   const { t } = useT();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  const number = whatsAppNumber(phone);
+  const [helper, setHelper] = useState(() => canUseHelper() && helperEnabled());
+  const [typedNumber, setTypedNumber] = useState('');
+  const [useOtherNumber, setUseOtherNumber] = useState(false);
+
+  const savedNumber = whatsAppNumber(phone);
+  const askNumber = !savedNumber || useOtherNumber;
+  const number = askNumber ? whatsAppNumber(typedNumber) : savedNumber;
+  // A number typed but not yet a full 10-digit mobile number: wait for it.
+  const numberIncomplete = askNumber && typedNumber !== '' && !number;
+  const partyName = bill.partyName.trim();
+
   const fullBill = () => (resolveBill ? resolveBill() : Promise.resolve(bill));
+
+  // The files go online while the sheet is open, so a tap opens WhatsApp at
+  // once (the phone blocks opening an app long after the tap).
+  useEffect(() => {
+    if (!open || !helper || !settings) return;
+    fullBill()
+      .then((full) => Promise.all([billFileLink(full, settings, 'pdf'), billFileLink(full, settings, 'image')]))
+      .catch((err) => console.warn('The bill files for WhatsApp could not be put online yet:', err));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, helper, settings]);
 
   const run = async (key: string, task: () => Promise<void>) => {
     setBusy(key);
@@ -54,12 +84,30 @@ export function ShareBillButton({
     }
   };
 
-  const share = (format: ShareFormat) =>
+  /** Through the phone's share menu: tap WhatsApp, then the customer. */
+  const shareMenu = (format: ShareFormat) =>
     run(format, async () => {
       if (!settings) return;
       const outcome = await shareBillFile(await fullBill(), settings, format);
       if (outcome === 'saved') showToast(t('shareSaved'), 'info');
       if (outcome !== 'cancelled') setOpen(false);
+    });
+
+  /** Through the helper app: WhatsApp opens on the customer's chat with the file attached. */
+  const sendWithHelper = (format: ShareFormat) =>
+    run(format, async () => {
+      if (!settings) return;
+      const full = await fullBill();
+      let url: string;
+      try {
+        url = await billFileLink(full, settings, format);
+      } catch {
+        showToast(t('shareUploadFailed'), 'error');
+        return;
+      }
+      window.location.href = helperLink(url, number, billFileName(full, EXT[format]), MIME[format]);
+      // Closed a moment later, so the page is still there while the helper opens.
+      setTimeout(() => setOpen(false), 800);
     });
 
   const save = (format: ShareFormat) =>
@@ -68,6 +116,11 @@ export function ShareBillButton({
       await saveBillFile(await fullBill(), settings, format);
       showToast(t('fileSaved'), 'success');
     });
+
+  const turnHelper = (on: boolean) => {
+    setHelperEnabled(on);
+    setHelper(on);
+  };
 
   const option = (key: string, icon: React.ReactNode, label: string, onClick: () => void) => (
     <button
@@ -83,14 +136,14 @@ export function ShareBillButton({
     </button>
   );
 
-  /** A big green button: the bill file goes to the share menu, where WhatsApp is picked. */
+  /** A big green button: Send PDF / Send image. */
   const whatsAppOption = (format: ShareFormat, icon: React.ReactNode, label: string) => (
     <button
       type="button"
-      onClick={() => share(format)}
-      disabled={busy !== null || !settings}
+      onClick={() => (helper ? sendWithHelper(format) : shareMenu(format))}
+      disabled={busy !== null || !settings || (helper && numberIncomplete)}
       data-testid={`share-whatsapp-${format}`}
-      className="w-full min-h-20 flex flex-col items-start justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-3 text-left cursor-pointer transition-colors hover:bg-emerald-700 disabled:opacity-60"
+      className="w-full min-h-20 flex flex-col items-start justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-3 text-left cursor-pointer transition-colors hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed"
     >
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white/15 text-white">
         {busy === format ? <Spinner /> : icon}
@@ -99,10 +152,18 @@ export function ShareBillButton({
     </button>
   );
 
-  const partyName = bill.partyName.trim();
-  const pickHint = number
-    ? t('shareWhatsAppPick', { name: partyName || spacedNumber(number), phone: spacedNumber(number) })
-    : t('shareWhatsAppHint');
+  const hint = !helper
+    ? number
+      ? t('shareWhatsAppPick', { name: partyName || spacedNumber(number), phone: spacedNumber(number) })
+      : t('shareWhatsAppHint')
+    : numberIncomplete
+      ? t('shareNumberIncomplete')
+      : number
+        ? t('shareDirectTo', { name: !askNumber && partyName ? partyName : spacedNumber(number), phone: spacedNumber(number) })
+        : t('shareDirectPick');
+
+  const pill =
+    'rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-sm font-bold text-emerald-800 cursor-pointer hover:bg-emerald-50';
 
   return (
     <>
@@ -133,16 +194,73 @@ export function ShareBillButton({
       )}
       <AppModal open={open} onClose={() => setOpen(false)} title={t('shareTitle')} description={t('shareHint')} icon={<Share2 className="h-5 w-5" />}>
         <div className="space-y-2.5">
-          {/* Only the file is sent, no message. A web page cannot put a file in one chat directly,
-              so the phone's share menu opens: tap WhatsApp, then the customer. */}
+          {/* Only the file is sent, never a message. */}
           <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-3 space-y-3">
             <p className="text-sm font-bold text-emerald-900">{t('shareWhatsApp')}</p>
+            {helper && askNumber && (
+              <FormInput
+                label={t('shareNumberOptional')}
+                type="tel"
+                inputMode="numeric"
+                // No length limit: a pasted "+91 98260 12345" must arrive whole to be cut to its 10 digits.
+                value={typedNumber}
+                onChange={(e) => setTypedNumber(toPhoneDigits(e.target.value))}
+                placeholder="98XXXXXXXX"
+                accent="emerald"
+              />
+            )}
             <div className="grid grid-cols-2 gap-2">
               {whatsAppOption('pdf', <FileText className="h-5 w-5" />, t('shareWhatsAppPdf'))}
               {whatsAppOption('image', <ImageIcon className="h-5 w-5" />, t('shareWhatsAppImage'))}
             </div>
-            <p className="text-sm text-emerald-900/80 leading-snug">{pickHint}</p>
+            <p className={`text-sm leading-snug ${numberIncomplete && helper ? 'font-semibold text-red-700' : 'text-emerald-900/80'}`}>
+              {hint}
+            </p>
+            {helper && (
+              <div className="flex flex-wrap gap-2">
+                {savedNumber && (
+                  <button type="button" onClick={() => setUseOtherNumber((v) => !v)} className={pill}>
+                    {useOtherNumber ? t('shareSavedNumber', { phone: spacedNumber(savedNumber) }) : t('shareOtherNumber')}
+                  </button>
+                )}
+                <button type="button" onClick={() => turnHelper(false)} className={pill}>
+                  {t('shareUseMenu')}
+                </button>
+              </div>
+            )}
           </div>
+
+          {/* Android without the helper: how to get the customer's chat to open by itself. */}
+          {!helper && canUseHelper() && (
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2.5">
+              <div className="flex items-start gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-emerald-700 border border-slate-200">
+                  <Smartphone className="h-5 w-5" />
+                </span>
+                <p className="text-sm leading-snug text-slate-700">
+                  <span className="block font-bold text-slate-900">{t('helperTitle')}</span>
+                  {t('helperText')}
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <a
+                  href={HELPER_APK_URL}
+                  className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-white border border-slate-200 px-3 text-sm font-bold text-slate-900 hover:border-slate-300"
+                >
+                  <Download className="h-4 w-4" />
+                  {t('helperDownload')}
+                </a>
+                <button
+                  type="button"
+                  onClick={() => turnHelper(true)}
+                  className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-white border border-slate-200 px-3 text-sm font-bold text-slate-900 cursor-pointer hover:border-slate-300"
+                >
+                  <Check className="h-4 w-4" />
+                  {t('helperInstalled')}
+                </button>
+              </div>
+            </div>
+          )}
 
           <p className="pt-1 text-sm font-semibold text-slate-500">{t('shareKeepCopy')}</p>
           <div className="grid grid-cols-2 gap-2">

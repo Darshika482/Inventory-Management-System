@@ -11,6 +11,10 @@ import { useEffect, useRef } from 'react';
  * we intercept it and dismiss the top-most overlay. Because history is only
  * touched when the layer count crosses the empty/non-empty boundary, opening
  * and closing overlays in any order stays perfectly balanced.
+ *
+ * Chrome on Android skips history entries a page added before the person
+ * touched it, so a Back press would then close the app at once. The guard is
+ * therefore only added once the page has had a tap or key press.
  */
 
 type DismissHandler = () => void;
@@ -23,6 +27,27 @@ let armed = false;
 let ignorePops = 0;
 let flushQueued = false;
 let listening = false;
+let waitingForTouch = false;
+
+/** True once the person has tapped or typed on the page (always true where the browser cannot tell). */
+function hadUserActivation(): boolean {
+  const activation = (navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation;
+  return activation ? activation.hasBeenActive : true;
+}
+
+/** Arms the guard on the first tap or key press: an entry added then is not skipped by Back. */
+function armOnFirstTouch() {
+  if (waitingForTouch) return;
+  waitingForTouch = true;
+  const events = ['pointerup', 'touchend', 'click', 'keydown'] as const;
+  const onTouch = () => {
+    if (!hadUserActivation()) return;
+    waitingForTouch = false;
+    events.forEach((name) => window.removeEventListener(name, onTouch, true));
+    flush();
+  };
+  events.forEach((name) => window.addEventListener(name, onTouch, true));
+}
 
 function canUseHistory(): boolean {
   return typeof window !== 'undefined' && typeof window.history !== 'undefined';
@@ -46,6 +71,10 @@ function flush() {
   flushQueued = false;
   const shouldArm = layers.length > 0;
   if (shouldArm && !armed) {
+    if (!hadUserActivation()) {
+      armOnFirstTouch();
+      return;
+    }
     window.history.pushState(GUARD_STATE, '');
     armed = true;
   } else if (!shouldArm && armed) {
@@ -78,9 +107,11 @@ function handlePopState() {
  * Registers an overlay's close handler and returns a disposer. Call the
  * disposer when the overlay closes by any other means (button, backdrop, Esc).
  */
-export function registerBackLayer(onDismiss: DismissHandler): () => void {
+export function registerBackLayer(onDismiss: DismissHandler, atBottom = false): () => void {
   ensureListening();
-  layers.push(onDismiss);
+  // atBottom: under every open overlay (the page itself), so overlays close first.
+  if (atBottom) layers.unshift(onDismiss);
+  else layers.push(onDismiss);
   scheduleFlush();
 
   let disposed = false;
@@ -96,15 +127,17 @@ export function registerBackLayer(onDismiss: DismissHandler): () => void {
 /**
  * Hook form: while `active` is true, pressing Back runs `onDismiss` instead of
  * leaving the app. `onDismiss` may change between renders without re-arming.
+ * A Back press uses up the layer; a new `resetKey` (e.g. the page shown after
+ * it) catches the next Back press again while `active` stays true.
  */
-export function useBackDismiss(active: boolean, onDismiss: DismissHandler) {
+export function useBackDismiss(active: boolean, onDismiss: DismissHandler, resetKey?: string, atBottom = false) {
   const handlerRef = useRef(onDismiss);
   handlerRef.current = onDismiss;
 
   useEffect(() => {
     if (!active) return;
-    return registerBackLayer(() => handlerRef.current());
-  }, [active]);
+    return registerBackLayer(() => handlerRef.current(), atBottom);
+  }, [active, resetKey, atBottom]);
 }
 
 /**

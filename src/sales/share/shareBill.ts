@@ -4,6 +4,7 @@
  * can be attached by hand. Only the file is sent: no message goes with it.
  */
 import type { ShopInvoice, ShopSettings } from '../types';
+import { uploadSharedBill } from '../db';
 import { billImageFile, billPdfFile } from './billImage';
 
 export type ShareFormat = 'image' | 'pdf';
@@ -42,4 +43,23 @@ export async function shareBillFile(bill: ShopInvoice, settings: ShopSettings, f
 
 export async function saveBillFile(bill: ShopInvoice, settings: ShopSettings, format: ShareFormat): Promise<void> {
   download(await makeBillFile(bill, settings, format));
+}
+
+/** Bill files already online this session, so opening the share sheet again does not upload again. */
+const billLinks = new Map<string, Promise<string>>();
+
+/**
+ * A link to the bill file, for the WhatsApp helper app to download. A bill
+ * that changed since (a payment received, cancelled) gets a fresh file.
+ */
+export function billFileLink(bill: ShopInvoice, settings: ShopSettings, format: ShareFormat): Promise<string> {
+  const key = [format, bill.clientId, bill.total, bill.paidAmount, bill.status].join('|');
+  let link = billLinks.get(key);
+  if (!link) {
+    link = makeBillFile(bill, settings, format).then(uploadSharedBill);
+    billLinks.set(key, link);
+    // A failed upload (no internet) is tried again next time.
+    link.catch(() => billLinks.delete(key));
+  }
+  return link;
 }

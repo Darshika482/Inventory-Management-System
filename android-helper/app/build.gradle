@@ -1,0 +1,46 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'in.akshaytraders.whatsapp'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'in.akshaytraders.whatsapp'
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName '1.0'
+    }
+
+    // A fixed key from the HELPER_KEYSTORE_* secrets (set in GitHub), so a new
+    // version installs over the old one. Without them the build uses a debug key.
+    def keystorePath = System.getenv('HELPER_KEYSTORE_FILE')
+    signingConfigs {
+        if (keystorePath) {
+            shop {
+                storeFile file(keystorePath)
+                storePassword System.getenv('HELPER_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('HELPER_KEY_ALIAS')
+                keyPassword System.getenv('HELPER_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig keystorePath ? signingConfigs.shop : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core:1.13.1'
+}

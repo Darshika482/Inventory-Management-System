@@ -138,17 +138,52 @@ export default function App() {
   // Device / browser Back closes the mobile menu instead of leaving the app.
   useBackDismiss(mobileNavOpen, () => setMobileNavOpen(false));
 
-  // Back from a sub-page returns to the home page rather than closing the app.
-  useBackDismiss(!!currentUser && activeSection !== homeSection, () =>
-    setActiveSection(homeSection)
-  );
+  // Pages opened before this one, oldest first: Back goes through them in turn.
+  const [pageTrail, setPageTrail] = useState<string[]>([]);
+  const activeSectionRef = useRef(activeSection);
+  activeSectionRef.current = activeSection;
 
-  // Back on the home page asks before closing the app instead of closing at once.
+  /** Opens a page, remembering the one being left so Back returns to it. */
+  const navigate = useCallback((section: string) => {
+    const current = activeSectionRef.current;
+    if (section === current) return;
+    setPageTrail((trail) => {
+      // Going to a page already in the trail goes back to it: no loops of pages.
+      const index = trail.indexOf(section);
+      return index !== -1 ? trail.slice(0, index) : [...trail, current].slice(-30);
+    });
+    setActiveSection(section);
+  }, []);
+
+  /** A fresh start (sign in / out): no pages to go back to. */
+  const openHome = (section: string) => {
+    setPageTrail([]);
+    setActiveSection(section);
+  };
+
   const { t } = useT();
   const [exitPromptOpen, setExitPromptOpen] = useState(false);
   const [leavingApp, setLeavingApp] = useState(false);
-  useBackDismiss(!!currentUser && activeSection === homeSection && !exitPromptOpen && !leavingApp, () =>
-    setExitPromptOpen(true)
+
+  // Back: the previous page; with none, the home page; on the home page, ask
+  // before closing the app instead of closing at once.
+  const goBack = () => {
+    if (pageTrail.length > 0) {
+      setActiveSection(pageTrail[pageTrail.length - 1]);
+      setPageTrail(pageTrail.slice(0, -1));
+    } else if (activeSection !== homeSection) {
+      setActiveSection(homeSection);
+    } else {
+      setExitPromptOpen(true);
+    }
+  };
+  useBackDismiss(
+    !!currentUser && !exitPromptOpen && !leavingApp,
+    goBack,
+    // Each page change needs the Back press caught again.
+    `${activeSection}|${pageTrail.length}`,
+    // Under any open sheet or menu: those close first.
+    true
   );
 
   const handleExitApp = async () => {
@@ -284,7 +319,7 @@ export default function App() {
     const user = await authenticateUser(username, password);
     if (!user) return false;
     setCurrentUser(user);
-    setActiveSection(homeSectionFor(user.role));
+    openHome(homeSectionFor(user.role));
     showToast(`Welcome back, ${user.username}!`, 'success');
     return true;
   };
@@ -594,7 +629,7 @@ export default function App() {
         currentUser={currentUser}
         onLogout={handleLogout}
         activeSection={activeSection}
-        setActiveSection={setActiveSection}
+        setActiveSection={navigate}
         userRole={currentUser.role}
         isMobileOpen={mobileNavOpen}
         onMobileClose={() => setMobileNavOpen(false)}
@@ -618,7 +653,7 @@ export default function App() {
               {currentUser.username} · {currentUser.role === 'Worker' ? 'Staff' : currentUser.role}
             </p>
           </div>
-          <NewSaleShortcut activeSection={activeSection} onNavigate={setActiveSection} />
+          <NewSaleShortcut activeSection={activeSection} onNavigate={navigate} />
         </header>
 
         {isShopSection(activeSection, currentUser.role) ? (
@@ -626,7 +661,7 @@ export default function App() {
             key={activeSection}
             section={activeSection}
             currentUser={currentUser}
-            onNavigate={setActiveSection}
+            onNavigate={navigate}
             showToast={showToast}
           />
         ) : currentUser.role === 'Admin' ? (
@@ -669,7 +704,7 @@ export default function App() {
             key="shop-new-sale"
             section="shop-new-sale"
             currentUser={currentUser}
-            onNavigate={setActiveSection}
+            onNavigate={navigate}
             showToast={showToast}
           />
         )}
