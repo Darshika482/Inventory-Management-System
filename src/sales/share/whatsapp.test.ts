@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { helperLink, whatsAppNumber } from './whatsapp';
+import { helperBatchLink, helperBatchList, helperLink, whatsAppNumber } from './whatsapp';
 
 describe('WhatsApp number', () => {
   it('finds the mobile number to open a chat with', () => {
@@ -34,3 +34,27 @@ describe('helper link', () => {
     expect(link).not.toContain('phone=');
   });
 });
+
+describe('helper list (many customers)', () => {
+  it('opens the batch screen with the list link, which an older helper does not answer', () => {
+    const list = 'https://x.supabase.co/storage/v1/object/public/bill-photos/shop-bills/ab/Akshay Reminders.json';
+    const link = helperBatchLink(list);
+    expect(link.startsWith('intent://batch?url=')).toBe(true);
+    expect(link.endsWith('#Intent;scheme=akshaywa;end')).toBe(true);
+    expect(decodeURIComponent(link.slice('intent://batch?url='.length, link.indexOf('#')))).toBe(list);
+    expect(link).not.toContain('intent://send');
+  });
+
+  it('writes each customer with the country code, or no number', () => {
+    const json = JSON.parse(
+      helperBatchList([
+        { name: 'Darshika', number: '9755049483', url: 'https://a/1.png', fileName: '1.png', mimeType: 'image/png', amount: '₹3,134' },
+        { name: 'Walk-in', number: null, url: 'https://a/2.png', fileName: '2.png', mimeType: 'image/png', amount: '₹10' },
+      ])
+    );
+    expect(json.v).toBe(1);
+    expect(json.items[0]).toEqual({ name: 'Darshika', phone: '919755049483', url: 'https://a/1.png', type: 'image/png', file: '1.png', amount: '₹3,134' });
+    expect(json.items[1].phone).toBe('');
+  });
+});
+

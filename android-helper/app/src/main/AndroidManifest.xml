@@ -30,6 +30,21 @@
             </intent-filter>
         </activity>
 
+        <!-- Udhaar reminders, one customer after another: akshaywa://batch?url=<list of customers> -->
+        <activity
+            android:name=".BatchActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:taskAffinity="in.akshaytraders.whatsapp.batch"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="akshaywa" android:host="batch" />
+            </intent-filter>
+        </activity>
+
         <!-- The app icon: says what the helper does and resets the WhatsApp choice. -->
         <activity
             android:name=".MainActivity"
