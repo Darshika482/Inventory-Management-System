@@ -10,7 +10,7 @@ import { billImageFile, billPdfFile } from './billImage';
 export type ShareFormat = 'image' | 'pdf';
 export type ShareOutcome = 'shared' | 'saved' | 'cancelled';
 
-function download(file: File) {
+export function downloadFile(file: File) {
   const url = URL.createObjectURL(file);
   const a = document.createElement('a');
   a.href = url;
@@ -27,7 +27,11 @@ export async function makeBillFile(bill: ShopInvoice, settings: ShopSettings, fo
 
 /** Opens the share menu with only the bill file (no text), or saves it when sharing files is not possible. */
 export async function shareBillFile(bill: ShopInvoice, settings: ShopSettings, format: ShareFormat): Promise<ShareOutcome> {
-  const file = await makeBillFile(bill, settings, format);
+  return shareFile(await makeBillFile(bill, settings, format));
+}
+
+/** Opens the share menu with only this file (no text), or saves it when sharing files is not possible. */
+export async function shareFile(file: File): Promise<ShareOutcome> {
   const data: ShareData = { files: [file] };
   if (typeof navigator.share === 'function' && navigator.canShare?.(data)) {
     try {
@@ -37,12 +41,12 @@ export async function shareBillFile(bill: ShopInvoice, settings: ShopSettings, f
       if ((err as { name?: string })?.name === 'AbortError') return 'cancelled';
     }
   }
-  download(file);
+  downloadFile(file);
   return 'saved';
 }
 
 export async function saveBillFile(bill: ShopInvoice, settings: ShopSettings, format: ShareFormat): Promise<void> {
-  download(await makeBillFile(bill, settings, format));
+  downloadFile(await makeBillFile(bill, settings, format));
 }
 
 /** Bill files already online this session, so opening the share sheet again does not upload again. */

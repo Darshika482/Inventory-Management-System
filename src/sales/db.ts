@@ -3,7 +3,7 @@
  * here — never the godown stock tables.
  */
 import { assertSupabase, fetchAllRows, runDb } from '../lib/database';
-import { dbToMilli, dbToPaise, milliToDecimal, paiseToDecimal } from './money';
+import { dbToMilli, dbToPaise, milliToDecimal, paiseToDecimal, type Paise } from './money';
 import type { BillType } from './fy';
 import { newId } from './ids';
 import type {
@@ -800,4 +800,19 @@ export async function deleteSaleBill(invoiceId: string): Promise<{ keptPayments:
     assertSupabase().rpc('shop_delete_sale', { p_invoice_id: invoiceId }).abortSignal(signal)
   );
   return { keptPayments: dbToPaise(data?.kept_payments ?? 0) };
+}
+
+/** Money received from customers without a bill (on account), by customer id. */
+export async function fetchPaidOnAccount(): Promise<Map<string, Paise>> {
+  const rows = await fetchAllRows<{ party_id: string; amount: Num }>((withCount) =>
+    assertSupabase()
+      .from('shop_payments')
+      .select('party_id, amount', withCount ? { count: 'exact' } : undefined)
+      .is('invoice_id', null)
+      .eq('direction', 'in')
+      .order('id')
+  );
+  const byParty = new Map<string, Paise>();
+  for (const row of rows) byParty.set(row.party_id, (byParty.get(row.party_id) ?? 0) + dbToPaise(row.amount));
+  return byParty;
 }
