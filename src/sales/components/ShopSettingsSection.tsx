@@ -13,6 +13,7 @@ import { newId } from '../ids';
 import { upiLink, upiPayee } from '../print/receipt';
 import type { ShopSettings, UpiAccount } from '../types';
 import { PrinterSetupPanel, QrSvg } from './PrintUi';
+import { BackupRestoreSection } from '../../backup/BackupRestoreSection';
 import {
   ActionButton,
   EmptyState,
@@ -224,6 +225,11 @@ export function ShopSettingsSection({ currentUser, showToast }: ShopSettingsSect
         </h2>
         <PrinterSetupPanel settings={settings} />
       </section>
+
+      {/* Telegram is connected per phone and its choices save as soon as they change. */}
+      <div className="max-w-2xl">
+        <BackupRestoreSection showToast={showToast} />
+      </div>
     </PageShell>
   );
 }

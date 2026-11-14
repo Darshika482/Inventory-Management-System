@@ -35,6 +35,7 @@ import { leaveApp, useBackDismiss } from './lib/backGuard';
 import { AppModal } from './components/AppModal';
 import { useT } from './sales/i18n';
 import { isShopSection, NewSaleShortcut, preloadShopPages, ShopSection } from './sales/ShopModule';
+import { dailyBackupWanted } from './backup/parts';
 
 // Each page's code is downloaded when it is first opened (and in the
 // background once the app is idle), so the app itself starts small and fast.
@@ -262,6 +263,35 @@ export default function App() {
       godownCopy.write({ categories, logs, stockAdditions, staffMembers });
     }
   }, [godownStatus, categories, logs, stockAdditions, staffMembers]);
+
+  // The owner's daily backup to Telegram (Shop settings → Backup and restore):
+  // a little after the app opens, then now and then while it stays open.
+  const tRef = useRef(t);
+  tRef.current = t;
+  useEffect(() => {
+    if (currentUser?.role !== 'Admin') return;
+    let stopped = false;
+    const check = () => {
+      if (!dailyBackupWanted()) return;
+      void import('./backup/runBackup')
+        .then((m) => m.runDailyBackupIfDue(tRef.current))
+        .then((result) => {
+          if (stopped) return;
+          if (result === 'sent') showToast(tRef.current('bkDailySent'), 'success');
+          else if (result === 'failed') showToast(tRef.current('bkDailyFailed'), 'error');
+        })
+        .catch(() => undefined);
+    };
+    const first = window.setTimeout(check, 20_000);
+    const again = window.setInterval(check, 30 * 60_000);
+    window.addEventListener('online', check);
+    return () => {
+      stopped = true;
+      window.clearTimeout(first);
+      window.clearInterval(again);
+      window.removeEventListener('online', check);
+    };
+  }, [currentUser?.role]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Once the first page is up, fetch the other pages' code while the phone is idle.
   useEffect(() => {

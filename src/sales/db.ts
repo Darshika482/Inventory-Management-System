@@ -352,7 +352,8 @@ export async function fetchItemSaleCounts(): Promise<Record<string, number>> {
 
 // --- Parties ---
 
-function mapParty(row: DbShopParty): ShopParty {
+/** A customer row as the database sends it, in the app's shape (also used by the backup). */
+export function mapParty(row: DbShopParty): ShopParty {
   return {
     id: row.id,
     name: row.name,
@@ -501,7 +502,8 @@ function mapLine(row: DbShopInvoiceLine): ShopInvoiceLine {
   };
 }
 
-function mapInvoice(row: DbShopInvoice): ShopInvoice {
+/** A bill row as the database sends it, in the app's shape (also used by the backup). */
+export function mapInvoice(row: DbShopInvoice): ShopInvoice {
   const subtotal = dbToPaise(row.subtotal);
   const discount = dbToPaise(row.discount);
   const cgst = dbToPaise(row.cgst);
