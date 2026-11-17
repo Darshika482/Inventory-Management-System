@@ -49,6 +49,7 @@ import { EDIT_BILL_KEY, OPEN_BILL_KEY } from './NewSaleSection';
 import { ReceiptPreviewModal, openPrinterHelp, printDetail, printMessageKey } from './PrintUi';
 import { ShareBillButton } from './ShareBill';
 import { DueRemindersSheet, dueBreakdown, spacedNumber } from './DueReminders';
+import { CustomerAccountModal } from './CustomerAccount';
 import { buildDueReminders, type DueReminder } from '../reminders';
 import { printBill, receiptLinesFor } from '../print/printBill';
 import { connectPrinter } from '../print/printer';
@@ -128,6 +129,8 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
   // Owner: the bill being asked about before it is deleted.
   const [deleting, setDeleting] = useState<ShopInvoice | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  // Owner: one customer's whole account (bills, old balance, udhaar parts).
+  const [accountParty, setAccountParty] = useState<ShopParty | null>(null);
 
   const confirmDelete = async () => {
     const bill = deleting;
@@ -281,6 +284,8 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
   // One customer chosen in the Udhaar view: their old balance, to receive against.
   const chosenParty = showDue && partyId ? parties.find((p) => p.id === partyId) : undefined;
   const chosenOldLeft = chosenParty ? oldBalanceLeft(chosenParty.id) : 0;
+  // What the chosen customer owes in all: old balance + bills − paid towards the old balance.
+  const chosenTotal = chosenParty ? (dueCustomers.find((r) => r.partyId === chosenParty.id)?.total ?? 0) : 0;
   const openBill = openClientId ? bills.find((b) => b.clientId === openClientId) ?? null : null;
 
   const choosePreset = (next: Preset) => {
@@ -293,6 +298,12 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
     try {
       const done = await syncOutbox(true);
       if (done.length) showToast(t('billSaved', { number: done.map((d) => billLabel(d.billNumber)).join(', ') }), 'success');
+      // Still not uploaded: say why, instead of leaving the same red label.
+      const stuck = (await listQueuedSales()).filter((b) => b.syncState !== 'synced');
+      if (stuck.length > 0 && done.length === 0) {
+        const failed = stuck.find((b) => b.syncState === 'failed');
+        showToast(failed?.syncError || t('retryUploadOffline'), 'error');
+      }
       await loadBills();
     } finally {
       setIsRetrying(false);
@@ -377,6 +388,27 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
         />
       )}
 
+      {chosenParty && (
+        <button
+          type="button"
+          onClick={() => setAccountParty(chosenParty)}
+          className="w-full flex items-center justify-between gap-3 bg-white border border-red-200 rounded-xl px-4 py-3 text-left cursor-pointer hover:bg-red-50/50"
+          data-testid="due-chosen-total"
+        >
+          <span className="min-w-0">
+            <span className="block text-base font-semibold text-slate-600">{t('acctTotalUdhaar')}</span>
+            <span className="block text-sm text-slate-500">{t('dueChosenTap')}</span>
+          </span>
+          <span className="shrink-0 text-right">
+            <span className="block text-lg font-extrabold tabular-nums text-red-700">{formatRupees(chosenTotal)}</span>
+            <span className="block text-sm font-semibold text-slate-500">
+              {t('dueSummary', { n: activeBills.length, amount: formatRupees(totalDue) })}
+            </span>
+          </span>
+        </button>
+      )}
+
+      {!chosenParty && (
       <div className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-xl px-4 py-3">
         <span className="text-base font-semibold text-slate-600">
           {isStaff ? (
@@ -410,6 +442,7 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
           </span>
         )}
       </div>
+      )}
 
       {/* Everyone who owes money (old balances too); tap one with bills to see only their bills. */}
       {showDue && !partyId && (dueCustomers.length > 0 || walkInDue.bills > 0) && !isLoading && (
@@ -419,13 +452,13 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
           </p>
           <ul className="divide-y divide-slate-100">
             {shownCustomers.visible.map((r) => {
-              const hasBills = Boolean(r.partyId) && r.bills.length > 0;
+              const canOpen = Boolean(r.partyId);
               const oldLeft = r.partyId ? oldBalanceLeft(r.partyId) : 0;
               return (
                 <li key={r.key}>
                   <button
                     type="button"
-                    disabled={!hasBills}
+                    disabled={!canOpen}
                     onClick={() => r.partyId && setPartyId(r.partyId)}
                     className="w-full min-h-14 px-4 py-2 flex items-center justify-between gap-3 text-left cursor-pointer disabled:cursor-default hover:bg-red-50/50"
                   >
@@ -574,6 +607,39 @@ export function SalesListSection({ currentUser, onNavigate, showToast }: SalesLi
             'success'
           );
         }}
+      />
+
+      <CustomerAccountModal
+        party={accountParty}
+        parties={parties}
+        settings={settings}
+        showToast={showToast}
+        onClose={() => setAccountParty(null)}
+        onChanged={() => {
+          fetchPaidOnAccount()
+            .then(setPaidOnAccount)
+            .catch(() => {});
+          void loadBills();
+        }}
+        renderBillDetail={({ bill, onClose, onPaid }) => (
+          <BillDetailModal
+            bill={bill}
+            userNames={userNames}
+            partyPhone={accountParty?.phone}
+            canEdit
+            onEdit={(b) => {
+              try {
+                sessionStorage.setItem(EDIT_BILL_KEY, b.clientId);
+              } catch {
+                return;
+              }
+              onNavigate('shop-new-sale');
+            }}
+            showToast={showToast}
+            onClose={onClose}
+            onPaid={onPaid}
+          />
+        )}
       />
 
       <DueRemindersSheet open={remindOpen} onClose={() => setRemindOpen(false)} settings={settings} showToast={showToast} />
@@ -861,7 +927,7 @@ interface BillDetailModalProps {
   onPaid: (clientId: string, paidAmount: number) => void;
 }
 
-function BillDetailModal({ bill, userNames, partyPhone, canEdit, onEdit, showToast, onClose, onPaid }: BillDetailModalProps) {
+export function BillDetailModal({ bill, userNames, partyPhone, canEdit, onEdit, showToast, onClose, onPaid }: BillDetailModalProps) {
   const { t } = useT();
   const [full, setFull] = useState<ShopInvoice | null>(null);
   const [problem, setProblem] = useState<FriendlyError | null>(null);

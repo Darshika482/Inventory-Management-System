@@ -840,3 +840,72 @@ export async function receiveOldBalanceRpc(input: {
   if (!data) throw new Error('The server did not confirm the payment.');
   return dbToPaise(data.paid_on_account);
 }
+
+// --- One customer's account ---
+
+/**
+ * Every sale bill of one customer, all dates, without their lines. With
+ * `matchName`, bills typed with that exact name but no saved customer are
+ * included too (as the Udhaar list counts them).
+ */
+export async function fetchPartySales(partyId: string, matchName: string | null): Promise<ShopInvoice[]> {
+  const byId = fetchAllRows<DbShopInvoice>((withCount) =>
+    assertSupabase()
+      .from('shop_invoices')
+      .select('*', withCount ? { count: 'exact' } : undefined)
+      .eq('bill_type', 'sale')
+      .eq('party_id', partyId)
+      .order('bill_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .order('id')
+  );
+  const name = matchName?.trim().replace(/\s+/g, ' ') ?? '';
+  const byName = name
+    ? fetchAllRows<DbShopInvoice>((withCount) =>
+        assertSupabase()
+          .from('shop_invoices')
+          .select('*', withCount ? { count: 'exact' } : undefined)
+          .eq('bill_type', 'sale')
+          .is('party_id', null)
+          // Case-insensitive; % and _ are typed letters here, not wildcards.
+          .ilike('party_name', `%${name.replace(/[\\%_]/g, (c) => `\\${c}`)}%`)
+          .order('id')
+      )
+    : Promise.resolve([] as DbShopInvoice[]);
+  const [own, named] = await Promise.all([byId, byName]);
+  const wanted = name.toLowerCase();
+  return [
+    ...own,
+    ...named.filter((row) => row.party_name.trim().replace(/\s+/g, ' ').toLowerCase() === wanted),
+  ].map(mapInvoice);
+}
+
+/** Money received from one customer and paid back to them, all dates. */
+export async function fetchPartyPayments(partyId: string): Promise<
+  { id: string; invoiceId: string | null; direction: 'in' | 'out'; amount: Paise; mode: string; paymentDate: string; createdAt: string }[]
+> {
+  const rows = await fetchAllRows<{
+    id: string;
+    invoice_id: string | null;
+    direction: 'in' | 'out';
+    amount: Num;
+    mode: string;
+    payment_date: string;
+    created_at: string;
+  }>((withCount) =>
+    assertSupabase()
+      .from('shop_payments')
+      .select('id, invoice_id, direction, amount, mode, payment_date, created_at', withCount ? { count: 'exact' } : undefined)
+      .eq('party_id', partyId)
+      .order('id')
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    invoiceId: row.invoice_id,
+    direction: row.direction,
+    amount: dbToPaise(row.amount),
+    mode: row.mode,
+    paymentDate: row.payment_date,
+    createdAt: row.created_at,
+  }));
+}
