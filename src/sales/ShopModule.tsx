@@ -177,7 +177,7 @@ function ShopPage({ section, currentUser, onNavigate, showToast }: ShopSectionPr
     case 'shop-items':
       return <ShopItemsSection currentUser={currentUser} showToast={showToast} />;
     case 'shop-parties':
-      return <ShopPartiesSection currentUser={currentUser} showToast={showToast} />;
+      return <ShopPartiesSection currentUser={currentUser} onNavigate={onNavigate} showToast={showToast} />;
     case 'shop-settings':
       return <ShopSettingsSection currentUser={currentUser} showToast={showToast} />;
   }

@@ -1,10 +1,23 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Check, MapPin, Pencil, Phone, Plus, UserPlus, Users, X } from 'lucide-react';
+import { Check, ChevronRight, MapPin, Pencil, Phone, Plus, UserPlus, Users, X } from 'lucide-react';
 import type { User } from '../../types';
 import { AppModal } from '../../components/AppModal';
 import { FormError, FormInput } from '../../components/FormInput';
 import { describeDbError, type FriendlyError } from '../../lib/dbErrors';
-import { deleteShopParty, fetchShopParties, fetchShopSettings, insertShopParty, updateShopParty } from '../db';
+import {
+  deleteShopParty,
+  fetchDueSales,
+  fetchPaidOnAccount,
+  fetchShopParties,
+  fetchShopSettings,
+  fetchUserNames,
+  insertShopParty,
+  updateShopParty,
+} from '../db';
+import { buildDueReminders } from '../reminders';
+import { CustomerAccountModal } from './CustomerAccount';
+import { BillDetailModal } from './SalesListSection';
+import { EDIT_BILL_KEY } from './NewSaleSection';
 import { shopCacheStore, writeCache } from '../cache';
 import { ShowMoreButton, useShowMore } from '../../components/ShowMore';
 import { loadLocalFirst } from '../../lib/localFirst';
@@ -36,10 +49,12 @@ async function fetchPartiesPage() {
 
 interface ShopPartiesSectionProps {
   currentUser: User;
+  onNavigate?: (section: string) => void;
   showToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
-export function ShopPartiesSection({ currentUser, showToast }: ShopPartiesSectionProps) {
+export function ShopPartiesSection({ currentUser, onNavigate, showToast }: ShopPartiesSectionProps) {
+  const isOwner = currentUser.role === 'Admin';
   const { t } = useT();
   // Every customer, hidden ones too (old bills still show their names); the
   // list on screen leaves the hidden ones out. Opens with the copy saved on
@@ -52,6 +67,22 @@ export function ShopPartiesSection({ currentUser, showToast }: ShopPartiesSectio
   const [loadError, setLoadError] = useState<FriendlyError | null>(null);
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<ShopParty | 'new' | null>(null);
+  // Owner: the customer whose bills and udhaar are open.
+  const [viewing, setViewing] = useState<ShopParty | null>(null);
+  // Owner: what each customer owes now (old balance + bills − paid on account).
+  const [owed, setOwed] = useState<Map<string, number>>(() => new Map());
+  const [settings, setSettings] = useState<ShopSettings | null>(savedCopy?.settings ?? null);
+  const [userNames, setUserNames] = useState<Record<string, string>>({});
+
+  const loadOwed = (list: ShopParty[]) => {
+    if (!isOwner || list.length === 0) return;
+    Promise.all([fetchDueSales(null), fetchPaidOnAccount()])
+      .then(([dueBills, paidOnAccount]) => {
+        const rows = buildDueReminders({ parties: list, dueBills, paidOnAccount });
+        setOwed(new Map(rows.filter((r) => r.partyId).map((r) => [r.partyId as string, r.total])));
+      })
+      .catch(() => {});
+  };
 
   const load = async () => {
     // "Try again" after a failure: there is nothing to show meanwhile.
@@ -61,6 +92,8 @@ export function ShopPartiesSection({ currentUser, showToast }: ShopPartiesSectio
       await loadLocalFirst(partiesCache, fetchPartiesPage, (data, fresh) => {
         setAllParties(data.parties);
         setShopState(data.settings.stateCode);
+        setSettings(data.settings);
+        if (fresh) loadOwed(data.parties);
         setIsLoading(false);
         if (fresh) setIsFresh(true);
       });
@@ -73,6 +106,12 @@ export function ShopPartiesSection({ currentUser, showToast }: ShopPartiesSectio
 
   useEffect(() => {
     void load();
+    if (isOwner) {
+      fetchUserNames()
+        .then(setUserNames)
+        .catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Changes made here reach the bill screen's saved list straight away.
@@ -104,6 +143,7 @@ export function ShopPartiesSection({ currentUser, showToast }: ShopPartiesSectio
       )
     );
     setEditing(null);
+    if (viewing?.id === party.id) setViewing(party);
     showToast(t('partySaved', { name: party.name }), 'success');
   };
 
@@ -116,6 +156,7 @@ export function ShopPartiesSection({ currentUser, showToast }: ShopPartiesSectio
       />
 
       <SearchBox value={search} onChange={setSearch} placeholder={t('searchParties')} />
+      {isOwner && parties.length > 0 && <p className="-mt-2 px-1 text-sm text-slate-500">{t('acctOpenHint')}</p>}
 
       {parties.length === 0 ? (
         <EmptyState
@@ -135,7 +176,7 @@ export function ShopPartiesSection({ currentUser, showToast }: ShopPartiesSectio
               <li key={party.id}>
                 <button
                   type="button"
-                  onClick={() => setEditing(party)}
+                  onClick={() => (isOwner ? setViewing(party) : setEditing(party))}
                   className="w-full min-h-14 flex items-center gap-3 bg-white border border-slate-200 rounded-xl px-4 py-3 text-left hover:border-amber-300 cursor-pointer transition-colors"
                 >
                   <div className="min-w-0 flex-1">
@@ -153,7 +194,17 @@ export function ShopPartiesSection({ currentUser, showToast }: ShopPartiesSectio
                         </span>
                       )}
                     </p>
-                    {party.openingBalance !== 0 && (
+                    {isOwner && (owed.get(party.id) ?? 0) > 0 ? (
+                      <p className="text-sm font-semibold mt-0.5 text-red-700">
+                        {t('acctUdhaarLeft', { amount: formatRupees(owed.get(party.id) ?? 0) })}
+                        {party.openingBalance > 0 && (
+                          <span className="font-normal text-slate-500">
+                            {' · '}
+                            {t('remindOld', { amount: formatRupees(party.openingBalance) })}
+                          </span>
+                        )}
+                      </p>
+                    ) : party.openingBalance !== 0 && (
                       <p
                         className={`text-sm font-semibold mt-0.5 ${
                           party.openingBalance > 0 ? 'text-red-700' : 'text-emerald-700'
@@ -166,7 +217,11 @@ export function ShopPartiesSection({ currentUser, showToast }: ShopPartiesSectio
                   <span className="shrink-0 px-2.5 py-1 text-xs font-bold rounded-full bg-slate-100 text-slate-600">
                     {t(`type_${party.partyType}`)}
                   </span>
-                  <Pencil className="h-4 w-4 text-slate-400 shrink-0" />
+                  {isOwner ? (
+                    <ChevronRight className="h-5 w-5 text-slate-400 shrink-0" />
+                  ) : (
+                    <Pencil className="h-4 w-4 text-slate-400 shrink-0" />
+                  )}
                 </button>
               </li>
             ))}
@@ -174,6 +229,35 @@ export function ShopPartiesSection({ currentUser, showToast }: ShopPartiesSectio
           <ShowMoreButton hidden={shownParties.hidden} onMore={shownParties.showMore} label={t('showMore', { n: shownParties.hidden })} />
         </>
       )}
+
+      <CustomerAccountModal
+        party={viewing}
+        parties={allParties}
+        settings={settings}
+        showToast={showToast}
+        onClose={() => setViewing(null)}
+        onEditDetails={(party) => setEditing(party)}
+        onChanged={() => loadOwed(allParties)}
+        renderBillDetail={({ bill, onClose, onPaid }) => (
+          <BillDetailModal
+            bill={bill}
+            userNames={userNames}
+            partyPhone={viewing?.phone}
+            canEdit={Boolean(onNavigate)}
+            onEdit={(b) => {
+              try {
+                sessionStorage.setItem(EDIT_BILL_KEY, b.clientId);
+              } catch {
+                return;
+              }
+              onNavigate?.('shop-new-sale');
+            }}
+            showToast={showToast}
+            onClose={onClose}
+            onPaid={onPaid}
+          />
+        )}
+      />
 
       <PartyFormModal
         open={editing !== null}
@@ -189,6 +273,7 @@ export function ShopPartiesSection({ currentUser, showToast }: ShopPartiesSectio
               : prev.filter((p) => p.id !== deleted.id)
           );
           setEditing(null);
+          if (viewing?.id === deleted.id) setViewing(null);
           showToast(t(result === 'hidden' ? 'partyHidden' : 'partyDeleted', { name: deleted.name }), 'info');
         }}
       />
